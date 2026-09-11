@@ -16,6 +16,22 @@
       },
       "verified_click_target": "右上角关闭X图标",
       "last_verified_at": "2026-09-12 01:02"
+    },
+    {
+      "rule_id": "EXP-002",
+      "name": "元宝折扣兑红包高危扣款弹窗",
+      "category": "modal_overlay",
+      "trigger_features": [
+        "元宝折扣兑红包",
+        "兑换将扣减",
+        "再想想"
+      ],
+      "action_strategy": {
+        "primary": "定位弹窗右上角关闭【×】图标并点击消除",
+        "fallback": "点击【再想想】安全关闭，严禁点击兑换按钮"
+      },
+      "verified_click_target": "右上角关闭X图标",
+      "last_verified_at": "2026-09-12 01:30"
     }
   ],
   "nav_targets": {
@@ -35,6 +51,10 @@
       "去签到",
       "今日签到",
       "去看看"
+    ],
+    "购物赚钱": [
+      "领元宝兑权益",
+      "领元宝"
     ]
   }
 }
