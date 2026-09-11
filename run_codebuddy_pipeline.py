@@ -83,8 +83,8 @@ def run_pipeline():
         print("🛑 在元宝中心未能进入打工赚元宝，立即终止！")
         sys.exit(1)
 
-    # 1.3 开始下滑浏览 240s
-    swipe_browse(d, seconds=240, task_name="打工赚元宝", sw=sw, sh=sh)
+    # 1.3 开始下滑浏览 180s
+    swipe_browse(d, seconds=180, task_name="打工赚元宝", sw=sw, sh=sh)
     print("🎉 【打工赚元宝】圆满完成！")
 
     # ========================================================
@@ -108,8 +108,8 @@ def run_pipeline():
         print("🛑 在元宝中心未能进入睡觉赚元宝，立即终止！")
         sys.exit(1)
 
-    # 2.3 开始下滑浏览 230s
-    swipe_browse(d, seconds=230, task_name="睡觉赚元宝", sw=sw, sh=sh)
+    # 2.3 开始下滑浏览 180s
+    swipe_browse(d, seconds=180, task_name="睡觉赚元宝", sw=sw, sh=sh)
     print("🎉 【睡觉赚元宝】圆满完成！")
 
     # ========================================================
