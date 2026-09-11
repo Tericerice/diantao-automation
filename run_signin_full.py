@@ -23,6 +23,7 @@ import re
 import random
 import subprocess
 from pathlib import Path
+from typing import Tuple, List, Optional
 from PIL import Image
 import uiautomator2 as u2
 
