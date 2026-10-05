@@ -923,7 +923,7 @@ def _execute_video_task(
         extra_swipes = random.randint(*DEFAULT_VIDEO_EXTRA_SWIPES_RANGE)
     extra_swipes = max(0, extra_swipes)
     target_swipes = base_swipes + extra_swipes
-    swipe_interval_extra_seconds = max(0, swipe_interval_extra_seconds)
+    swipe_interval_extra_seconds = max(0, swipe_interval_extra_seconds) + 2
     base_interval = duration / target_swipes if target_swipes else 0
     swipe_interval = base_interval + swipe_interval_extra_seconds
     effective_duration = duration + swipe_interval_extra_seconds * max(0, target_swipes - 1)
