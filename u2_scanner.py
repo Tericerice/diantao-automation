@@ -1,7 +1,7 @@
 """
 ========================================================
-纯 U2 通用扫描框架（零 OCR）
-仿 2026淘宝618.py 写法，适配点淘 WebView 场景
+OCR 通用扫描框架
+页面文字与入口通过 OCR 识别；U2 保留给设备连接和原生权限弹窗。
 ========================================================
 """
 import time
@@ -11,9 +11,11 @@ import math
 import os
 import cv2
 import numpy as np
-from xml.etree import ElementTree
 import uiautomator2 as u2
 from utils import click_u2_control
+from utils import (
+    click_ocr_text, find_ocr_text_block, get_ocr_text_blocks, has_ocr_text,
+)
 from utils import pause_global_watcher, resume_global_watcher
 
 
@@ -80,7 +82,7 @@ def select_device():
 
 
 def connect_device():
-    """连接设备 + 启动全局弹窗监控（纯 U2，不启动 OCR）"""
+    """连接设备并启动原生弹窗监控。"""
     selected = select_device()
     d = u2.connect(selected)
     print(f"[OK] 已连接设备：{selected}")
@@ -112,16 +114,10 @@ def connect_device():
     # 设置合理的操作延迟（新版 uiautomator2 已移除 operation_delay_ms，统一用 operation_delay）
     d.settings["operation_delay"] = 0.5
 
-    # 启动全局弹窗监控
+    # 只监控 Android 系统权限按钮；点淘页面弹窗由 OCR 处理。
     ctx = d.watch_context()
-    ctx.when("确认").click()
-    ctx.when("确定").click()
-    ctx.when("关闭").click()
-    ctx.when("刷新").click()
-    ctx.when("点击刷新").click()
-    ctx.when("领取今日奖励").click()
-    ctx.when(xpath="//android.app.Dialog//android.widget.Button[@text='关闭']").click()
-    ctx.when(xpath="//android.widget.Image[@text='关闭']").click()
+    for label in ["打开", "允许", "始终允许"]:
+        ctx.when(xpath=f"//android.widget.Button[@text='{label}']").click()
     ctx.start()
     d._global_watcher_ctx = ctx
 
@@ -131,39 +127,22 @@ def connect_device():
 
 
 # ========================================================
-# UI 控件查找（纯 U2）
+# OCR 文字查找（保留历史函数名以兼容现有脚本）
 # ========================================================
 def u2_find_text(device, text, contains=True):
-    """通过 U2 textContains 或 text 精确匹配查找控件"""
-    if contains:
-        try:
-            btn = device(textContains=text)
-            if btn.exists:
-                return btn
-        except:
-            pass
-    try:
-        btn = device(text=text)
-        if btn.exists:
-            return btn
-    except:
-        pass
-    return None
+    """通过 OCR 查找文字块（保留旧函数名以兼容现有脚本）。"""
+    return find_ocr_text_block(
+        device, text, settle_seconds=2.0, attempts=2,
+        exact=not contains, log=True,
+    )
 
 
 def u2_click_text(device, text, contains=True):
-    """通过 U2 查找并点击包含文字的控件"""
-    try:
-        if contains:
-            btn = device(textContains=text)
-            if btn.exists:
-                return click_u2_control(device, btn, text)
-        btn = device(text=text)
-        if btn.exists:
-            return click_u2_control(device, btn, text)
-    except:
-        pass
-    return False
+    """通过 OCR 查找并点击文字块（旧函数名为兼容保留）。"""
+    return click_ocr_text(
+        device, text, settle_seconds=2.0, attempts=2,
+        exact=not contains, log=True,
+    )
 
 
 def handle_open_allow_popup(device):
@@ -180,220 +159,73 @@ def handle_open_allow_popup(device):
 
 
 def u2_find_task_buttons(device):
-    """
-    在 hierarchy 中查找可执行的任务按钮。
+    """用 OCR 识别任务名和同一行的任务按钮，避免依赖 WebView 的 U2 文本树。"""
+    screen_w, _ = device.window_size()
+    button_x = int(screen_w * 0.84)
+    blocks = get_ocr_text_blocks(device, retries=0, log_low_confidence=True)
+    print(f"  🔍 [OCR] 任务按钮扫描：识别到 {len(blocks)} 个文本块")
+    if not blocks:
+        return []
 
-    策略（2026-06-08 更新）：
-    1. 优先按任务名关键词查找（U2 textContains），
-       按钮坐标取 (screen_width * 0.84, task_cy)
-       —— 因为"去完成"按钮在任务名右侧固定 X 位置
-    2. 无结果时回退到找"去完成/去浏览"按钮 + 左匹配任务名
-    
-    返回: [{"btn": element, "name": str, "cx": int, "cy": int, "found_by": str}, ...]
-    """
-    screen_w, screen_h = device.window_size()
-    button_x = int(screen_w * 0.84)  # "去完成"按钮固定在任务名右侧此 X 位置
-    
-    results = []
-    
-    # === 方法1：按任务名关键词查找 ===
-    print("  🔍 [u2] 方法1: 按任务名关键词查找...")
     task_keywords = [
-        "浏览精选", "精选推荐", "猜你喜欢",
-        "看直播", "看视频", "看福利", "看精选直播", "看黄金档",
-        "去浏览", "去逛逛", "去观看",
-        "省钱", "上新好物",
-        "猜价格", "猜价格游戏",
+        "浏览精选", "精选推荐", "猜你喜欢", "看直播", "看视频", "看福利",
+        "看精选直播", "看黄金档", "去浏览", "去逛逛", "去观看", "省钱",
+        "上新好物", "猜价格", "猜价格游戏",
     ]
+    button_keywords = ["去完成", "去浏览", "去观看", "去领取", "点击得", "去逛逛", "去查看"]
     exclude_keywords = ["做任务", "领元宝", "元宝商城", "下单", "购买", "付款", "充值"]
-    
-    for kw in task_keywords:
-        try:
-            elems = device(textContains=kw)
-            if not elems.exists:
-                continue
-            for elem in elems:
-                try:
-                    cx, cy = elem.center()
-                    cx, cy = int(cx), int(cy)
-                except:
-                    continue
-                task_text = elem.get_text().strip()
-                if not task_text:
-                    continue
-                # 排除标题文案
-                if any(ex in task_text for ex in exclude_keywords):
-                    print(f"    ⊘ 排除标题: 【{task_text}】")
-                    continue
-                print(f"    ✅ 任务名: 【{task_text}】 @({cx},{cy}) → 按钮 @({button_x},{cy})")
-                results.append({
-                    "btn": elem,
-                    "name": task_text,
-                    "cx": button_x,
-                    "cy": cy,
-                    "found_by": "u2_taskname"
-                })
-        except Exception:
-            pass
-    
-    if results:
-        # 按 Y 轴去重（每行一个任务）
-        seen_y = set()
-        unique = []
-        for r in sorted(results, key=lambda x: x["cy"]):
-            key = r["cy"] // 30
-            if key not in seen_y:
-                seen_y.add(key)
-                unique.append(r)
-        print(f"  📊 方法1 找到 {len(unique)} 个任务按钮")
-        return unique
-    
-    # === 方法2：回退 -> 找"去完成/去浏览"按钮 ===
-    print("  ⚠️ [u2] 方法1无结果，回退到方法2: 找按钮文本...")
-    btn_texts = ["去完成", "去浏览", "去观看", "去领取", "点击得", "去逛逛", "去查看"]
-    
-    for text in btn_texts:
-        try:
-            btns = device(textContains=text)
-            if btns.exists:
-                for btn in btns:
-                    try:
-                        cx, cy = btn.center()
-                        cx, cy = int(cx), int(cy)
-                    except:
-                        cx, cy = 0, 0
-                    
-                    # 尝试获取任务名：parent/sibling
-                    task_name = ""
-                    try:
-                        parent = btn.parent()
-                        if parent.exists:
-                            for child in parent.child(className="android.widget.TextView"):
-                                t = child.get_text().strip()
-                                if t and t not in btn_texts:
-                                    task_name += t + " "
-                    except:
-                        pass
-                    if not task_name:
-                        try:
-                            siblings = btn.sibling(className="android.widget.TextView")
-                            if siblings.exists:
-                                for s in siblings:
-                                    t = s.get_text().strip()
-                                    if t and t not in btn_texts:
-                                        task_name += t + " "
-                        except:
-                            pass
-                    
-                    # 坐标邻近搜索兜底（左匹配）
-                    if not task_name.strip():
-                        try:
-                            nodes = scan_page(device)
-                            candidates = []
-                            for n in nodes:
-                                t = n.get("text", "").strip()
-                                if not t or t in btn_texts:
-                                    continue
-                                hdist = cx - n["cx"]
-                                vdist = abs(cy - n["cy"])
-                                if 30 <= hdist <= 500 and vdist < 80:
-                                    candidates.append((hdist, t))
-                            if candidates:
-                                candidates.sort(key=lambda x: x[0])
-                                task_name = candidates[0][1]
-                        except:
-                            pass
-                    
-                    print(f"    ✅ 按钮: 【{task_name or text}】 @({cx},{cy})")
-                    results.append({
-                        "btn": btn,
-                        "name": task_name.strip() if task_name.strip() else text,
-                        "cx": cx,
-                        "cy": cy,
-                        "found_by": "u2_text"
-                    })
-        except:
-            pass
-    
-    # 方法2 无结果 -> hierarchy XML 兜底
-    if not results:
-        print("  ⚠️ [u2] 方法2无结果，用 hierarchy XML 兜底...")
-        results = _find_task_buttons_via_hierarchy(device)
-    
-    # 去重
-    seen = set()
-    unique = []
-    for r in results:
-        key = (r["cx"] // 20, r["cy"] // 20)
-        if key not in seen:
-            seen.add(key)
-            unique.append(r)
-    
-    return unique
-
-
-def _find_task_buttons_via_hierarchy(device):
-    """通过 hierarchy XML 解析查找任务按钮"""
-    btn_texts = ["去完成", "去浏览", "去观看", "去领取", "去玩", "点击得"]
+    normalized = [
+        {**block, "text": str(block.get("text", "")).strip(),
+         "cx": int(block.get("cx", 0)), "cy": int(block.get("cy", 0))}
+        for block in blocks if str(block.get("text", "")).strip()
+    ]
+    buttons = [b for b in normalized if any(k in b["text"] for k in button_keywords)]
     results = []
-    
-    try:
-        xml_str = device.dump_hierarchy()
-        root = ElementTree.fromstring(xml_str)
-        
-        # 先找所有 text 匹配的节点
-        all_nodes = root.findall(".//node")
-        for node in all_nodes:
-            text = node.attrib.get("text", "")
-            desc = node.attrib.get("content-desc", "")
-            clickable = node.attrib.get("clickable", "false") == "true"
-            bounds = node.attrib.get("bounds", "")
-            
-            is_btn = any(bt in text or bt in desc for bt in btn_texts)
-            if not is_btn:
-                continue
-            
-            # 解析坐标
-            match = re.findall(r'\[(\d+),(\d+)\]', bounds)
-            if len(match) >= 2:
-                x1, y1 = int(match[0][0]), int(match[0][1])
-                x2, y2 = int(match[1][0]), int(match[1][1])
-                cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            else:
-                continue
-            
-        # 找关联任务名：父节点下的其他文本
-            task_name = text if text else desc
-            parent = node.getparent() if hasattr(ElementTree.Element, 'getparent') else None
-            if parent is None:
-                # 手动找父节点（用 try 避免 text 含特殊字符导致 XPath 崩溃）
-                try:
-                    escaped_text = text.replace("'", "\\'").replace('"', '\\"')
-                    for p in root.findall(f".//node[.//node[@text='{escaped_text}']]"):
-                        parent = p
-                        break
-                except Exception:
-                    parent = None
-            
-            if parent is not None:
-                for child in parent.findall(".//node"):
-                    ct = child.attrib.get("text", "")
-                    if ct and ct not in btn_texts and ct != text:
-                        if ct not in task_name or len(ct) > len(task_name) // 2:
-                            task_name = ct
-                            break
-            
+
+    for task in normalized:
+        text = task["text"]
+        if not any(kw in text for kw in task_keywords):
+            continue
+        if any(ex in text for ex in exclude_keywords):
+            continue
+        same_row_buttons = [
+            b for b in buttons
+            if abs(b["cy"] - task["cy"]) <= 90 and b["cx"] >= task["cx"]
+        ]
+        target = min(same_row_buttons, key=lambda b: abs(b["cy"] - task["cy"])) if same_row_buttons else None
+        cx = target["cx"] if target else button_x
+        cy = target["cy"] if target else task["cy"]
+        results.append({
+            "btn": None, "name": text, "cx": cx, "cy": cy,
+            "found_by": "ocr_taskname",
+        })
+
+    if not results:
+        for button in buttons:
+            labels = [
+                b for b in normalized
+                if b is not button and b["cx"] < button["cx"]
+                and 30 <= button["cx"] - b["cx"] <= 700
+                and abs(button["cy"] - b["cy"]) <= 90
+                and not any(k in b["text"] for k in button_keywords)
+                and not any(ex in b["text"] for ex in exclude_keywords)
+            ]
+            task = min(labels, key=lambda b: abs(button["cy"] - b["cy"])) if labels else None
             results.append({
-                "btn": None,
-                "name": task_name[:50] if task_name else text,
-                "cx": cx,
-                "cy": cy,
-                "found_by": "hierarchy"
+                "btn": None, "name": task["text"] if task else button["text"],
+                "cx": button["cx"], "cy": button["cy"],
+                "found_by": "ocr_button",
             })
-    except Exception as e:
-        print(f"  ⚠️ hierarchy 解析异常: {e}")
-    
-    return results
+
+    unique = []
+    seen_y = set()
+    for result in sorted(results, key=lambda item: item["cy"]):
+        key = result["cy"] // 35
+        if key not in seen_y:
+            seen_y.add(key)
+            unique.append(result)
+    print(f"  📊 [OCR] 找到 {len(unique)} 个任务按钮候选")
+    return unique
 
 
 # ========================================================
@@ -427,43 +259,29 @@ def is_blacklisted(text):
 # 页面扫描（返回结构化数据）
 # ========================================================
 def scan_page(device):
-    """扫描当前页面，返回所有控件的结构化列表"""
-    try:
-        xml_str = device.dump_hierarchy()
-        root = ElementTree.fromstring(xml_str)
-        nodes = []
-        stack = [(root, 0)]
-        while stack:
-            node, depth = stack.pop()
-            attrs = dict(node.attrib)
-            info = {
-                "text": attrs.get("text", ""),
-                "content_desc": attrs.get("content-desc", ""),
-                "class": attrs.get("class", ""),
-                "resource_id": attrs.get("resource-id", ""),
-                "clickable": attrs.get("clickable", "false") == "true",
-                "enabled": attrs.get("enabled", "true") == "true",
-                "scrollable": attrs.get("scrollable", "false") == "true",
-                "bounds": attrs.get("bounds", ""),
-                "depth": depth,
-            }
-            # 解析坐标
-            match = re.findall(r'\[(\d+),(\d+)\]', info["bounds"])
-            if len(match) >= 2:
-                x1, y1 = int(match[0][0]), int(match[0][1])
-                x2, y2 = int(match[1][0]), int(match[1][1])
-                info["cx"] = (x1 + x2) // 2
-                info["cy"] = (y1 + y2) // 2
-            else:
-                info["cx"], info["cy"] = 0, 0
-            
-            nodes.append(info)
-            for child in reversed(list(node)):
-                stack.append((child, depth + 1))
-        return nodes
-    except Exception as e:
-        print(f"  ⚠️ 扫描异常: {e}")
-        return []
+    """使用 OCR 扫描页面文字与坐标，不读取应用 WebView 的 U2 控件树。"""
+    return _ocr_nodes(device)
+
+
+def _ocr_nodes(device):
+    """将 OCR 文本块适配为 scan_page 的节点结构。"""
+    blocks = get_ocr_text_blocks(device, retries=0)
+    return [
+        {
+            "text": str(block.get("text", "")).strip(),
+            "content_desc": "",
+            "class": "ocr_text",
+            "resource_id": "",
+            "clickable": True,
+            "enabled": True,
+            "scrollable": False,
+            "bounds": "",
+            "depth": 0,
+            "cx": int(block.get("cx", 0)),
+            "cy": int(block.get("cy", 0)),
+        }
+        for block in blocks if str(block.get("text", "")).strip()
+    ]
 
 
 def find_clickable_with_text(nodes, keyword):
@@ -479,21 +297,16 @@ def find_clickable_with_text(nodes, keyword):
 # ========================================================
 def navigate_chain(device, steps):
     """
-    通用导航链
+    OCR 通用导航链
     steps: [("关键词1", "描述1"), ("关键词2", "描述2"), ...]
     """
     for step_name, keyword in steps:
         print(f"  🧭 导航: {step_name} → 查找【{keyword}】...")
         if not u2_click_text(device, keyword):
-            # hierarchy 兜底
-            nodes = scan_page(device)
-            target = find_clickable_with_text(nodes, keyword)
-            if target and target["cx"] > 0:
-                print(f"     hierarchy 点击 @({target['cx']},{target['cy']})")
-                device.click(target["cx"], target["cy"])
-            else:
-                print(f"     ⚠️ 未找到【{keyword}】")
+            print(f"     ⚠️ OCR 未找到【{keyword}】，本步骤未点击")
+            return False
         time.sleep(4)
+    return True
 
 
 def navigate_to_sleep_page(device):
@@ -502,11 +315,10 @@ def navigate_to_sleep_page(device):
     device.app_start(DT_APP, stop=True)
     time.sleep(5)
     
-    navigate_chain(device, [
+    return navigate_chain(device, [
         ("Step 1: 元宝中心", "元宝中心"),
         ("Step 2: 睡觉赚元宝", "睡觉赚元宝"),
     ])
-    return True
 
 
 def navigate_to_dagong_page(device):
@@ -515,11 +327,10 @@ def navigate_to_dagong_page(device):
     device.app_start(DT_APP, stop=True)
     time.sleep(5)
     
-    navigate_chain(device, [
+    return navigate_chain(device, [
         ("Step 1: 元宝中心", "元宝中心"),
         ("Step 2: 打工赚元宝", "打工赚元宝"),
     ])
-    return True
 
 
 def navigate_to_duck_page(device):
@@ -528,10 +339,11 @@ def navigate_to_duck_page(device):
     device.app_start(DT_APP, stop=True)
     time.sleep(5)
     
-    navigate_chain(device, [
+    if not navigate_chain(device, [
         ("Step 1: 元宝中心", "元宝中心"),
         ("Step 2: 点淘鸭家园", "点淘鸭家园"),
-    ])
+    ]):
+        return False
     
     # Step 3: 点击任务列表
     print("  Step 3: 打开任务列表...")
@@ -539,9 +351,9 @@ def navigate_to_duck_page(device):
     nodes = scan_page(device)
     for n in nodes:
         if "任务" in n["text"] and "去完" not in n["text"] and "完成" not in n["text"]:
-            if n["clickable"] or True:
+            if n["cx"] > 0 and n["cy"] > 0:
                 device.click(n["cx"], n["cy"])
-                print(f"    点击【{n['text']}】打开任务列表")
+                print(f"    OCR 点击【{n['text']}】打开任务列表")
                 time.sleep(4)
                 return True
     
@@ -549,7 +361,7 @@ def navigate_to_duck_page(device):
         time.sleep(4)
         return True
     
-    return True
+    return False
 
 
 # ========================================================
@@ -562,13 +374,10 @@ def back_to_task(device, target_keywords=None, nav_func=None):
     
     def _is_on_task_page():
         """检测当前是否在任务列表页"""
-        try:
-            for kw in target_keywords:
-                if device(textContains=kw).exists(timeout=0.5):
-                    print(f"  ✅ 已在任务列表页 (检测到【{kw}】)")
-                    return True
-        except:
-            pass
+        found = find_ocr_text_block(device, target_keywords, attempts=1, log=False)
+        if found:
+            print(f"  ✅ OCR 检测到任务页文字【{found.get('text', '')}】")
+            return True
         return False
     
     # 先检测是否已经在任务列表页
@@ -607,11 +416,11 @@ def wait_completion(device, timeout=25):
     start = time.time()
     while time.time() - start < timeout:
         try:
-            if device(textContains="恭喜完成任务").exists or \
-               device(textContains="恭喜完成").exists or \
-               device(textContains="任务完成").exists or \
-               device(textContains="获得奖励").exists or \
-               device(textContains="恭喜获得").exists:
+            if has_ocr_text(
+                device,
+                ["恭喜完成任务", "恭喜完成", "任务完成", "获得奖励", "恭喜获得"],
+                attempts=1,
+            ):
                 print("  ✅ 检测到完成提示")
                 return True
         except:
@@ -622,7 +431,7 @@ def wait_completion(device, timeout=25):
 
 
 # ========================================================
-# 猜价格游戏处理器（纯 U2）
+# 猜价格游戏处理器
 # ========================================================
 def _close_guess_price_popup(device):
     """关闭猜价格游戏结束后的弹窗（用 live_close.png 模板匹配）"""
@@ -676,14 +485,14 @@ def _close_guess_price_popup(device):
 
 def handle_guess_price_game(device):
     """
-    猜价格游戏处理器（纯 U2）
+    猜价格游戏处理器（前三个坐标 + 每次提交后 OCR）
     固定坐标策略：
       - 3列商品，checkmark X=[225, 633, 1043]
-      - Row 1 Y=1609, Row 2 Y=2218
+      - 仅第一行，最多尝试三个商品
       - 确认按钮 (633, 2520)
     退出策略：先关弹窗（X/关闭）→ 再返回任务列表
     """
-    print("\n  ========== 猜价格游戏 (纯U2) ==========")
+    print("\n  ========== 猜价格游戏 (最多3次，每次OCR检查重试倒计时) ==========")
     screen_w, screen_h = device.window_size()
     
     if screen_w > 1000:
@@ -693,29 +502,13 @@ def handle_guess_price_game(device):
         col_x = [col_w // 2, col_w * 3 // 2, col_w * 5 // 2]
     
     row1_y = int(screen_h * 0.58)
-    row2_y = int(screen_h * 0.80)
     confirm_y = int(screen_h * 0.905)
     
-    rows = [row1_y, row2_y]
-    max_attempts = 6
-    
-    # 进入游戏页面时，先保存初始页面所有文字，用于排除上一页（如视频流）残留的时间文本
-    _initial_texts = set()
-    try:
-        _init_nodes = scan_page(device)
-        for n in _init_nodes:
-            if re.search(r'\d{1,2}:\d{2}:\d{2}', n["text"]):
-                _initial_texts.add(n["text"])
-        if _initial_texts:
-            print(f"  初始页面存在时间文本: {_initial_texts}，倒计时检测时将排除")
-    except:
-        pass
+    max_attempts = 3
     
     for attempt in range(max_attempts):
-        row_idx = attempt // 3
-        col_idx = attempt % 3
-        check_x = col_x[col_idx]
-        check_y = rows[row_idx]
+        check_x = col_x[attempt]
+        check_y = row1_y
         
         print(f"  --- 第 {attempt+1}/{max_attempts} 次: 点击 @({check_x},{check_y}) ---")
         device.click(check_x, check_y)
@@ -724,33 +517,30 @@ def handle_guess_price_game(device):
         device.click(int(screen_w * 0.5), confirm_y)
         time.sleep(2.5)
         
-        # 倒计时结束检测：排除初始页面已存在的时间文本
-        # （如上一页视频流残留的"01:33:27后"），仅当新出现的时间文本才算游戏结束
+        # 每次提交后只做一次 OCR；重试提示和时间可能被 OCR 拆成多个文本块。
         try:
             nodes = scan_page(device)
-            for n in nodes:
-                text = n["text"]
-                if text in _initial_texts:
-                    continue  # 初始页面已存在的文本，不是游戏倒计时
-                has_time = re.search(r'\d{1,2}:\d{2}:\d{2}', text)
-                if has_time and "后再来玩" in text:
-                    print(f"  ✅ 检测到倒计时 [{text}]，游戏结束")
-                    time.sleep(1)
-                    _close_guess_price_popup(device)
-                    print(f"  ========== 猜价格游戏结束 ==========\n")
-                    return True
-        except:
-            pass
-        
-        try:
-            if device(textContains="换一批").exists:
-                print(f"  检测到【换一批】, 点击继续尝试")
-                click_u2_control(device, device(textContains="换一批"), "换一批")
-                time.sleep(1.5)
-        except:
-            pass
+            text = " ".join(str(n.get("text", "")) for n in nodes)
+            print(f"  🔎 第{attempt+1}次提交后 OCR：{text or '无识别结果'}")
+            normalized = re.sub(r'\s+', '', text).replace("：", ":")
+            has_time = re.search(
+                r'\d{1,2}:\d{2}(?::\d{2})?|\d+(?:\.\d+)?(?:小时|分钟|分|秒)',
+                normalized,
+            )
+            has_retry = re.search(r'后(?:再来玩|再重试|重试|再试)', normalized)
+            if has_time and has_retry:
+                print(f"  ⏳ 检测到重试倒计时 [{text}]，停止后续点击")
+                time.sleep(1)
+                _close_guess_price_popup(device)
+                print("  ========== 猜价格游戏结束 ==========\n")
+                return True
+            print("  未识别到重试倒计时")
+        except Exception as exc:
+            print(f"  ⚠️ 提交后 OCR 异常：{exc}，停止点击")
+            _close_guess_price_popup(device)
+            return False
     
-    print(f"  ⚠️ 所有尝试结束")
+    print("  ⚠️ 三次尝试结束，未确认重试倒计时")
     _close_guess_price_popup(device)
     print(f"  ========== 猜价格游戏结束 ==========\n")
     return False
@@ -825,9 +615,7 @@ def close_live_popups(device):
     返回 True 表示关掉了至少一个弹窗
     
     策略:
-      1. textContains 匹配关闭类关键词（带冷却，同一关键词15秒内不重复点击）
-      2. scan_page 扫描 content_desc 找关闭按钮（限制上半屏60%）
-      3. 点击左上角区域兜底
+      1. OCR 匹配关闭类关键词（带冷却，同一关键词15秒内不重复点击）
     """
     global _last_popup_click_time
     closed = 0
@@ -835,47 +623,25 @@ def close_live_popups(device):
     now = time.time()
     upper_limit = int(sh * 0.6)
     
-    # 策略1: 匹配文本寻找关闭按钮（带冷却）
+    # 策略1: OCR 匹配关闭类文字（带冷却）
+    popup_blocks = get_ocr_text_blocks(device, retries=0)
     for text in POPUP_CLOSE_TEXTS:
         # 冷却检查：同一关键词 15 秒内不重复点
         last_click = _last_popup_click_time.get(text, 0)
         if now - last_click < _POPUP_COOLDOWN:
             continue
-        try:
-            btn = device(textContains=text)
-            if btn.exists:
-                _, btn_cy = btn.center()
-                if btn_cy >= upper_limit:
-                    continue
-                click_u2_control(device, btn, text)
-                _last_popup_click_time[text] = time.time()
-                closed += 1
-                time.sleep(0.3)
-        except:
-            pass
+        btn = next((b for b in popup_blocks if text in b.get("text", "")), None)
+        if not btn:
+            continue
+        btn_cx, btn_cy = int(btn.get("cx", 0)), int(btn.get("cy", 0))
+        if btn_cy >= upper_limit or btn_cx <= 0 or btn_cy <= 0:
+            continue
+        device.click(btn_cx, btn_cy)
+        _last_popup_click_time[text] = time.time()
+        closed += 1
+        time.sleep(0.3)
     
-    # 策略2: scan_page 扫描 content_desc 找关闭按钮（限制上半屏60%）
-    try:
-        nodes = scan_page(device)
-        for n in nodes:
-            if n["cy"] >= upper_limit:
-                continue
-            desc = n["content_desc"]
-            if desc and any(t in desc for t in ["关闭", "X", "×", "知道", "关闭按钮", "取消"]):
-                if n["cx"] > 0 and n["cy"] > 0:
-                    # content_desc 也做冷却
-                    key = f"desc:{desc}"
-                    last_click = _last_popup_click_time.get(key, 0)
-                    if now - last_click < _POPUP_COOLDOWN:
-                        continue
-                    device.click(n["cx"], n["cy"])
-                    _last_popup_click_time[key] = time.time()
-                    closed += 1
-                    time.sleep(0.3)
-    except:
-        pass
-    
-    # 策略3已移除：左上角点击在直播间里等价于返回键，会导致误退直播间
+    # 不使用 hierarchy 或盲点坐标，避免误触直播间控件。
     
     if closed > 0:
         time.sleep(0.5)
@@ -884,7 +650,7 @@ def close_live_popups(device):
 
 def detect_live_completion(device):
     """
-    检测直播任务是否完成（先 U2 快速检测，再用 scan_page 全 hierarchy 兜底）
+    通过 OCR 检测直播任务是否完成。
     返回 True 表示任务已完成
     """
     completion_texts = [
@@ -895,30 +661,18 @@ def detect_live_completion(device):
         "谢谢观看", "感谢观看", "直播已结束",
         "本场直播已结束", "主播已离开",
     ]
-    # 策略1: 用 U2 直接检测完成文字（快速通道）
-    for text in completion_texts:
-        try:
-            if device(textContains=text).exists:
-                return True
-        except:
-            pass
-    
-    # 策略2: 用 scan_page 全 hierarchy 扫描（能抓到 WebView 露出的文字）
-    try:
-        nodes = scan_page(device)
-        all_text = " ".join(n.get("text", "") for n in nodes)
-        for kw in completion_texts:
-            if kw in all_text:
-                return True
-    except:
-        pass
-    
+    blocks = get_ocr_text_blocks(device, retries=0)
+    all_text = " ".join(str(block.get("text", "")) for block in blocks)
+    matched = next((text for text in completion_texts if text in all_text), None)
+    if matched:
+        print(f"  🔎 OCR 检测到完成状态文字：【{matched}】")
+        return True
     return False
 
 
 def execute_live_task(device, task_name, btn_cx, btn_cy, duration=None):
     """
-    统一直播任务执行器（纯 U2，含弹窗关闭）
+    统一直播任务执行器（含 OCR 状态识别与弹窗关闭）
     
     功能：
       - 进入直播间
@@ -1403,11 +1157,9 @@ def execute_browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             elapsed = int(time.time() - start)
             # 实时检测完成提示
             try:
-                if elapsed >= min_duration and (
-                    device(textContains="恭喜完成任务").exists
-                    or device(textContains="恭喜完成").exists
-                    or device(textContains="任务完成").exists
-                    or device(textContains="获得奖励").exists
+                if elapsed >= min_duration and has_ocr_text(
+                    device, ["恭喜完成任务", "恭喜完成", "任务完成", "获得奖励"],
+                    attempts=1,
                 ):
                     print(f"  ✅ 检测到完成提示！(已过{elapsed}s)")
                     for _ in range(4):
