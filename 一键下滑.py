@@ -30,6 +30,7 @@ OCR_PRE_SCAN_DELAY_SECONDS = 3
 OCR_SCAN_ATTEMPTS = 5
 OCR_RETRY_DELAY_SECONDS = 3
 OCR_CLICK_WAIT_SECONDS = 5
+DUCK_OPEN_WAIT_SECONDS = 7
 
 
 # ========================================================
