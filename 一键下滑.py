@@ -6,7 +6,7 @@
   1. 打工赚元宝
   2. 睡觉赚元宝
   3. 签到赢元宝（OCR下滑找"今日签到"→"去看看"）
-  4. 购物赚钱（OCR定位入口）
+  4. 购物赚钱（固定坐标 934, 1723）
   5. 摇一摇（OCR定位点淘鸭家园 → 右滑2次 → OCR找去摇一摇）
   6. 走路赚元宝（OCR定位入口）
 
@@ -192,8 +192,10 @@ def _nav_to_signin(device):
 
 
 def _nav_to_shop(device):
-    """OCR 查找并点击【领元宝 兑权益】入口。"""
-    _ocr_click_target(device, "领元宝 兑权益", label="领元宝 兑权益")
+    """使用固定坐标点击购物赚钱入口。"""
+    print("  🎯 固定坐标点击购物赚钱入口 (934, 1723)...")
+    device.click(934, 1723)
+    time.sleep(3)
 
 
 def _nav_to_walk(device):
