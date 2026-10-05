@@ -9,7 +9,7 @@ import random
 
 import uiautomator2 as u2
 from u2_scanner import (
-    connect_device, DT_APP, click_three_selected_items, handle_guess_price_game,
+    connect_device, DT_APP, click_three_selected_items, handle_guess_price_game, is_search_low_price_task,
     click_u2_control, execute_video_task,
 )
 from utils import (
@@ -146,7 +146,7 @@ def do_task(tp, sec, task_name=""):
     task_started_at = time.time()
 
     if actual_tp == "guess":
-        handle_guess_price_game(d)
+        handle_guess_price_game(d, search_first=is_search_low_price_task(task_name))
         # 猜价格完成后：handle_guess_price_game 已处理退出，直接找"查看更多"或确认在任务列表
         time.sleep(1)
         for _ in range(5):
@@ -292,7 +292,7 @@ def detect_task_name_before_click(bs, btn_block):
 
     all_nearby_texts = [t for _, t in same_row] + [t for _, t in above_row]
 
-    if "猜价格" in task_name:
+    if "猜价格" in task_name or is_search_low_price_task(task_name):
         return "guess", 0, task_name
     if "看视频" in task_name:
         sec = 60

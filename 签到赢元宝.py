@@ -8,7 +8,7 @@ import re
 
 from u2_scanner import connect_device, DT_APP, click_u2_control
 from u2_scanner import handle_guess_price_game, execute_live_task, execute_video_task
-from u2_scanner import click_three_selected_items
+from u2_scanner import click_three_selected_items, is_search_low_price_task
 from u2_scanner import execute_browse_task
 from utils import get_ocr_text_blocks, show_today_summary, browse_task
 
@@ -137,7 +137,7 @@ def parse_seconds(text, default=60):
 
 def match_task_type(text):
     """精确匹配任务名 → 返回类型字符串"""
-    if "猜价格" in text:
+    if "猜价格" in text or is_search_low_price_task(text):
         return "guess_price"
     if "浏览" in text or "精选推荐" in text or "猜你喜欢" in text \
        or "省钱" in text or "上新好物" in text or "签到" in text \
@@ -360,12 +360,12 @@ def handle_milestone_close():
     time.sleep(2)
 
 
-def exec_guess_price(btn_cx, btn_cy):
+def exec_guess_price(btn_cx, btn_cy, task_name=""):
     """执行猜价格任务"""
     print("  🎯 猜价格游戏")
     d.click(btn_cx, btn_cy)
     time.sleep(3)
-    handle_guess_price_game(d)
+    return handle_guess_price_game(d, search_first=is_search_low_price_task(task_name))
 
 
 def exec_browse(btn_cx, btn_cy, task_name="", use_ocr=True):
@@ -455,7 +455,7 @@ def execute_tasks(task_list):
         print(f"\n  ▶️ [{total+1}/{len(task_list)}] {task_name}")
 
         if task_type == "guess_price":
-            exec_guess_price(btn_cx, btn_cy)
+            exec_guess_price(btn_cx, btn_cy, task_name)
         elif task_type == "browse":
             exec_browse(btn_cx, btn_cy, task_name)
         elif task_type == "video":
@@ -573,7 +573,7 @@ def main(entry_name: str = "签到赢元宝") -> None:
         print(f"\n  ▶️ [{total_all+1}] {task_name}")
 
         if task_type == "guess_price":
-            exec_guess_price(btn_cx, btn_cy)
+            exec_guess_price(btn_cx, btn_cy, task_name)
         elif task_type == "browse":
             exec_browse(btn_cx, btn_cy, task_name, use_ocr=entry_name != "赚钱卡")
         elif task_type == "video":

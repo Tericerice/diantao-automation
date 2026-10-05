@@ -170,7 +170,7 @@ def u2_find_task_buttons(device):
     task_keywords = [
         "浏览精选", "精选推荐", "猜你喜欢", "看直播", "看视频", "看福利",
         "看精选直播", "看黄金档", "去浏览", "去逛逛", "去观看", "省钱",
-        "上新好物", "猜价格", "猜价格游戏",
+        "上新好物", "猜价格", "猜价格游戏", "搜索并找低价", "搜索并找最低价",
     ]
     button_keywords = ["去完成", "去浏览", "去观看", "去领取", "点击得", "去逛逛", "去查看"]
     exclude_keywords = ["做任务", "领元宝", "元宝商城", "下单", "购买", "付款", "充值"]
@@ -483,7 +483,50 @@ def _close_guess_price_popup(device):
     return True
 
 
-def handle_guess_price_game(device):
+def is_search_low_price_task(task_name):
+    text = re.sub(r'\s+', '', task_name)
+    return "搜索" in text and ("低价" in text or "最低价" in text)
+
+
+def _guess_price_retry_countdown(nodes):
+    text = " ".join(str(n.get("text", "")) for n in nodes)
+    normalized = re.sub(r'\s+', '', text).replace("：", ":")
+    has_time = re.search(
+        r'\d{1,2}:\d{2}(?::\d{2})?|\d+(?:\.\d+)?(?:小时|分钟|分|秒)',
+        normalized,
+    )
+    return bool(has_time and re.search(r'后(?:再来玩|再重试|重试|再试)', normalized))
+
+
+def _search_low_price(device, keyword="牙刷"):
+    """搜索商品；OCR 定位失败时使用截图中的框体和按钮比例坐标。"""
+    sw, sh = device.window_size()
+    if not click_ocr_text(
+        device, ["请输入想找的商品", "请输入", "想找的商品"],
+        settle_seconds=2.5, attempts=2, log=True,
+    ):
+        x, y = int(sw * 0.45), int(sh * 0.657)
+        print(f"  搜索框 OCR 未命中，按截图比例点击 @({x},{y})")
+        device.click(x, y)
+    time.sleep(2)
+    try:
+        device.send_keys(keyword, clear=True)
+    except Exception as exc:
+        print(f"  ⚠️ 搜索词输入失败：{exc}")
+        return False
+    print(f"  输入搜索词：{keyword}")
+    if not click_ocr_text(
+        device, "找最低价", settle_seconds=2, attempts=2, log=True,
+    ):
+        # 输入框获得焦点后整体上移；使用第二张截图中按钮的位置。
+        x, y = int(sw * 0.85), int(sh * 0.392)
+        print(f"  搜索按钮 OCR 未命中，按截图比例点击 @({x},{y})")
+        device.click(x, y)
+    time.sleep(4)
+    return True
+
+
+def handle_guess_price_game(device, search_first=False):
     """
     猜价格游戏处理器（前三个坐标 + 每次提交后 OCR）
     固定坐标策略：
@@ -494,6 +537,18 @@ def handle_guess_price_game(device):
     """
     print("\n  ========== 猜价格游戏 (最多3次，每次OCR检查重试倒计时) ==========")
     screen_w, screen_h = device.window_size()
+
+    if search_first:
+        if not _search_low_price(device):
+            _close_guess_price_popup(device)
+            return False
+        nodes = scan_page(device)
+        text = " ".join(str(n.get("text", "")) for n in nodes)
+        print(f"  🔎 搜索后 OCR：{text or '无识别结果'}")
+        if _guess_price_retry_countdown(nodes):
+            print("  ⏳ 搜索后已出现重试倒计时，停止点击")
+            _close_guess_price_popup(device)
+            return True
     
     if screen_w > 1000:
         col_x = [225, 633, 1043]
@@ -522,13 +577,7 @@ def handle_guess_price_game(device):
             nodes = scan_page(device)
             text = " ".join(str(n.get("text", "")) for n in nodes)
             print(f"  🔎 第{attempt+1}次提交后 OCR：{text or '无识别结果'}")
-            normalized = re.sub(r'\s+', '', text).replace("：", ":")
-            has_time = re.search(
-                r'\d{1,2}:\d{2}(?::\d{2})?|\d+(?:\.\d+)?(?:小时|分钟|分|秒)',
-                normalized,
-            )
-            has_retry = re.search(r'后(?:再来玩|再重试|重试|再试)', normalized)
-            if has_time and has_retry:
+            if _guess_price_retry_countdown(nodes):
                 print(f"  ⏳ 检测到重试倒计时 [{text}]，停止后续点击")
                 time.sleep(1)
                 _close_guess_price_popup(device)
@@ -1211,10 +1260,9 @@ def execute_task(device, task_name, btn_cx, btn_cy, browse_duration=20, guess_pr
     
     handle_open_allow_popup(device)
     
-    if guess_price_enabled and ("猜价格" in task_name):
+    if guess_price_enabled and ("猜价格" in task_name or is_search_low_price_task(task_name)):
         print(f"  检测到猜价格任务")
-        handle_guess_price_game(device)
-        return True
+        return handle_guess_price_game(device, search_first=is_search_low_price_task(task_name))
     
     # 浏览任务（含完成检测）
     execute_browse_task(device, browse_duration)
