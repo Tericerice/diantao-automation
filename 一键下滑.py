@@ -1,13 +1,14 @@
 """
 一键下滑 自动化脚本
-流程：5轮顺序执行，每轮：重启点淘 → 元宝中心 → 导航目标页 → 下滑浏览
+流程：6轮顺序执行，每轮：重启点淘 → 元宝中心 → OCR 定位入口 → 下滑浏览
 
 轮次顺序:
   1. 打工赚元宝
   2. 睡觉赚元宝
-  3. 签到赢元宝（特殊导航：下滑找"今日签到"→"去看看"）
-  4. 购物赚钱（特殊导航：固定坐标 → 查看更多）
-  5. 摇一摇（特殊导航：点淘鸭家园 → 右滑2次 → OCR找去摇一摇）
+  3. 签到赢元宝（OCR下滑找"今日签到"→"去看看"）
+  4. 购物赚钱（OCR定位入口）
+  5. 摇一摇（OCR定位点淘鸭家园 → 右滑2次 → OCR找去摇一摇）
+  6. 走路赚元宝（OCR定位入口）
 
 配置说明：
   修改 ROUNDS_CONFIG 列表，每个轮次可独立配置：
@@ -18,8 +19,17 @@ import time
 import sys
 import random
 
-from u2_scanner import connect_device, DT_APP, navigate_chain, u2_click_text, scan_page, find_clickable_with_text
+from u2_scanner import connect_device, DT_APP
 from utils import get_ocr_text_blocks
+
+CENTER_OCR_PRE_SCAN_DELAY_SECONDS = 5
+CENTER_OCR_SCAN_ATTEMPTS = 3
+CENTER_OCR_RETRY_DELAY_SECONDS = 3
+CENTER_OCR_CLICK_WAIT_SECONDS = 4
+OCR_PRE_SCAN_DELAY_SECONDS = 3
+OCR_SCAN_ATTEMPTS = 5
+OCR_RETRY_DELAY_SECONDS = 3
+OCR_CLICK_WAIT_SECONDS = 5
 
 
 # ========================================================
@@ -34,118 +44,161 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 # 🧭 导航函数库（每个轮次使用不同的导航策略）
 # ========================================================
 
+def _is_yuanbao_center_ocr(device):
+    """用 OCR 判断当前是否已在元宝中心页面。"""
+    try:
+        blocks = get_ocr_text_blocks(device)
+    except Exception as exc:
+        print(f"  ⚠️ OCR 检查元宝中心失败：{exc}")
+        return False
+
+    center_markers = ("我的元宝", "提现", "兑红包")
+    return any(
+        marker in block.get("text", "")
+        for block in blocks
+        for marker in center_markers
+    )
+
+
+def _enter_yuanbao_center_ocr(device):
+    """等待首页稳定后，用 OCR 查找并点击元宝中心。"""
+    print(
+        f"  ⏳ 等待首页稳定 {CENTER_OCR_PRE_SCAN_DELAY_SECONDS}s，"
+        "再用 OCR 查找元宝中心..."
+    )
+    time.sleep(CENTER_OCR_PRE_SCAN_DELAY_SECONDS)
+
+    for scan_index in range(1, CENTER_OCR_SCAN_ATTEMPTS + 1):
+        try:
+            blocks = get_ocr_text_blocks(device)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ 元宝中心 OCR 第 {scan_index} 次扫描失败：{exc}")
+
+        target = next(
+            (b for b in blocks if "元宝中心" in b.get("text", "")),
+            None,
+        )
+        if target:
+            target_x, target_y = int(target["cx"]), int(target["cy"])
+            print(f"  🎯 OCR 点击【元宝中心】@({target_x},{target_y})")
+            device.click(target_x, target_y)
+            time.sleep(CENTER_OCR_CLICK_WAIT_SECONDS)
+            return True
+
+        print(
+            f"  ⚠️ OCR 未找到【元宝中心】（第 "
+            f"{scan_index}/{CENTER_OCR_SCAN_ATTEMPTS} 次）"
+        )
+        if scan_index < CENTER_OCR_SCAN_ATTEMPTS:
+            time.sleep(CENTER_OCR_RETRY_DELAY_SECONDS)
+
+    return False
+
+
+def _ocr_click_target(device, keyword, label=None, attempts=OCR_SCAN_ATTEMPTS,
+                      click_wait=OCR_CLICK_WAIT_SECONDS):
+    """OCR 查找入口文本并点击其识别坐标。"""
+    label = label or keyword
+    print(f"  🔍 OCR 查找【{label}】...")
+    time.sleep(OCR_PRE_SCAN_DELAY_SECONDS)
+
+    for attempt in range(1, attempts + 1):
+        try:
+            blocks = get_ocr_text_blocks(device)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ OCR 扫描【{label}】失败：{exc}")
+
+        normalized_keyword = "".join(str(keyword).split()).casefold()
+        target = next(
+            (
+                b for b in blocks
+                if normalized_keyword in "".join(
+                    str(b.get("text", "")).split()
+                ).casefold()
+            ),
+            None,
+        )
+        if target:
+            target_x, target_y = int(target["cx"]), int(target["cy"])
+            print(f"  🎯 OCR 点击【{target['text']}】@({target_x},{target_y})")
+            device.click(target_x, target_y)
+            time.sleep(click_wait)
+            return True
+
+        print(f"  ⚠️ OCR 未找到【{label}】（第 {attempt}/{attempts} 次）")
+        if attempt < attempts:
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
+
+    print(f"  ⚠️ 未能通过 OCR 进入【{label}】")
+    return False
+
+
 def _nav_to_dagong(device):
-    """导航：元宝中心 → 打工赚元宝（文字匹配）"""
-    navigate_chain(device, [("进入打工赚元宝", "打工赚元宝")])
+    """OCR 查找并点击打工赚元宝入口。"""
+    _ocr_click_target(device, "打工赚元宝")
 
 
 def _nav_to_sleep(device):
-    """导航：元宝中心 → 睡觉赚元宝（文字匹配）"""
-    navigate_chain(device, [("进入睡觉赚元宝", "睡觉赚元宝")])
+    """OCR 查找并点击睡觉赚元宝入口。"""
+    _ocr_click_target(device, "睡觉赚元宝")
 
 
 def _nav_to_signin(device):
-    """
-    导航：元宝中心 → 签到赢元宝（首次弹窗规避）
-    首次进入会弹窗遮挡，需要关闭后重新进入。
-    所以进入2次：第一次进→back关闭→第二次进→正常下滑
-    """
-    for attempt in range(2):
-        print(f"  📜 下滑找今日签到...（第{attempt+1}/2次）")
+    """导航：元宝中心 → OCR 下滑查找今日签到并尝试进入一次。"""
+    print("  📜 下滑找今日签到...")
+    time.sleep(OCR_PRE_SCAN_DELAY_SECONDS)
 
-        found = False
-        for _ in range(8):
-            sign_btn = device(textContains="今日签到")
-            if sign_btn.exists(timeout=2):
-                try:
-                    sign_cx, sign_cy = sign_btn.center()
-                    sign_cx, sign_cy = int(sign_cx), int(sign_cy)
-                except:
-                    continue
+    for scan_index in range(1, 9):
+        try:
+            blocks = get_ocr_text_blocks(device)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ 签到 OCR 扫描失败：{exc}")
 
-                go_btn = device(textContains="去看看")
-                if go_btn.exists(timeout=1):
-                    try:
-                        gx, gy = go_btn.center()
-                        gx, gy = int(gx), int(gy)
-                    except:
-                        gx, gy = 0, 0
-                    if abs(gx - sign_cx) > 50 and -20 <= gy - sign_cy <= 200:
-                        device.click(gx, gy)
-                        time.sleep(3)
-                        found = True
-                        break
+        sign_block = next(
+            (b for b in blocks if "今日签到" in b.get("text", "")),
+            None,
+        )
+        if sign_block:
+            sign_x, sign_y = int(sign_block["cx"]), int(sign_block["cy"])
+            go_block = next(
+                (
+                    b for b in blocks
+                    if "去看看" in b.get("text", "")
+                    and abs(int(b["cx"]) - sign_x) > 50
+                    and -20 <= int(b["cy"]) - sign_y <= 200
+                ),
+                None,
+            )
+            if go_block:
+                target_x, target_y = int(go_block["cx"]), int(go_block["cy"])
+                print(f"  🎯 OCR 点击【去看看】@({target_x},{target_y})")
+            else:
+                target_x, target_y = sign_x + 200, sign_y
+                print(f"  🎯 OCR 定位签到标题并点击右侧入口@({target_x},{target_y})")
 
-                # 兜底：点签到右侧
-                if not found:
-                    device.click(sign_cx + 200, sign_cy)
-                    time.sleep(3)
-                    found = True
-                    break
-
-            if found:
-                break
-            device.swipe(screen_width // 2, int(screen_height * 0.85),
-                         screen_width // 2, int(screen_height * 0.2))
-            time.sleep(2)
-
-        if not found:
-            print("  ⚠️ 未找到今日签到")
+            device.click(target_x, target_y)
+            time.sleep(OCR_CLICK_WAIT_SECONDS)
             return
 
-        if attempt == 0:
-            # 第一次进入：弹窗遮挡，直接关闭退回
-            print("  ⏹️ 第一次进入，关闭弹窗退回...")
-            for _ in range(3):
-                device.press("back")
-                time.sleep(1.5)
-            time.sleep(2)
-        else:
-            # 第二次进入：弹窗已消失，正常进入
-            print("  ✅ 第二次进入成功，弹窗已清除")
+        print(f"  ⚠️ OCR 未找到【今日签到】（第 {scan_index}/8 次）")
+        device.swipe(screen_width // 2, int(screen_height * 0.85),
+                     screen_width // 2, int(screen_height * 0.2))
+        time.sleep(OCR_RETRY_DELAY_SECONDS)
+
+    print("  ⚠️ 未找到今日签到")
 
 
 def _nav_to_shop(device):
-    """
-    导航：元宝中心 → 购物赚钱
-    （固定坐标入口 → 找"查看更多"）
-    """
-    print(f"  点击购物赚钱入口 (934, 1723)...")
-    device.click(934, 1723)
-    time.sleep(3)
-
-    # 找"查看更多"展开任务列表
-    #for b in get_ocr_text_blocks(device):
-        #if "查看更多" in b.get("text", ""):
-            #print(f"  点击查看更多 @({b['cx']},{b['cy']})")
-            #device.click(b["cx"], b["cy"])
-            #time.sleep(2)
-            #break
+    """OCR 查找并点击【领元宝 兑权益】入口。"""
+    _ocr_click_target(device, "领元宝 兑权益", label="领元宝 兑权益")
 
 
 def _nav_to_walk(device):
-    """导航：元宝中心 → OCR扫描走路赚元宝 → 点击进入"""
-    print("  🔍 OCR 查找【走路赚元宝】...")
-    entered = False
-    for attempt in range(5):
-        blocks = get_ocr_text_blocks(device)
-        if blocks:
-            for b in blocks:
-                text = b.get("text", "")
-                if "走路赚元宝" in text:
-                    print(f"  🎯 点击【{text}】 @({b['cx']},{b['cy']})")
-                    device.click(b["cx"], b["cy"])
-                    time.sleep(4)
-                    entered = True
-                    print("  ✅ 已进入走路赚元宝页面")
-                    break
-        if entered:
-            break
-        print(f"  ⚠️ 未找到走路赚元宝（第 {attempt+1} 次），重试...")
-        time.sleep(1.5)
-
-    if not entered:
-        print("  ⚠️ 未能进入走路赚元宝页面，跳过该轮")
+    """OCR 查找并点击走路赚元宝入口。"""
+    _ocr_click_target(device, "走路赚元宝")
 
 
 def _nav_to_yaoyiyao(device):
@@ -153,16 +206,9 @@ def _nav_to_yaoyiyao(device):
     导航：元宝中心 → 点淘鸭家园 → 右滑2次 → OCR找去摇一摇
     （复用点淘鸭摇一摇.py 的导航逻辑，5次 OCR 重试）
     """
-    # 固定比例坐标（基于 1264×2780 实测换算）
-    DUCK_ENTRY_X_RATIO = 0.77
-    DUCK_ENTRY_Y_RATIO = 0.70
-
-    # Step 1: 点击点淘鸭家园
-    duck_x = int(screen_width * DUCK_ENTRY_X_RATIO)
-    duck_y = int(screen_height * DUCK_ENTRY_Y_RATIO)
-    print(f"  点击点淘鸭家园 @({duck_x},{duck_y})...")
-    device.click(duck_x, duck_y)
-    time.sleep(5)
+    # Step 1: OCR 定位并点击点淘鸭家园
+    if not _ocr_click_target(device, "点淘鸭家园", click_wait=7):
+        return
 
     # Step 2: 右滑2次到最右边
     print("  右滑2次到最右边...")
@@ -172,27 +218,11 @@ def _nav_to_yaoyiyao(device):
         sy = int(screen_height * 0.50)
         device.swipe(sx, sy, ex, sy, duration=0.3)
         print(f"    第 {i+1}/2 次右滑")
-        time.sleep(1.5)
+        time.sleep(OCR_RETRY_DELAY_SECONDS)
     print("  ✅ 已右滑到最右边")
 
     # Step 3: OCR找"去摇一摇"并点击（5次重试）
-    print("  🔍 OCR 查找【去摇一摇】...")
-    entered = False
-    for attempt in range(5):
-        blocks = get_ocr_text_blocks(device)
-        if blocks:
-            for b in blocks:
-                if "去摇一摇" in b.get("text", ""):
-                    print(f"  🎯 点击【{b['text']}】 @({b['cx']},{b['cy']})")
-                    device.click(b["cx"], b["cy"])
-                    time.sleep(4)
-                    entered = True
-                    print("  ✅ 已进入摇一摇页面")
-                    break
-        if entered:
-            break
-        print(f"  ⚠️ 未找到去摇一摇（第 {attempt+1} 次），重试...")
-        time.sleep(1.5)
+    entered = _ocr_click_target(device, "去摇一摇")
 
     if not entered:
         print("  ⚠️ 未能进入摇一摇页面，跳过该轮")
@@ -281,7 +311,8 @@ def run_round(label, name, swipe_seconds, nav_func):
     time.sleep(5)
 
     # Step 2: 进入元宝中心
-    navigate_chain(d, [("进入元宝中心", "元宝中心")])
+    if not _enter_yuanbao_center_ocr(d):
+        print("  ⚠️ OCR 未能确认元宝中心，仍继续尝试本轮目标入口")
 
     # Step 3: 使用该轮次自己的导航函数进入目标页面
     nav_func(d)
