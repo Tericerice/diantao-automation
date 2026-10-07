@@ -12,6 +12,7 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 
 EXTRA_YUANBAO_VIDEO_SECONDS = 30
 EXTRA_YUANBAO_EXTRA_SECONDS = 10
+EXTRA_YUANBAO_SCAN_TIMEOUT_SECONDS = 30
 EXTRA_YUANBAO_PATTERN = re.compile(r"(额外获得|再得)\s*\d+\s*元宝")
 
 
@@ -29,7 +30,7 @@ def execute_extra_yuanbao_task(task_type, task_name, btn_cx, btn_cy):
     print(f"  🎯 执行【{task_name}】")
     d.click(btn_cx, btn_cy)
     if task_type == "video":
-        execute_video_task(
+        completed = execute_video_task(
             d,
             task_name,
             btn_cx,
@@ -40,15 +41,23 @@ def execute_extra_yuanbao_task(task_type, task_name, btn_cx, btn_cy):
         )
     else:
         time.sleep(1.5)
-        execute_browse_task(
+        completed = execute_browse_task(
             d,
             min_duration=EXTRA_YUANBAO_VIDEO_SECONDS,
-            max_wait=EXTRA_YUANBAO_VIDEO_SECONDS + EXTRA_YUANBAO_EXTRA_SECONDS,
+            max_wait=(EXTRA_YUANBAO_VIDEO_SECONDS + EXTRA_YUANBAO_EXTRA_SECONDS
+                      + EXTRA_YUANBAO_SCAN_TIMEOUT_SECONDS),
             extra_seconds=EXTRA_YUANBAO_EXTRA_SECONDS,
         )
+        if not completed:
+            print(f"  ⚠️ 【{task_name}】浏览超时，保留当前页面，停止自动执行")
+            return False
         d.press("back")
         time.sleep(2)
+    if not completed:
+        print(f"  ⚠️ 【{task_name}】未完成，停止自动执行")
+        return False
     print(f"  ✅ 完成【{task_name}】")
+    return True
 
 
 def scan_and_execute():
@@ -69,7 +78,8 @@ def scan_and_execute():
 
         task_type, name, cx, cy = task
         print(f"  📌 发现【{name}】 @({cx},{cy})")
-        execute_extra_yuanbao_task(task_type, name, cx, cy)
+        if not execute_extra_yuanbao_task(task_type, name, cx, cy):
+            return
         total += 1
         print(f"  📊 已完成 {total} 个额外元宝任务")
 

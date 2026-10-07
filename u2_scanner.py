@@ -1086,7 +1086,7 @@ def execute_browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
       4. 下滑间隔缩短，防止文字提前滑出屏幕导致误判完成
     
     参数:
-        min_duration: 未检测到滑动字样时的最小浏览时间（秒）
+        min_duration: 无论是否检测到滑动字样，都必须满足的最小浏览时间（秒）
         max_wait: 超时上限（秒）
         extra_seconds: 浏览追加的保险时间（秒），30秒以内任务至少追加10秒
     返回:
@@ -1127,7 +1127,8 @@ def execute_browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             if detected_sec <= 30:
                 effective_extra = max(extra_seconds, 10)
             has_sliding_text = True
-            sliding_min_seconds = detected_sec + effective_extra
+            # 页面倒计时可能已减少，不能覆盖调用方要求的最低时长。
+            sliding_min_seconds = max(min_duration, detected_sec) + effective_extra
             print(f"  📋 检测到【{text}】，至少浏览 {sliding_min_seconds} 秒，使用滑动文本监控模式")
             break
     

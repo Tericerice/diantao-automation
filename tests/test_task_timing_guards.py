@@ -272,6 +272,20 @@ class TaskTimingGuardsTest(unittest.TestCase):
                     completed = executor(self.device, min_duration=30, max_wait=35)
                 self.assertFalse(completed)
 
+    def test_browse_countdown_cannot_shorten_requested_duration(self):
+        for countdown in (3, 5):
+            with self.subTest(countdown=countdown):
+                self.clock.now = 0
+                device = _TimedDevice(self.clock)
+                scans = iter([[{"text": f"滑动浏览{countdown}秒"}]])
+                with patch.object(u2_scanner, "scan_page", side_effect=lambda _d: next(scans, [])):
+                    completed = u2_scanner.execute_browse_task(
+                        device, min_duration=30, max_wait=70, extra_seconds=10
+                    )
+                self.assertTrue(completed)
+                self.assertGreaterEqual(self.clock.now, 40)
+                self.assertGreaterEqual(device.swipe_times[-1], 40)
+
     def _finish_browse_at_minimum(self, blocks):
         self.clock.now = 13
         return blocks

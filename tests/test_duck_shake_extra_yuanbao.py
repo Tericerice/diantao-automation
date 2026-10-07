@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 import time
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -92,6 +93,39 @@ class DuckShakeExtraYuanbaoTest(unittest.TestCase):
             module_globals = runpy.run_path(str(script_path))
         module_globals["time"].sleep = lambda _seconds: None
         return module_globals
+
+    def test_browse_reserves_scan_time_and_returns_only_after_success(self):
+        module_globals = self.load_extra_yuanbao_module()
+        with contextlib.redirect_stdout(io.StringIO()):
+            completed = module_globals["execute_extra_yuanbao_task"](
+                "browse", "再得30元宝", 540, 1200
+            )
+        self.assertTrue(completed)
+        self.assertEqual(self.browse_calls, [(self.fake_device, 30, 70, 10)])
+        self.assertEqual(self.fake_device.presses, ["back"])
+
+    def test_browse_timeout_keeps_page_and_does_not_report_completion(self):
+        module_globals = self.load_extra_yuanbao_module()
+        execute = module_globals["execute_extra_yuanbao_task"]
+        execute.__globals__["execute_browse_task"] = lambda *_a, **_k: False
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            completed = execute("browse", "再得30元宝", 540, 1200)
+        self.assertFalse(completed)
+        self.assertEqual(self.fake_device.presses, [])
+        self.assertNotIn("✅ 完成", output.getvalue())
+
+    def test_scan_stops_without_counting_failed_task(self):
+        module_globals = self.load_extra_yuanbao_module()
+        scan = module_globals["scan_and_execute"]
+        blocks = [{"text": "再得30元宝", "cx": 540, "cy": 1200}]
+        output = io.StringIO()
+        with patch.dict(scan.__globals__, {
+            "get_ocr_text_blocks": lambda _d: blocks,
+            "execute_extra_yuanbao_task": lambda *_a: False,
+        }), contextlib.redirect_stdout(output):
+            scan()
+        self.assertNotIn("已完成 1 个", output.getvalue())
 
     def test_scan_extra_yuanbao_task_returns_matching_reward_text(self):
         # Given: OCR sees the extra reward entry on the shake task screen.
