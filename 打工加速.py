@@ -23,6 +23,21 @@ def parse_seconds(text, default=30):
     return int(m.group(1)) if m else default
 
 
+def is_search_browse_task(text):
+    """搜索后浏览需要独立搜索流程，不能交给普通浏览执行器。"""
+    compact = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", text or "")
+    return "搜索" in compact and "浏览" in compact
+
+
+def has_search_browse_nearby(blocks, block):
+    """兼容同一行任务名被 OCR 拆成多个文字块。"""
+    row = [b for b in blocks
+           if abs(b["cy"] - block["cy"]) <= 60
+           and abs(b["cx"] - block["cx"]) <= 500]
+    row.sort(key=lambda b: b["cx"])
+    return is_search_browse_task("".join(b["text"] for b in row))
+
+
 def find_browse_task(blocks):
     """在当前屏幕 OCR 文本块中找"浏览精选推荐"字样的文本，直接返回其坐标
     
@@ -32,6 +47,9 @@ def find_browse_task(blocks):
     print(f"  📋 OCR 文本块 ({len(blocks)}):")
     for b in blocks:
         print(f"    [{b['cx']:4d},{b['cy']:4d}] {b['text']}")
+
+    # 搜索任务优先排除，不能被下面的精选推荐或秒数兜底重新选中。
+    blocks = [b for b in blocks if not has_search_browse_nearby(blocks, b)]
 
     # 找包含"浏览精选推荐"或"精选推荐"的文字块
     for b in blocks:
@@ -74,6 +92,9 @@ def find_go_btn_nearby(blocks, cx, cy):
 
 def exec_browse(cx, cy, task_name="", blocks=None):
     """点击任务文字（或附近的去完成按钮），进入后执行浏览"""
+    if is_search_browse_task(task_name):
+        print(f"  ⊘ 搜索后浏览任务不按普通浏览执行: 【{task_name}】")
+        return False
     click_cx, click_cy = cx, cy
 
     # 优先点击附近"去完成/去浏览"按钮（更精确）
@@ -89,11 +110,15 @@ def exec_browse(cx, cy, task_name="", blocks=None):
     d.click(click_cx, click_cy)
     time.sleep(3)
 
+    # 精选推荐页的顶部搜索奖励是独立内嵌任务；本次只执行外层浏览。
     duration = parse_seconds(task_name, default=30)
-    execute_browse_task(d, min_duration=duration, max_wait=duration + 30)
+    if not execute_browse_task(d, min_duration=duration, max_wait=duration + 30):
+        print("  ⚠️ 浏览未完成，保留当前页面")
+        return False
 
     d.press("back")
     time.sleep(2)
+    return True
 
 
 def main():
@@ -133,7 +158,9 @@ def main():
 
         ocr_empty_retries = 0
         task_name, cx, cy = task_info
-        exec_browse(cx, cy, task_name, blocks)
+        if not exec_browse(cx, cy, task_name, blocks):
+            print("  ⏹️ 停止自动执行，本次任务不计入完成数量")
+            break
 
         total_all += 1
         print(f"  ✅ 已完成: {total_all} 个任务")
