@@ -200,11 +200,11 @@ class TaskTimingGuardsTest(unittest.TestCase):
         u2_scanner.scan_page = lambda _device: []
 
         # When: a ten-second fixed-duration browse task runs.
-        completed = u2_scanner.execute_browse_task(self.device, min_duration=10, max_wait=20)
+        completed = u2_scanner.execute_browse_task(self.device, min_duration=10, max_wait=30)
 
         # Then: the prompt cannot cause an early return.
         self.assertTrue(completed)
-        self.assertGreaterEqual(self.clock.now, 10)
+        self.assertGreaterEqual(self.clock.now, 20)
 
     def test_shared_browse_task_does_not_exit_when_three_seconds_remain_too_early(self):
         # Given: OCR repeatedly reports that three seconds remain.
@@ -235,11 +235,42 @@ class TaskTimingGuardsTest(unittest.TestCase):
         utils.get_ocr_text_blocks = lambda _device: []
 
         # When: a ten-second fixed-duration browse task runs through the shared utility.
-        completed = utils.browse_task(self.device, min_duration=10, max_wait=20)
+        completed = utils.browse_task(self.device, min_duration=10, max_wait=30)
 
         # Then: the prompt cannot cause an early return.
         self.assertTrue(completed)
-        self.assertGreaterEqual(self.clock.now, 10)
+        self.assertGreaterEqual(self.clock.now, 20)
+
+    def test_fixed_browse_waits_full_duration_and_buffer_after_slow_scan(self):
+        for executor in (u2_scanner.execute_browse_task, utils.browse_task):
+            for duration, extra, expected in ((30, 5, 40), (60, 5, 65), (30, 20, 50)):
+                with self.subTest(executor=executor.__name__, duration=duration, extra=extra):
+                    self.clock.now = 0
+                    device = _TimedDevice(self.clock)
+                    scan_finished = []
+
+                    def slow_scan(_device):
+                        self.clock.sleep(5)
+                        scan_finished.append(self.clock.now)
+                        return []
+
+                    with patch.object(u2_scanner, "scan_page", side_effect=slow_scan), \
+                         patch.object(utils, "get_ocr_text_blocks", side_effect=slow_scan):
+                        completed = executor(device, min_duration=duration, extra_seconds=extra)
+
+                    self.assertTrue(completed)
+                    self.assertGreaterEqual(self.clock.now - scan_finished[0], expected)
+                    # 浏览期间持续滑动，不能仅在返回前静等补足时间。
+                    self.assertGreaterEqual(device.swipe_times[-1] - scan_finished[0], expected - 0.8)
+
+    def test_fixed_browse_timeout_before_safety_buffer_is_not_success(self):
+        for executor in (u2_scanner.execute_browse_task, utils.browse_task):
+            with self.subTest(executor=executor.__name__):
+                self.clock.now = 0
+                with patch.object(u2_scanner, "scan_page", return_value=[]), \
+                     patch.object(utils, "get_ocr_text_blocks", return_value=[]):
+                    completed = executor(self.device, min_duration=30, max_wait=35)
+                self.assertFalse(completed)
 
     def _finish_browse_at_minimum(self, blocks):
         self.clock.now = 13

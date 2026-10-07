@@ -642,7 +642,7 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
         device: u2 设备对象
         min_duration: 未检测到滑动字样时的最小浏览时间（秒）
         max_wait: 超时上限（秒）
-        extra_seconds: 识别到倒计时后追加的保险时间（秒），30秒短任务自动翻倍为10秒
+        extra_seconds: 浏览追加的保险时间（秒），30秒以内任务至少追加10秒
     返回:
         True 正常完成, False 超时
     """
@@ -654,7 +654,7 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
     effective_extra = extra_seconds
     task_ref_duration = min_duration if min_duration > 0 else 999
     if task_ref_duration <= 30:
-        effective_extra = 10
+        effective_extra = max(extra_seconds, 10)
         print(f"  ⏱️ 检测到30秒短任务，追加保险时间 {effective_extra}s")
 
     # 立即下滑一次，不等 OCR（缩短从点击到首次滑动的等待时间）
@@ -679,7 +679,7 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             detected_sec = int(m.group(1))
             # 滑动文本检测到 <= 30s 也自动追加 10s
             if detected_sec <= 30:
-                effective_extra = 10
+                effective_extra = max(extra_seconds, 10)
             has_sliding_text = True
             sliding_min_seconds = detected_sec + effective_extra
             print(f"  📋 检测到【{text}】，提取到 {sliding_min_seconds} 秒，使用滑动文本监控模式")
@@ -753,12 +753,15 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
 
     # 模式B：未检测到滑动字样，按固定时长下滑浏览 + 实时完成检测
     if min_duration > 0:
-        print(f"  📋 未检测到滑动字样，按固定时长 {min_duration} 秒浏览...")
-        while time.time() - start < min_duration and time.time() - start < max_wait:
+        # 页面加载和首次扫描耗时不抵扣实际浏览；保险时间也必须计入。
+        fixed_duration = min_duration + effective_extra
+        browse_start = time.time()
+        print(f"  📋 未检测到滑动字样，按固定时长 {fixed_duration} 秒浏览（任务 {min_duration}s + 保险 {effective_extra}s）...")
+        while time.time() - browse_start < fixed_duration and time.time() - start < max_wait:
             elapsed = int(time.time() - start)
             # 实时检测完成提示
             try:
-                if elapsed >= min_duration and (
+                if time.time() - browse_start >= fixed_duration and (
                     device(textContains="恭喜完成任务").exists
                     or device(textContains="恭喜完成").exists
                     or device(textContains="任务完成").exists
@@ -790,8 +793,8 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             except:
                 pass
             time.sleep(0.8)
-        if time.time() - start < min_duration:
-            print(f"  ⏰ 浏览超时 ({max_wait}s)，未达到 {min_duration}s 要求")
+        if time.time() - browse_start < fixed_duration:
+            print(f"  ⏰ 浏览超时 ({max_wait}s)，未达到 {fixed_duration}s 要求")
             return False
         print(f"  浏览完成，滑动 {swipe_count} 次")
     else:
