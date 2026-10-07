@@ -53,30 +53,36 @@ except Exception as _cb_err:
 OCR_SERVER_URL = "http://175.178.17.23:8888/predict_ocr"
 
 
-def _cloud_ocr(screenshot_pil, retries=3):
+def _cloud_ocr(img, retries=1, log_low_confidence=False):
     """
-    CodeBuddy 多模态驱动的全屏视觉理解函数（向下兼容原 _cloud_ocr 契约）
-    参数:
-        screenshot_pil: PIL Image 对象
-        retries: 重试次数
-    返回: [{"text": str, "cx": int, "cy": int, "conf": float}, ...]
+    直接调用腾讯云上的 PaddleOCR 服务，返回原图中心坐标。
+    返回: [{"text": str, "cx": int, "cy": int, "conf": float}]
     """
-    if HAS_CODEBUDDY_VISION:
+    # 兼容各类图片输入格式
+    if isinstance(img, np.ndarray):
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            pil_img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        else:
+            pil_img = Image.fromarray(img)
+    elif isinstance(img, bytes):
+        pil_img = Image.open(_io.BytesIO(img))
+    elif isinstance(img, Image.Image):
+        pil_img = img
+    else:
         try:
-            blocks = codebuddy_ocr(screenshot_pil, retries=retries)
-            if blocks:
-                return blocks
+            pil_img = Image.open(str(img))
         except Exception as e:
-            print(f"  ⚠️ [CodeBuddy Vision] 处理异常: {e}，尝试云端 OCR 后备...")
+            print(f"  ⚠️ [腾讯云 OCR] 不支持的图像类型: {type(img)}, {e}")
+            return []
 
-    # ===== 后备降级：腾讯云 OCR =====
     buf = _io.BytesIO()
-    screenshot_pil.save(buf, format="JPEG", quality=70)
+    pil_img.convert("RGB").save(buf, format="JPEG", quality=70)
     jpeg_bytes = buf.getvalue()
 
     for attempt in range(retries + 1):
         try:
             import requests as _requests
+            t0 = time.time()
             resp = _requests.post(
                 OCR_SERVER_URL,
                 files={"image": ("screenshot.jpg", jpeg_bytes, "image/jpeg")},
@@ -85,39 +91,31 @@ def _cloud_ocr(screenshot_pil, retries=3):
             )
             resp.raise_for_status()
             data = resp.json()
+            if data.get("code") != 200:
+                raise ValueError(data.get("msg", "unknown"))
+            print(f"  🖼️ [腾讯云 OCR] 耗时 {time.time()-t0:.2f}s")
         except Exception as e:
             if attempt < retries:
                 wait = 2.0 * (attempt + 1)
-                print(f"  ⚠️ OCR 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
+                print(f"  ⚠️ [腾讯云 OCR] 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
                 time.sleep(wait)
                 continue
-            print(f"  ⚠️ 云端 OCR 请求失败（已重试 {retries} 次）: {e}")
+            print(f"  ⚠️ [腾讯云 OCR] 请求失败（已重试 {retries} 次）: {e}")
             return []
 
-        if data.get("code") != 200:
-            err_msg = data.get('msg', 'unknown')
-            if attempt < retries:
-                wait = 3.0 * (attempt + 1)
-                print(f"  ⚠️ 服务器返回异常（第 {attempt + 1} 次）: {err_msg}，{wait}s 后重试...")
-                time.sleep(wait)
-                continue
-            print(f"  ⚠️ 云端 OCR 返回异常（已重试 {retries} 次）: {err_msg}")
-            return []
-
-        ocr_lines = data.get("data", [])
         blocks = []
-        for item in ocr_lines:
+        for item in data.get("data", []):
             text = item.get("text", "").strip()
             score = item.get("score", 0.0)
             center = item.get("center", {})
-            cx = center.get("x", 0)
-            cy = center.get("y", 0)
             if not text or score < 0.4:
+                if log_low_confidence and text:
+                    print(f"  🔎 [腾讯云 OCR] 跳过低置信度文字：{text!r} conf={score:.3f}")
                 continue
             blocks.append({
                 "text": text,
-                "cx": cx,
-                "cy": cy,
+                "cx": center.get("x", 0),
+                "cy": center.get("y", 0),
                 "conf": score,
             })
         return blocks
