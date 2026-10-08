@@ -1,4 +1,4 @@
-"""按固定顺序启动九个点淘脚本，保留各子脚本现有执行逻辑。"""
+"""一键顺序执行连通性脚本和一键下滑。"""
 
 import argparse
 import signal
@@ -13,6 +13,9 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 TASKS = (
     ("连通性脚本.py", 1800),
     ("一键下滑.py", 2100),
+)
+
+REMAINING_TASKS = (
     ("主播打卡粉丝礼.py", 2100),
     ("签到赢元宝.py", 2100),
     ("睡觉赚元宝.py", 3600),
@@ -23,19 +26,20 @@ TASKS = (
 )
 
 
-def execute(stop=None):
+def execute(stop=None, tasks=None):
     """串行执行一轮；失败/超时继续下一项，停止信号取消后续项。"""
     stop = stop if stop is not None else Event()
-    missing = [filename for filename, _ in TASKS if not (SCRIPT_DIR / filename).is_file()]
+    tasks = TASKS if tasks is None else tasks
+    missing = [filename for filename, _ in tasks if not (SCRIPT_DIR / filename).is_file()]
     if missing:
         print(f"缺少脚本：{', '.join(missing)}", flush=True)
         return 1
 
     results = []
-    for index, (filename, timeout) in enumerate(TASKS, 1):
+    for index, (filename, timeout) in enumerate(tasks, 1):
         if stop.is_set():
             break
-        print(f"\n[{index}/{len(TASKS)}] 启动 {filename}（超时 {timeout}s）", flush=True)
+        print(f"\n[{index}/{len(tasks)}] 启动 {filename}（超时 {timeout}s）", flush=True)
         try:
             success, elapsed, reason = run_script(
                 SCRIPT_DIR / filename, cwd=SCRIPT_DIR, timeout=timeout,
@@ -53,15 +57,16 @@ def execute(stop=None):
     if stop.is_set():
         print("已停止，后续脚本未启动。", flush=True)
         return 130
-    return 0 if len(results) == len(TASKS) and all(r[1] for r in results) else 1
+    return 0 if len(results) == len(tasks) and all(r[1] for r in results) else 1
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(tasks=None, description=__doc__):
+    tasks = TASKS if tasks is None else tasks
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--list", action="store_true", help="仅显示执行顺序，不操作设备")
     args = parser.parse_args()
     if args.list:
-        for index, (filename, timeout) in enumerate(TASKS, 1):
+        for index, (filename, timeout) in enumerate(tasks, 1):
             print(f"{index}. {filename}（{timeout}s）")
         return 0
 
@@ -74,7 +79,7 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, request_stop)
-    return execute(stop)
+    return execute(stop, tasks)
 
 
 if __name__ == "__main__":

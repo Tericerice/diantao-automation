@@ -1,38 +1,51 @@
-"""将点淘一键入口注册到指定自动化大管家目录的 Python 脚本分类。"""
+"""将点淘的两个一键入口注册到自动化大管家的 Python 脚本分类。"""
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
 TARGET_ID = "diantao-one-click"
+REMAINING_TARGET_ID = "diantao-one-click-tasks"
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 
 
 def register(butler_dir):
-    # 插入独立条目，保留现有配置文本和所有其他条目；重复注册不会新增按钮。
+    # 更新已有入口并插入第二个入口，保留其他配置；重复注册不会新增按钮。
     registry = butler_dir / "tools" / "managed_process" / "registry.yaml"
     source = registry.read_text(encoding="utf-8")
-    if f"  - id: {TARGET_ID}\n" not in source:
-        command_path = json.dumps((SCRIPT_DIR / "一键顺序执行.py").as_posix(), ensure_ascii=False)
+    entries = (
+        (TARGET_ID, "点淘一键顺序执行", "一键顺序执行.py", "连通性 → 下滑"),
+        (REMAINING_TARGET_ID, "点淘一键任务执行", "一键任务执行.py",
+         "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工"),
+    )
+    for target_id, name, filename, description in entries:
+        command_path = json.dumps((SCRIPT_DIR / filename).as_posix(), ensure_ascii=False)
         working_dir = json.dumps(SCRIPT_DIR.as_posix(), ensure_ascii=False)
         entry = (
-            f"  - id: {TARGET_ID}\n"
-            '    name: "点淘一键顺序执行"\n'
+            f"  - id: {target_id}\n"
+            f"    name: {json.dumps(name, ensure_ascii=False)}\n"
             "    category: script\n"
             "    lifecycle: managed_job\n"
             f'    command: ["${{PYTHON}}", {command_path}]\n'
             f"    working_directory: {working_dir}\n"
-            '    description: "连通性 → 下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工"\n'
+            f"    description: {json.dumps(description, ensure_ascii=False)}\n"
             "    risk: device_automation\n"
             "    enabled: true\n"
             "    requires_human_approval: false\n\n"
         )
-        marker = "  - id: diantao-anchor\n"
-        if marker not in source:
-            raise ValueError("未找到大管家点淘脚本分类的注册位置")
-        registry.write_text(source.replace(marker, entry + marker, 1), encoding="utf-8")
-    print(f"已注册点淘一键顺序执行：{registry}")
+        pattern = rf"^  - id: {re.escape(target_id)}\n.*?(?=^  - id: |\Z)"
+        if re.search(pattern, source, flags=re.MULTILINE | re.DOTALL):
+            source = re.sub(pattern, lambda _: entry, source, count=1,
+                            flags=re.MULTILINE | re.DOTALL)
+        else:
+            marker = "  - id: diantao-anchor\n"
+            if marker not in source:
+                raise ValueError("未找到大管家点淘脚本分类的注册位置")
+            source = source.replace(marker, entry + marker, 1)
+    registry.write_text(source, encoding="utf-8")
+    print(f"已注册点淘一键顺序执行和一键任务执行：{registry}")
 
 
 if __name__ == "__main__":
