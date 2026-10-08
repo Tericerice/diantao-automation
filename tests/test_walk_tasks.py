@@ -100,6 +100,39 @@ class WalkTasksTest(unittest.TestCase):
     def test_button_without_title_is_skipped(self):
         self.assertEqual(self.walk["parse_tasks_from_blocks"]([block("去完成", 950)]), [])
 
+    def test_four_approved_browse_tasks_are_paired_and_classified(self):
+        names = ["浏览元宝商城30秒(0/1)", "浏览精选推荐60秒",
+                 "浏览上新好物60秒", "浏览省钱专区60秒"]
+        blocks = []
+        for index, name in enumerate(names):
+            y = 700 + index * 240
+            blocks.extend([block(name, y=y), block("去浏览" if index == 0 else "去完成", 950, y)])
+        tasks = self.walk["parse_tasks_from_blocks"](blocks)
+        self.assertEqual([t[2] for t in tasks], names)
+        self.assertEqual([t[1] for t in tasks], ["browse"] * 4)
+        self.assertEqual([self.walk["parse_seconds"](t[2]) for t in tasks], [30, 60, 60, 60])
+
+    def test_mall_browse_execution_uses_requested_duration(self):
+        calls = []
+        self.walk.update(check_can_open=lambda _: None,
+                         execute_browse_task=lambda device, **kwargs: calls.append(kwargs))
+        self.assertTrue(self.walk["execute_task"]("browse", "浏览元宝商城30秒(0/1)", 950, 800))
+        self.assertEqual(calls, [{"min_duration": 30, "max_wait": 60}])
+
+    def test_shenquan_browse_and_spaced_mall_title_are_allowed(self):
+        for name in ("浏览神券专区60秒", "浏览 元宝商城 30秒（0/1）"):
+            with self.subTest(name=name):
+                tasks = self.walk["parse_tasks_from_blocks"](task_list(name))
+                self.assertEqual(len(tasks), 1)
+                self.assertEqual(tasks[0][1], "browse")
+
+    def test_mall_exception_does_not_allow_purchase_or_search_tasks(self):
+        for name in ("元宝商城下单", "浏览元宝商城30秒并购买", "浏览元宝商城充值",
+                     "浏览元宝商城搜索找低价"):
+            with self.subTest(name=name):
+                self.assertTrue(self.walk["is_blacklisted"](name))
+                self.assertEqual(self.walk["parse_tasks_from_blocks"](task_list(name)), [])
+
     def test_real_phone_ocr_rewards_do_not_replace_titles(self):
         self.walk.update(screen_width=1264, screen_height=2780)
         blocks = [block("玩1次搜索并找低价", 444, 1266), block("去完成", 1078, 1310),

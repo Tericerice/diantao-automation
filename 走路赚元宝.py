@@ -48,9 +48,12 @@ WHITELIST = [
     "看直播",
     "直播",
     "猜价格",
+    "浏览元宝商城",
     "浏览精选推荐",
+    "浏览上新好物",
     "浏览当季上新好物",
     "浏览省钱专区",
+    "浏览神券专区",
     "浏览",
     "签到",
     "查看",
@@ -280,6 +283,10 @@ def is_blacklisted(text):
     """检查任务名是否在黑名单中"""
     if not text:
         return True
+    # 走路任务中的商城限时浏览已确认可执行，只放行该任务标题。
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"浏览元宝商城(?:\d+秒)?(?:[（(]\d+/\d+[）)])?", compact):
+        return False
     return any(kw in text for kw in BLACKLIST_KEYWORDS)
 
 
