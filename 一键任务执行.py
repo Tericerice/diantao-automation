@@ -2,6 +2,7 @@
 
 from 一键顺序执行 import REMAINING_TASKS, main
 
+MAX_RECHECKS = 5
 
 if __name__ == "__main__":
-    raise SystemExit(main(tasks=REMAINING_TASKS, description=__doc__))
+    raise SystemExit(main(tasks=REMAINING_TASKS, description=__doc__, max_rechecks=MAX_RECHECKS))

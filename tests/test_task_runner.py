@@ -48,3 +48,19 @@ def test_output_and_exit_code(tmp_path: Path, code: int) -> None:
     assert success == (code == 0)
     assert lines == ["中文日志"]
     assert reason == ("成功" if code == 0 else "错误码 7")
+
+
+def test_recheck_environment_is_only_set_for_requested_child(tmp_path: Path, monkeypatch):
+    from task_recheck import RECHECK_ENV
+
+    monkeypatch.delenv(RECHECK_ENV, raising=False)
+    script = tmp_path / "environment.py"
+    script.write_text(f"import os; print(os.environ.get('{RECHECK_ENV}', 'off'))", encoding="utf-8")
+    lines = []
+    for overrides in ({RECHECK_ENV: "1"}, None):
+        success, _, _ = run_script(
+            script, cwd=tmp_path, timeout=5, should_stop=lambda: False,
+            on_line=lines.append, env_overrides=overrides,
+        )
+        assert success
+    assert lines == ["1", "off"]

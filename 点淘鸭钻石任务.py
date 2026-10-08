@@ -4,6 +4,7 @@
 """
 import time
 import sys
+from task_recheck import report_task_found, report_round_finished
 import re
 import unicodedata
 
@@ -433,6 +434,7 @@ def scan_and_execute():
             prev_empty.clear()
             name, cx, cy = task
             clicked[name] = clicked.get(name, 0) + 1
+            report_task_found()
             if do_task(name, cx, cy) is False:
                 print("  本次未执行成功，重新扫描")
                 continue
@@ -445,6 +447,7 @@ def scan_and_execute():
             time.sleep(2)
 
     print(f"\n📊 共完成 {total} 个任务")
+    report_round_finished()
     return total
 
 

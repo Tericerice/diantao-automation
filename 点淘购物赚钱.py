@@ -4,6 +4,7 @@
 """
 import time
 import sys
+from task_recheck import report_task_found, report_round_finished
 import re
 import random
 
@@ -409,6 +410,7 @@ def main():
                 print(f"  📋 预判 → {type_names.get(tp, tp)} {sec}s (任务名: [{task_name}])")
 
                 print(f"  🎯 OCR点击【{text}】@({cx},{cy})")
+                report_task_found()
                 d.click(cx, cy)
                 total += 1
                 clicked = True
@@ -442,6 +444,7 @@ def main():
         print(f"  ✅ 完成第 {total}/{MAX_TASKS} 个任务\n")
 
     print(f"\n📊 共完成 {total} 个任务")
+    report_round_finished()
     try:
         show_today_summary()
     except Exception:

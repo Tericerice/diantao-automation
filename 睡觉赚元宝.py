@@ -4,6 +4,7 @@
 """
 import time
 import sys
+from task_recheck import report_task_found, report_round_finished
 import re
 import random
 
@@ -172,6 +173,7 @@ def scan_and_collect():
         if target:
             prev_snap.clear()
             prev_empty.clear()
+            report_task_found()
             do_bubble_task(target["name"], target["cx"], target["cy"])
             total += 1
             print(f"  ✅ 已完成: {total}")
@@ -180,6 +182,7 @@ def scan_and_collect():
         # 收集浮动气泡
         count = click_float_bubbles(d, max_collect=5)
         if count > 0:
+            report_task_found()
             prev_snap.clear()
             
             prev_empty.clear()
@@ -191,6 +194,7 @@ def scan_and_collect():
         break
 
     print(f"\n📊 共完成 {total} 个")
+    report_round_finished()
     return total
 
 

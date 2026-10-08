@@ -4,6 +4,7 @@
 """
 import time
 import sys
+from task_recheck import recheck_enabled, report_task_found, report_round_finished
 import re
 
 import uiautomator2 as u2
@@ -133,6 +134,7 @@ def scan_and_clock():
                 cx, cy = int(cx), int(cy)
             except:
                 cx, cy = screen_width // 2, screen_height // 2
+            report_task_found()
             do_clock(cx, cy, text)
             total += 1
             prev_snap.clear()
@@ -144,6 +146,7 @@ def scan_and_clock():
         found = False
         for n in nodes:
             if "去打卡" in n["text"] and "已打卡" not in n["text"]:
+                report_task_found()
                 do_clock(n["cx"], n["cy"], n["text"])
                 total += 1
                 found = True
@@ -167,11 +170,12 @@ def scan_and_clock():
 
         # 再次确认
         nodes = scan_page(d)
-        if not any("去打卡" in n["text"] and "已打卡" not in n["text"] for n in nodes) and total > 0:
+        if not any("去打卡" in n["text"] and "已打卡" not in n["text"] for n in nodes) and (total > 0 or recheck_enabled()):
             print("  🎉 全部完成")
             break
 
     print(f"\n📊 共完成 {total} 个打卡")
+    report_round_finished()
     return total
 
 

@@ -17,6 +17,7 @@ def run_script(
     timeout: float,
     should_stop: Callable[[], bool],
     on_line: Callable[[str], None],
+    env_overrides: dict[str, str] | None = None,
 ) -> tuple[bool, float, str]:
     """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。"""
     start = time.monotonic()
@@ -27,6 +28,8 @@ def run_script(
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
+    if env_overrides:
+        env.update(env_overrides)
     proc = subprocess.Popen(
         [sys.executable, "-u", str(filepath)], cwd=cwd,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

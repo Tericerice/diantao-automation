@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Event
 
 from task_runner import run_script
+from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -26,7 +27,57 @@ REMAINING_TASKS = (
 )
 
 
-def execute(stop=None, tasks=None):
+def run_task(filename, timeout, stop, max_rechecks):
+    """首次执行后重新启动原脚本复核；每轮保留原脚本的导航、扫描和执行逻辑。"""
+    total_elapsed = 0
+    success, reason = False, "未执行"
+    for recheck in range(max_rechecks + 1):
+        if stop.is_set():
+            break
+        if recheck:
+            print(f"\n🔄 {filename}：重新进入界面复核 {recheck}/{max_rechecks}", flush=True)
+        feedback = {"found": False, "finished": False}
+
+        def on_line(line):
+            if max_rechecks and line.strip() == TASK_FOUND:
+                feedback["found"] = True
+            elif max_rechecks and line.strip() == ROUND_FINISHED:
+                feedback["finished"] = True
+            else:
+                print(line, flush=True)
+
+        kwargs = {}
+        if max_rechecks:
+            kwargs["env_overrides"] = {RECHECK_ENV: "1"}
+        try:
+            success, elapsed, reason = run_script(
+                SCRIPT_DIR / filename, cwd=SCRIPT_DIR, timeout=timeout,
+                should_stop=stop.is_set, on_line=on_line, **kwargs,
+            )
+        except Exception as exc:
+            success, elapsed, reason = False, 0, f"启动异常：{exc}"
+        total_elapsed += elapsed
+        print(f"{filename}：{reason}（本轮 {elapsed:.1f}s）", flush=True)
+        if stop.is_set() or not max_rechecks:
+            break
+        if recheck and success and feedback["finished"] and not feedback["found"]:
+            reason = f"复核 {recheck}/{max_rechecks} 未发现可执行任务，确认结束"
+            print(reason, flush=True)
+            break
+        if not success or not feedback["finished"]:
+            success = False
+            print("本轮未正常完成扫描，仍计入复核上限。", flush=True)
+        elif feedback["found"]:
+            print("本轮发现的任务已执行。", flush=True)
+        else:
+            print("初次未发现任务，准备重新进入复核。", flush=True)
+        if recheck == max_rechecks:
+            reason = f"{reason}；已达到 {max_rechecks} 次复核上限，当前轮结束后进入下一项"
+            print(reason, flush=True)
+    return success, total_elapsed, reason
+
+
+def execute(stop=None, tasks=None, max_rechecks=0):
     """串行执行一轮；失败/超时继续下一项，停止信号取消后续项。"""
     stop = stop if stop is not None else Event()
     tasks = TASKS if tasks is None else tasks
@@ -40,14 +91,7 @@ def execute(stop=None, tasks=None):
         if stop.is_set():
             break
         print(f"\n[{index}/{len(tasks)}] 启动 {filename}（超时 {timeout}s）", flush=True)
-        try:
-            success, elapsed, reason = run_script(
-                SCRIPT_DIR / filename, cwd=SCRIPT_DIR, timeout=timeout,
-                should_stop=stop.is_set,
-                on_line=lambda line: print(line, flush=True),
-            )
-        except Exception as exc:
-            success, elapsed, reason = False, 0, f"启动异常：{exc}"
+        success, elapsed, reason = run_task(filename, timeout, stop, max_rechecks)
         results.append((filename, success, reason))
         print(f"{filename}：{reason}（{elapsed:.1f}s）", flush=True)
 
@@ -60,7 +104,7 @@ def execute(stop=None, tasks=None):
     return 0 if len(results) == len(tasks) and all(r[1] for r in results) else 1
 
 
-def main(tasks=None, description=__doc__):
+def main(tasks=None, description=__doc__, max_rechecks=0):
     tasks = TASKS if tasks is None else tasks
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--list", action="store_true", help="仅显示执行顺序，不操作设备")
@@ -79,7 +123,7 @@ def main(tasks=None, description=__doc__):
     signal.signal(signal.SIGTERM, request_stop)
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, request_stop)
-    return execute(stop, tasks)
+    return execute(stop, tasks, max_rechecks=max_rechecks)
 
 
 if __name__ == "__main__":

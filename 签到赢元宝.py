@@ -4,6 +4,7 @@
 """
 import time
 import sys
+from task_recheck import report_task_found, report_round_finished
 import re
 
 from u2_scanner import connect_device, DT_APP, click_u2_control
@@ -570,6 +571,7 @@ def main(entry_name: str = "签到赢元宝") -> None:
 
         # 只执行第一个"去完成"任务
         task_type, task_name, btn_cx, btn_cy = task_list[0]
+        report_task_found()
         print(f"\n  ▶️ [{total_all+1}] {task_name}")
 
         if task_type == "guess_price":
@@ -585,6 +587,7 @@ def main(entry_name: str = "签到赢元宝") -> None:
         print(f"  ✅ 已完成: {total_all} 个任务")
 
     print(f"\n📊 共执行 {total_all} 个{entry_name}任务")
+    report_round_finished()
 
     try:
         show_today_summary()
