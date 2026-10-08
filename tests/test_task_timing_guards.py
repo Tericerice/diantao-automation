@@ -286,8 +286,47 @@ class TaskTimingGuardsTest(unittest.TestCase):
                 self.assertGreaterEqual(self.clock.now, 40)
                 self.assertGreaterEqual(device.swipe_times[-1], 40)
 
+    def test_countdown_browse_excludes_initial_scan_time_and_keeps_minimum(self):
+        for executor in (u2_scanner.execute_browse_task, utils.browse_task):
+            with self.subTest(executor=executor.__name__):
+                self.clock.now = 0
+                device = _TimedDevice(self.clock)
+                scan_finished = []
+
+                def scan(_device):
+                    if not scan_finished:
+                        self.clock.sleep(15)
+                        scan_finished.append(self.clock.now)
+                        return [{"text": "滑动浏览5秒"}]
+                    return []
+
+                with patch.object(u2_scanner, "scan_page", side_effect=scan), \
+                     patch.object(utils, "get_ocr_text_blocks", side_effect=scan):
+                    completed = executor(device, min_duration=30, max_wait=70, extra_seconds=10)
+                self.assertTrue(completed)
+                self.assertGreaterEqual(self.clock.now - scan_finished[0], 40)
+                self.assertGreaterEqual(device.swipe_times[-1] - scan_finished[0], 40)
+
+    def test_countdown_scan_consuming_timeout_is_not_a_completed_browse(self):
+        for executor in (u2_scanner.execute_browse_task, utils.browse_task):
+            with self.subTest(executor=executor.__name__):
+                self.clock.now = 0
+                first_scan = [True]
+
+                def scan(_device):
+                    if first_scan[0]:
+                        first_scan[0] = False
+                        self.clock.sleep(15)
+                        return [{"text": "滑动浏览5秒"}]
+                    return []
+
+                with patch.object(u2_scanner, "scan_page", side_effect=scan), \
+                     patch.object(utils, "get_ocr_text_blocks", side_effect=scan):
+                    completed = executor(self.device, min_duration=30, max_wait=45, extra_seconds=10)
+                self.assertFalse(completed)
+
     def _finish_browse_at_minimum(self, blocks):
-        self.clock.now = 13
+        self.clock.sleep(13)
         return blocks
 
 

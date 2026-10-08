@@ -679,15 +679,17 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             if detected_sec <= 30:
                 effective_extra = max(extra_seconds, 10)
             has_sliding_text = True
-            sliding_min_seconds = detected_sec + effective_extra
+            sliding_min_seconds = max(min_duration, detected_sec) + effective_extra
             print(f"  📋 检测到【{text}】，提取到 {sliding_min_seconds} 秒，使用滑动文本监控模式")
             break
 
     if has_sliding_text:
         # 模式A：实时监控"滑动浏览XX秒"直到消失，但至少满足提取的秒数
+        # 首次扫描的等待不能抵扣浏览时间；超时仍从函数入口累计。
+        browse_start = time.time()
         print(f"  📋 实时监控【滑动浏览XX秒】字样...")
         while time.time() - start < max_wait:
-            elapsed = int(time.time() - start)
+            elapsed = int(time.time() - browse_start)
 
             blocks = get_ocr_text_blocks(device)
             found_sliding = False
@@ -702,6 +704,7 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
                         print(f"    检测到【{text}】剩余 {remaining}s... (已过{elapsed}s)")
                     break
 
+            elapsed = int(time.time() - browse_start)
             if found_sliding and 0 <= remaining <= 3 and elapsed >= sliding_min_seconds:
                 # 剩余时间很少了 → 多下滑4次收尾，不等字样消失
                 print(f"  ✅ 滑动剩余 {remaining}s，即将完成，下滑收尾...")
