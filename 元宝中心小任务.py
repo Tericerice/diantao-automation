@@ -7,6 +7,7 @@
 """
 import time
 import sys
+from task_recheck import recheck_enabled, report_task_found, report_round_finished
 import re
 
 from u2_scanner import connect_device, DT_APP, click_u2_control
@@ -310,12 +311,18 @@ def scan_and_execute():
 
         if task:
             name, cx, cy = task
+            report_task_found()
             execute_task(name, cx, cy)
             total += 1
             print(f"  📊 已完成 {total}/{MAX_TASKS}")
         else:
+            if recheck_enabled():
+                print("  当前屏无可执行任务，结束本轮并交由一键任务复核")
+                break
             print("  当前屏无可执行任务，等待刷新...")
             time.sleep(2)
+
+    report_round_finished()
 
 
 def is_stale_no_buttons(prev_list, current_buttons, max_same=3):

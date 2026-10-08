@@ -39,6 +39,7 @@ def test_remaining_sequence_continues_after_failure(monkeypatch):
         "主播打卡粉丝礼.py", "签到赢元宝.py",
         "睡觉赚元宝.py", "点淘鸭钻石任务.py", "点淘鸭摇一摇.py",
         "点淘购物赚钱.py", "打工得体力.py",
+        "走路赚元宝.py", "元宝中心小任务.py",
     ]
 
 
