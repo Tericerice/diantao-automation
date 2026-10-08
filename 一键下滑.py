@@ -240,37 +240,37 @@ ROUNDS_CONFIG = [
     {
         "label": "1",
         "name": "打工赚元宝",
-        "swipe_seconds": 180,
+        "swipe_seconds": 240,
         "nav_func": _nav_to_dagong,
     },
     {
         "label": "2",
         "name": "睡觉赚元宝",
-        "swipe_seconds": 180,
+        "swipe_seconds": 230,
         "nav_func": _nav_to_sleep,
     },
     {
         "label": "3",
         "name": "签到赢元宝",
-        "swipe_seconds": 180,
+        "swipe_seconds": 240,
         "nav_func": _nav_to_signin,
     },
     {
         "label": "4",
         "name": "购物赚钱",
-        "swipe_seconds": 180,
+        "swipe_seconds": 230,
         "nav_func": _nav_to_shop,
     },
     {
         "label": "5",
         "name": "摇一摇",
-        "swipe_seconds": 180,
+        "swipe_seconds": 230,
         "nav_func": _nav_to_yaoyiyao,
     },
     {
         "label": "6",
         "name": "走路赚元宝",
-        "swipe_seconds": 180,
+        "swipe_seconds": 240,
         "nav_func": _nav_to_walk,
     },
 ]
