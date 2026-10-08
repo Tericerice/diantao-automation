@@ -42,7 +42,8 @@ def test_individual_task_routes_use_current_project_instead_of_old_copy(tmp_path
     registry.parent.mkdir(parents=True)
     source = "targets:\n  - id: diantao-anchor\n"
     routes = {"diantao-shop": "点淘购物赚钱.py", "diantao-swipe": "一键下滑.py",
-              "diantao-connectivity": "连通性脚本.py", "diantao-speedup": "打工加速.py"}
+              "diantao-connectivity": "连通性脚本.py", "diantao-speedup": "打工加速.py",
+              "diantao-signin": "签到赢元宝.py", "diantao-sleep": "睡觉赚元宝.py"}
     for target_id, filename in routes.items():
         source += (f"  - id: {target_id}\n"
                    f'    command: ["${{PYTHON}}", "${{PARENT_DIR}}/diantao/{filename}"]\n'

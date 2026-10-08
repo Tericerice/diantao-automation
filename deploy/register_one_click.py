@@ -45,17 +45,26 @@ def register(butler_dir):
                 raise ValueError("未找到大管家点淘脚本分类的注册位置")
             source = source.replace(marker, entry + marker, 1)
     # 这些独立按钮也必须指向本项目，避免 ${PARENT_DIR} 启动另一份旧副本。
-    for target_id, filename in (
-        ("diantao-shop", "点淘购物赚钱.py"),
-        ("diantao-swipe", "一键下滑.py"),
-        ("diantao-connectivity", "连通性脚本.py"),
-        ("diantao-speedup", "打工加速.py"),
-    ):
+    routes = []
+    for match in re.finditer(r"^  - id: (diantao-[^\n]+)\n.*?(?=^  - id: |\Z)",
+                             source, flags=re.MULTILINE | re.DOTALL):
+        command_line = re.search(r"^    command: (.+)$", match.group(0), flags=re.MULTILINE)
+        if not command_line:
+            continue
+        command = json.loads(command_line.group(1))
+        if len(command) < 2:
+            continue
+        script = command[1].replace("\\", "/")
+        filename = script.rsplit("/", 1)[-1]
+        if "/diantao/" in script and (SCRIPT_DIR / filename).is_file():
+            routes.append((match.group(1), filename, command))
+    for target_id, filename, command_args in routes:
         pattern = rf"^  - id: {re.escape(target_id)}\n.*?(?=^  - id: |\Z)"
         match = re.search(pattern, source, flags=re.MULTILINE | re.DOTALL)
         if match:
             block = match.group(0)
-            command = json.dumps(["${PYTHON}", (SCRIPT_DIR / filename).as_posix()], ensure_ascii=False)
+            command_args[1] = (SCRIPT_DIR / filename).as_posix()
+            command = json.dumps(command_args, ensure_ascii=False)
             block = re.sub(r"^    command:.*$", lambda _: f"    command: {command}",
                            block, flags=re.MULTILINE)
             working_dir = json.dumps(SCRIPT_DIR.as_posix(), ensure_ascii=False)
