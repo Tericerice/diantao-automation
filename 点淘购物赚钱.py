@@ -27,7 +27,6 @@ d = connect_device()
 screen_width, screen_height = d.window_size()
 print(f"屏幕分辨率: {screen_width} x {screen_height}")
 
-FIXED_X, FIXED_Y = 934, 1723       # 元宝中心 → 领元宝兑权益（与连通性脚本一致）
 SCAN_INTERVAL = 2                   # 扫描间隔(秒)
 MAX_TASKS = 100                      # 最大任务数
 MAX_BACK_ATTEMPTS = 6               # 返回最大尝试次数
@@ -40,8 +39,18 @@ SHOPPING_TASK_ROUTE_OVERRIDE_MAP: dict[str, str] = {
 }
 
 
+def enter_shopping_tasks():
+    """OCR 点击购物入口；找不到目标时中止，避免在错误页面继续扫描。"""
+    from utils import click_ocr_text
+
+    if not click_ocr_text(
+        d, "领元宝兑权益", settle_seconds=2.5, attempts=4, log=True,
+    ):
+        raise RuntimeError("OCR 未找到领元宝兑权益，停止购物赚钱导航")
+
+
 def navigate():
-    """进点淘 → 元宝中心 → 固定坐标 → 查看更多"""
+    """进点淘 → 元宝中心 → OCR领元宝兑权益 → 查看更多"""
     print("🔄 导航中...")
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
@@ -61,7 +70,7 @@ def navigate():
             click_u2_control(d, d(textContains="元宝中心"), "元宝中心")
     time.sleep(3)
 
-    d.click(FIXED_X, FIXED_Y)
+    enter_shopping_tasks()
     time.sleep(3)
 
     # 点击"查看更多"展开完整任务列表
@@ -431,7 +440,7 @@ def main():
             bs_after = get_ocr_text_blocks(d)
             if any("元宝中心" in b.get("text", "") for b in bs_after):
                 print("  ⚠️ 回到元宝中心首页，重新进入任务列表")
-                d.click(FIXED_X, FIXED_Y)
+                enter_shopping_tasks()
                 time.sleep(3)
                 bs_new = get_ocr_text_blocks(d)
                 for nb in bs_new:
