@@ -44,6 +44,24 @@ def register(butler_dir):
             if marker not in source:
                 raise ValueError("未找到大管家点淘脚本分类的注册位置")
             source = source.replace(marker, entry + marker, 1)
+    # 这些独立按钮也必须指向本项目，避免 ${PARENT_DIR} 启动另一份旧副本。
+    for target_id, filename in (
+        ("diantao-shop", "点淘购物赚钱.py"),
+        ("diantao-swipe", "一键下滑.py"),
+        ("diantao-connectivity", "连通性脚本.py"),
+    ):
+        pattern = rf"^  - id: {re.escape(target_id)}\n.*?(?=^  - id: |\Z)"
+        match = re.search(pattern, source, flags=re.MULTILINE | re.DOTALL)
+        if match:
+            block = match.group(0)
+            command = json.dumps(["${PYTHON}", (SCRIPT_DIR / filename).as_posix()], ensure_ascii=False)
+            block = re.sub(r"^    command:.*$", lambda _: f"    command: {command}",
+                           block, flags=re.MULTILINE)
+            working_dir = json.dumps(SCRIPT_DIR.as_posix(), ensure_ascii=False)
+            block = re.sub(r"^    working_directory:.*$",
+                           lambda _: f"    working_directory: {working_dir}",
+                           block, flags=re.MULTILINE)
+            source = source[:match.start()] + block + source[match.end():]
     registry.write_text(source, encoding="utf-8")
     print(f"已注册点淘一键顺序执行和一键任务执行：{registry}")
 
