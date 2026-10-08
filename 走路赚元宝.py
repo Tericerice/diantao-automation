@@ -1,6 +1,6 @@
 """
 走路赚元宝 自动化脚本
-用户需先在手机上打开走路赚元宝页面，脚本自动扫描执行任务
+流程：首页 → 元宝中心 → 走路赚元宝 → 上传/消耗步数 → 赚步数任务列表
 优先级：福利直播 > 看直播 > 猜价格 > 浏览精选
 
 采用纯 OCR + 坐标配对方案（参考打工得体力.py）
@@ -8,13 +8,11 @@
 import time
 import sys
 import re
-import random
-
-import uiautomator2 as u2
+from task_recheck import report_task_found, report_round_finished
 from utils import (
     connect_device, get_ocr_text_blocks, check_can_open,
     log_task_completed, show_today_summary,
-    DT_APP, get_current_app, pause_global_watcher, resume_global_watcher,
+    DT_APP, pause_global_watcher, resume_global_watcher,
 )
 from u2_scanner import (
     execute_live_task, execute_video_task, execute_browse_task,
@@ -29,8 +27,7 @@ screen_width, screen_height = d.window_size()
 print(f"屏幕分辨率: {screen_width} x {screen_height}")
 
 MAX_SCROLL = 12
-NAME_ABOVE_GAP = 200  # 任务名在"去完成"上方，最大垂直间距
-NAME_H_OFFSET = 690   # 任务名在左侧，"去完成"按钮在右侧，水平间距上限
+MAX_TASK_ATTEMPTS = 3
 
 # 黑名单关键词
 BLACKLIST_KEYWORDS = [
@@ -41,6 +38,7 @@ BLACKLIST_KEYWORDS = [
     "猜谜", "猜一猜",
     "查看并完成", "玩小游戏",
     "同程旅行",
+    "搜索", "找低价",  # 暂不支持“玩一次搜索并找低价”，优先于白名单过滤
 ]
 
 # 白名单：只执行白名单中的任务，其他任务一律跳过
@@ -80,6 +78,8 @@ def parse_seconds(text, default=60):
 
 def match_task_type(text):
     """精确匹配任务名 → 返回类型字符串"""
+    if "搜索" in text or "找低价" in text:
+        return "other"
     if "福利直播" in text or ("看直播" in text and "福利" in text):
         return "live_welfare"
     if "看视频" in text:
@@ -96,42 +96,184 @@ def match_task_type(text):
 
 
 def detect_task_name(blocks, btn_block):
-    """从按钮上方同一列提取真实任务名（参考打工得体力.py）
-    布局：
-        任务名              ← 目标
-        额外得XX元宝        ← 过滤掉
-        (0/15)              ← 过滤掉
-        去完成              ← 按钮
-    """
+    """同一行优先；用相邻按钮的中线隔离任务，合并拆行的搜索低价标题。"""
     cx, cy = btn_block["cx"], btn_block["cy"]
-    above = []
-    for nb in blocks:
-        if nb["cy"] >= cy:
+    scale = screen_height / 2400
+    buttons = [b for b in blocks if is_task_button(b)]
+    above = [b["cy"] for b in buttons if b["cy"] < cy - 20 * scale]
+    below = [b["cy"] for b in buttons if b["cy"] > cy + 20 * scale]
+    lower = max(cy - 180 * scale, (max(above) + cy) / 2 if above else 0)
+    upper = min(cy + 90 * scale, (min(below) + cy) / 2 if below else screen_height)
+    labels = []
+    for block in blocks:
+        text = block["text"].strip()
+        if not (0 < block["cx"] < cx and lower < block["cy"] < upper):
             continue
-        vdist = cy - nb["cy"]
-        if vdist > NAME_ABOVE_GAP:
+        if is_task_button(block) or re.fullmatch(r"[\d\s()+/，,]+", text):
             continue
-        hdist = abs(nb["cx"] - cx)
-        if hdist > NAME_H_OFFSET:
+        if re.match(r"^(额外得|额外返|奖励|\+|得\d|.{0,2}[+＋]\s*\d)", text):
             continue
-        above.append((vdist, nb["text"]))
+        if text in ("赚步数", "任务列表", "每日任务"):
+            continue
+        labels.append(block)
+    if not labels:
+        return ""
+    # 任何标题片段包含禁用词，整行都不可执行，不能回退到邻行的安全任务。
+    joined = "".join(b["text"] for b in sorted(labels, key=lambda b: (b["cy"], b["cx"])))
+    if is_blacklisted(joined):
+        return joined
+    titles = [b for b in labels if is_whitelisted(b["text"])]
+    if not titles:
+        return ""
+    target = min(titles, key=lambda b: abs(b["cy"] - cy))
+    return target["text"]
 
-    above.sort(key=lambda x: x[0])  # 按垂直距离排序（最近优先）
 
-    # 过滤干扰文本，取第一个非干扰文本作为任务名
-    for _, t in above:
-        if "额外得" in t or "额外返" in t:
-            continue
-        if "元宝" in t or "金币" in t:
-            continue
-        if re.match(r'^\(\d+/\d+\)$', t.strip()):
-            continue
-        if re.match(r'^\d+$', t.strip()):
-            continue
-        return t
+def is_task_button(block):
+    return block["text"].strip() in DONE_BTN_KEYWORDS
 
-    # 全部被过滤掉，回退到最近的文本
-    return above[0][1] if above else ""
+
+def is_walk_map(blocks):
+    texts = [b["text"] for b in blocks]
+    return any("现在可走" in t for t in texts) and any("出发" in t for t in texts)
+
+
+def is_walk_task_list(blocks):
+    if is_walk_map(blocks) or is_walk_reward(blocks):
+        return False
+    texts = [b["text"] for b in blocks]
+    heading = any(any(k in t for k in ("赚步数", "步数任务", "任务列表", "每日任务")) for t in texts)
+    return heading and any(is_task_button(b) or "已完成" in b["text"] or "暂无任务" in b["text"] for b in blocks)
+
+
+def is_walk_reward(blocks):
+    texts = [b["text"] for b in blocks]
+    return any("恭喜额外获得" in t for t in texts) and any("步数" in t and "奖励" in t for t in texts)
+
+
+def navigate_to_walk_page(device):
+    """复用其他任务的首页启动和 OCR 导航链。"""
+    from u2_scanner import navigate_chain
+    device.app_start(DT_APP, stop=True)
+    time.sleep(5)
+    if not navigate_chain(device, [("元宝中心", "元宝中心"), ("走路赚元宝", "走路赚元宝")]):
+        return False
+    return is_walk_map(get_ocr_text_blocks(device))
+
+
+def read_available_steps(blocks):
+    """只读取‘现在可走’，避免把‘今日已走’和里程碑奖励当成剩余步数。"""
+    return read_step_counter(blocks, "现在可走")
+
+
+def read_step_counter(blocks, keyword):
+    for label in blocks:
+        if keyword not in label["text"]:
+            continue
+        match = re.search(re.escape(keyword) + r"\s*([\d,，]+)", label["text"])
+        if match:
+            return int(re.sub(r"[,，]", "", match[1]))
+        nearby = [b for b in blocks
+                  if abs(b["cx"] - label["cx"]) < screen_width * .12
+                  and 0 < b["cy"] - label["cy"] < screen_height * .06
+                  and re.fullmatch(r"[\d,，]+", b["text"].strip())]
+        if nearby:
+            number = min(nearby, key=lambda b: b["cy"] - label["cy"])
+            return int(re.sub(r"[,，]", "", number["text"].strip()))
+    return None
+
+
+def prepare_walk_steps():
+    """先扫描上传入口，再点击出发；每次点击后重扫，验证步数确实减少。"""
+    blocks = get_ocr_text_blocks(d)
+    if not is_walk_map(blocks):
+        return False
+    upload = next((b for b in blocks if b["text"].strip() in
+                   ("上传步数", "同步步数", "领取步数", "转步数")), None)
+    if upload:
+        d.click(int(upload["cx"]), int(upload["cy"]))
+        time.sleep(3)
+        check_can_open(d)
+        blocks = get_ocr_text_blocks(d)
+        if not is_walk_map(blocks):
+            print("  ⚠️ 上传后未返回走路页，停止")
+            return False
+    else:
+        print("  扫描完成，页面没有独立上传入口，读取当前可走步数")
+    previous = None
+    for _ in range(8):
+        steps = read_available_steps(blocks)
+        if steps is None:
+            print("  ⚠️ 无法识别现在可走步数，停止")
+            return False
+        if steps == 0:
+            return True
+        if previous is not None and steps >= previous:
+            print(f"  ⚠️ 出发后步数未减少 ({previous} → {steps})，停止重复点击")
+            return False
+        departure = next((b for b in blocks if b["text"].strip() == "出发"), None)
+        if not departure:
+            return False
+        print(f"  🚶 当前可走 {steps} 步，点击出发")
+        walked_before = read_step_counter(blocks, "今日已走")
+        d.click(int(departure["cx"]), int(departure["cy"]))
+        previous = steps
+        # 等待走路动画结束，期间不重复点击，也不使用旧截图坐标。
+        for _ in range(5):
+            time.sleep(2)
+            blocks = get_ocr_text_blocks(d)
+            current = read_available_steps(blocks)
+            walked_after = read_step_counter(blocks, "今日已走")
+            if (is_walk_reward(blocks) and walked_before is not None
+                    and walked_after is not None and walked_after >= walked_before + steps):
+                print("  已确认步数转入今日已走，接下来处理奖励弹窗")
+                return True
+            if is_walk_map(blocks) and current is not None and current < previous:
+                break
+        else:
+            print("  ⚠️ 未确认出发后的步数变化，停止")
+            return False
+    if read_available_steps(blocks) == 0:
+        return True
+    print("  ⚠️ 步数处理达到次数上限")
+    return False
+
+
+def open_walk_task_list(blocks=None):
+    """从已确认的走路主页点击赚步数，并验证任务面板确实打开。"""
+    blocks = get_ocr_text_blocks(d) if blocks is None else blocks
+    if is_walk_task_list(blocks):
+        return True
+    if is_walk_reward(blocks):
+        # “去领步数”会进入推荐直播；这里只打开明确的任务列表入口。
+        entry_name = "查看更多任务"
+    elif is_walk_map(blocks):
+        entry_name = "赚步数"
+    else:
+        return False
+    entry = next((b for b in blocks if b["text"].strip() == entry_name), None)
+    if not entry:
+        return False
+    d.click(int(entry["cx"]), int(entry["cy"]))
+    for _ in range(3):
+        time.sleep(2)
+        if is_walk_task_list(get_ocr_text_blocks(d)):
+            return True
+    return False
+
+
+def restore_walk_task_list(blocks):
+    """任务返回后重认页面；最多返回三次，禁止在商品页继续扫任务。"""
+    for attempt in range(4):
+        if is_walk_task_list(blocks):
+            return True
+        if is_walk_map(blocks) or is_walk_reward(blocks):
+            return open_walk_task_list(blocks)
+        if attempt < 3:
+            d.press("back")
+            time.sleep(2)
+            blocks = get_ocr_text_blocks(d)
+    return False
 
 
 def is_blacklisted(text):
@@ -157,8 +299,7 @@ def parse_tasks_from_blocks(blocks):
     """
     candidates = []
     for b in blocks:
-        text = b["text"]
-        if not any(kw in text for kw in DONE_BTN_KEYWORDS):
+        if not is_task_button(b):
             continue
 
         task_name = detect_task_name(blocks, b)
@@ -236,6 +377,8 @@ def exec_browse(btn_cx, btn_cy, task_name=""):
 
 def execute_task(task_type, task_name, btn_cx, btn_cy):
     """根据任务类型执行"""
+    if is_blacklisted(task_name) or not is_whitelisted(task_name):
+        return False
     if task_type == "video":
         exec_video(btn_cx, btn_cy, task_name)
     elif task_type in ("live_welfare", "live"):
@@ -244,11 +387,14 @@ def execute_task(task_type, task_name, btn_cx, btn_cy):
         exec_guess_price(btn_cx, btn_cy, task_name)
     elif task_type == "browse":
         exec_browse(btn_cx, btn_cy, task_name)
+    else:
+        return False
 
     try:
         log_task_completed("走路赚元宝", task_name)
     except:
         pass
+    return True
 
 
 def main():
@@ -262,13 +408,21 @@ def main():
     print(f"   白名单: {' | '.join(WHITELIST)}")
     print("=" * 50)
 
-    print("\n📌 请确保已在走路赚元宝页面")
-    time.sleep(3)
+    if not navigate_to_walk_page(d):
+        print("⚠️ 导航未确认到达走路页，停止")
+        return
+    if not prepare_walk_steps():
+        print("⚠️ 步数上传/转换未确认完成，停止")
+        return
+    if not open_walk_task_list():
+        print("⚠️ 未确认打开赚步数任务列表，停止")
+        return
 
     total_all = 0
     scroll_count = 0
     ocr_empty_retries = 0
     first_scan = True
+    attempts = {}
 
     while True:
         # 每次扫描前确保 u2 调试覆盖层已关闭
@@ -299,9 +453,17 @@ def main():
                 time.sleep(wait)
                 continue
             print("  ⚠️ OCR 多次无结果，结束")
-            break
+            return
 
-        task_list = parse_tasks_from_blocks(blocks)
+        ocr_empty_retries = 0
+        if not is_walk_task_list(blocks):
+            if not restore_walk_task_list(blocks):
+                print("  ⚠️ 无法恢复走路任务列表，停止")
+                return
+            continue
+
+        task_list = [task for task in parse_tasks_from_blocks(blocks)
+                     if attempts.get(task[2], 0) < MAX_TASK_ATTEMPTS]
         if not task_list:
             # 诊断：打印前 20 个 OCR 文本块
             print(f"  🐛 OCR 返回 {len(blocks)} 个文本块，但未匹配到任务按钮")
@@ -312,7 +474,7 @@ def main():
             # 下滑找更多任务
             scroll_count += 1
             if scroll_count > MAX_SCROLL:
-                print(f"  ✅ 已下滑 {MAX_SCROLL} 次无任务，全部完成")
+                print(f"  已下滑 {MAX_SCROLL} 次，没有其他可执行任务，结束")
                 break
 
             print(f"  ⬇️ 下滑 ({scroll_count}/{MAX_SCROLL})...")
@@ -327,12 +489,16 @@ def main():
 
         # 只执行第一个（优先级最高的）
         priority, task_type, task_name, btn_cx, btn_cy = task_list[0]
+        attempts[task_name] = attempts.get(task_name, 0) + 1
+        report_task_found()
         print(f"\n  ▶️ [{total_all + 1}] {task_name} (优先级{priority})")
-        execute_task(task_type, task_name, btn_cx, btn_cy)
+        if not execute_task(task_type, task_name, btn_cx, btn_cy):
+            continue
         total_all += 1
-        print(f"  ✅ 已完成: {total_all} 个任务")
+        print(f"  已执行: {total_all} 个任务")
 
-    print(f"\n📊 共完成 {total_all} 个任务")
+    print(f"\n📊 共执行 {total_all} 个任务")
+    report_round_finished()
 
     try:
         show_today_summary()
