@@ -49,6 +49,7 @@ def register(butler_dir):
         ("diantao-shop", "点淘购物赚钱.py"),
         ("diantao-swipe", "一键下滑.py"),
         ("diantao-connectivity", "连通性脚本.py"),
+        ("diantao-speedup", "打工加速.py"),
     ):
         pattern = rf"^  - id: {re.escape(target_id)}\n.*?(?=^  - id: |\Z)"
         match = re.search(pattern, source, flags=re.MULTILINE | re.DOTALL)
