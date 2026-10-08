@@ -27,7 +27,7 @@ d = connect_device()
 screen_width, screen_height = d.window_size()
 print(f"屏幕分辨率: {screen_width} x {screen_height}")
 
-FIXED_X, FIXED_Y = 828, 1608       # 元宝中心 → 任务列表入口
+FIXED_X, FIXED_Y = 934, 1723       # 元宝中心 → 领元宝兑权益（与连通性脚本一致）
 SCAN_INTERVAL = 2                   # 扫描间隔(秒)
 MAX_TASKS = 100                      # 最大任务数
 MAX_BACK_ATTEMPTS = 6               # 返回最大尝试次数
