@@ -38,7 +38,7 @@ BLACKLIST_KEYWORDS = [
     "猜谜", "猜一猜",
     "查看并完成", "玩小游戏",
     "同程旅行",
-    "搜索", "找低价",  # 暂不支持“玩一次搜索并找低价”，优先于白名单过滤
+    "搜索", "找低价",  # 搜索任务仅通过下面的精确标题规则放行
 ]
 
 # 白名单：只执行白名单中的任务，其他任务一律跳过
@@ -71,6 +71,7 @@ TASK_PRIORITY = {
     "guess_price": 3,
     "browse": 4,
     "search_browse": 4,
+    "search_low_price": 3,
 }
 
 
@@ -84,6 +85,8 @@ def match_task_type(text):
     """精确匹配任务名 → 返回类型字符串"""
     if is_search_browse_task(text):
         return "search_browse"
+    if is_walk_low_price_task(text):
+        return "search_low_price"
     if "搜索" in text or "找低价" in text:
         return "other"
     if "福利直播" in text or ("看直播" in text and "福利" in text):
@@ -121,12 +124,14 @@ def detect_task_name(blocks, btn_block):
             continue
         if text in ("赚步数", "任务列表", "每日任务", "随机任务", "Q"):
             continue
+        if re.fullmatch(r"(?:第\d+天|明天|\s)+", text):
+            continue
         labels.append(block)
     if not labels:
         return ""
     # 任何标题片段包含禁用词，整行都不可执行，不能回退到邻行的安全任务。
     joined = "".join(b["text"] for b in sorted(labels, key=lambda b: (b["cy"], b["cx"])))
-    if is_search_browse_task(joined):
+    if is_search_browse_task(joined) or is_walk_low_price_task(joined):
         return joined
     if is_blacklisted(joined):
         return joined
@@ -290,11 +295,16 @@ def is_search_browse_task(text):
     return bool(re.fullmatch(r"搜索宝贝后浏览\d+秒(?:[（(]\d+/\d+[）)])?", compact))
 
 
+def is_walk_low_price_task(text):
+    compact = re.sub(r"\s+", "", text)
+    return bool(re.fullmatch(r"玩(?:1|一)次搜索并找低价(?:[（(]\d+/\d+[）)])?", compact))
+
+
 def is_blacklisted(text):
     """检查任务名是否在黑名单中"""
     if not text:
         return True
-    if is_search_browse_task(text):
+    if is_search_browse_task(text) or is_walk_low_price_task(text):
         return False
     # 走路任务中的商城限时浏览已确认可执行，只放行该任务标题。
     compact = re.sub(r"\s+", "", text)
@@ -309,7 +319,7 @@ def is_whitelisted(text):
     """
     if not text:
         return False
-    if is_search_browse_task(text):
+    if is_search_browse_task(text) or is_walk_low_price_task(text):
         return True
     return any(kw in text for kw in WHITELIST)
 
@@ -489,12 +499,104 @@ def exec_search_browse(btn_cx, btn_cy, task_name=""):
         resume_global_watcher(d)
 
 
+def close_walk_low_price(blocks):
+    """OCR 确认找低价弹窗，图像检测定位右上角圆形关闭框。"""
+    import cv2
+    heading = next((b for b in blocks if "找最低价" in b["text"]
+                    and b["cx"] < screen_width * .7), None)
+    if not heading:
+        return False
+    x0 = int(screen_width * .85)
+    y0 = max(0, int(heading["cy"] - screen_height * .1))
+    y1 = int(heading["cy"] - screen_height * .03)
+    img = d.screenshot(format="opencv")
+    gray = cv2.cvtColor(img[y0:y1, x0:screen_width], cv2.COLOR_BGR2GRAY)
+    circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 80,
+                               param1=100, param2=20,
+                               minRadius=int(screen_width * .025),
+                               maxRadius=int(screen_width * .05))
+    if circles is None or len(circles[0]) != 1:
+        return False
+    x, y, _ = circles[0][0]
+    d.click(x0 + int(x), y0 + int(y))
+    time.sleep(1)
+    return True
+
+
+def exec_search_low_price(btn_cx, btn_cy, task_name=""):
+    """搜索后参与一次找低价；确认步数奖励即返回，不耗尽额外猜价机会。"""
+    pause_global_watcher(d)
+    try:
+        before, tasks = read_search_step_balance()
+        fresh = next((t for t in parse_tasks_from_blocks(tasks) if t[1] == "search_low_price"), None)
+        if not fresh:
+            return False
+        d.click(fresh[3], fresh[4])
+        time.sleep(2)
+        blocks = get_ocr_text_blocks(d)
+        field = next((b for b in blocks if "请输入想找的商品" in b["text"]), None)
+        if not field or not any("寻找最低价格" in b["text"] for b in blocks):
+            return False
+        d.click(int(field["cx"]), int(field["cy"]))
+        time.sleep(1)
+        d.shell(["input", "text", "yashua"])
+        time.sleep(1)
+        blocks = get_ocr_text_blocks(d)
+        candidate = next((b for b in blocks if "牙刷" in b["text"]
+                          and b["cy"] > screen_height * .6), None)
+        if not candidate:
+            return False
+        d.click(int(candidate["cx"]), int(candidate["cy"]))
+        # 收起键盘后重新定位；弹窗和按钮会随键盘状态上下移动。
+        d.press("back")
+        time.sleep(1)
+        blocks = get_ocr_text_blocks(d)
+        if not any(b["text"].strip() == "牙刷" and b["cy"] < screen_height * .6 for b in blocks):
+            return False
+        search = next((b for b in blocks if b["text"].strip() == "找最低价"
+                       and b["cx"] > screen_width * .7), None)
+        if not search:
+            return False
+        d.click(int(search["cx"]), int(search["cy"]))
+        time.sleep(2)
+        blocks = get_ocr_text_blocks(d)
+        if not any("找找哪个商品价格最低" in b["text"] for b in blocks):
+            return False
+        prices = [b for b in blocks if re.fullmatch(r"[￥¥]?\?{2,}", b["text"].strip())
+                  and b["cy"] > screen_height * .4]
+        if not prices:
+            return False
+        price = min(prices, key=lambda b: (b["cy"], b["cx"]))
+        d.click(int(price["cx"]), int(price["cy"]))
+        time.sleep(1)
+        blocks = get_ocr_text_blocks(d)
+        submit = next((b for b in blocks if b["text"].strip() == "猜它价格最低"), None)
+        if not submit:
+            return False
+        d.click(int(submit["cx"]), int(submit["cy"]))
+        time.sleep(2)
+        blocks = get_ocr_text_blocks(d)
+        rewarded = any(re.search(r"恭喜完成任务.*获得\d+步数", b["text"]) for b in blocks)
+        if not close_walk_low_price(blocks):
+            return False
+        if not restore_walk_task_list(get_ocr_text_blocks(d)):
+            return False
+        after, _ = read_search_step_balance()
+        print(f"  搜索找低价可走步数：{before} → {after}")
+        return rewarded or (before is not None and after is not None and after > before)
+    finally:
+        resume_global_watcher(d)
+
+
 def execute_task(task_type, task_name, btn_cx, btn_cy):
     """根据任务类型执行"""
     if is_blacklisted(task_name) or not is_whitelisted(task_name):
         return False
     if is_search_browse_task(task_name):
         if not exec_search_browse(btn_cx, btn_cy, task_name):
+            return False
+    elif is_walk_low_price_task(task_name):
+        if not exec_search_low_price(btn_cx, btn_cy, task_name):
             return False
     elif task_type == "video":
         exec_video(btn_cx, btn_cy, task_name)

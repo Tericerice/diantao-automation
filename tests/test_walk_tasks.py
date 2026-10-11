@@ -86,7 +86,8 @@ class WalkTasksTest(unittest.TestCase):
         blocks = [block("看视频60秒", y=700), block("去完成", 950, 700),
                   block("玩一次搜索并找低价", y=830), block("去完成", 950, 830)]
         tasks = self.walk["parse_tasks_from_blocks"](blocks)
-        self.assertEqual([t[2] for t in tasks], ["看视频60秒"])
+        self.assertEqual([t[1:3] for t in tasks],
+                         [("video", "看视频60秒"), ("search_low_price", "玩一次搜索并找低价")])
 
     def test_search_fragments_block_even_when_title_contains_browse(self):
         blocks = [block("浏览精选推荐", y=700), block("去完成", 950, 700),
@@ -149,6 +150,7 @@ class WalkTasksTest(unittest.TestCase):
         tasks = self.walk["parse_tasks_from_blocks"](blocks)
         self.assertEqual([t[1:3] for t in tasks],
                          [("video", "看视频60秒(0/10)"), ("live", "看直播60秒(0/10)"),
+                          ("search_low_price", "玩1次搜索并找低价"),
                           ("guess_price", "去玩1次猜价格游戏")])
 
     def test_non_button_text_is_not_clicked(self):
@@ -223,6 +225,53 @@ class WalkTasksTest(unittest.TestCase):
         self.assertEqual(balance, 375)
         self.assertEqual(blocks, task_list())
         self.assertEqual(self.walk["d"].events, [("click", 1000, 610), ("click", 980, 1600)])
+
+    def test_low_price_title_ignores_calendar_and_merges_split_lines(self):
+        blocks = [block("第1天 第2天明天", y=660), block("玩1次搜索", y=730),
+                  block("并找低价", y=765), block("去完成", 950, 780),
+                  block("文+388找低价赢海量元宝", y=820)]
+        tasks = self.walk["parse_tasks_from_blocks"](blocks)
+        self.assertEqual(tasks[0][1:3], ("search_low_price", "玩1次搜索并找低价"))
+        for title in ("玩1次搜索并找低价购买", "玩1次搜索并找低价分享", "搜索找低价"):
+            self.assertTrue(self.walk["is_blacklisted"](title))
+
+    def low_price_pages(self):
+        return [[block("搜索商品→寻找最低价格→答对赢188元宝", y=894),
+                 block("请输入想找的商品", 354, 1837)],
+                [block("1牙刷", 135, 1902)],
+                [block("牙刷", 218, 1066), block("找最低价", 1073, 1065)],
+                [block("找找哪个商品价格最低", y=1026),
+                 block("￥???", 122, 1612), block("￥???", 530, 1612)],
+                [block("猜它价格最低", 631, 2518)],
+                [block("恭喜完成任务，获得388步数", y=1795)], task_list()]
+
+    def setup_low_price(self, pages, after=1301):
+        self.setup_search_execution(pages)
+        balances = iter([(913, task_list("玩1次搜索并找低价")), (after, task_list())])
+        self.walk["read_search_step_balance"] = lambda: next(balances)
+        self.walk["restore_walk_task_list"] = lambda _: True
+        self.walk["close_walk_low_price"] = lambda _: True
+
+    def test_low_price_relocates_after_keyboard_and_submits_once(self):
+        self.setup_low_price(self.low_price_pages())
+        self.assertTrue(self.walk["exec_search_low_price"](1, 1, "玩1次搜索并找低价"))
+        self.assertEqual(self.walk["d"].events, [
+            ("click", 950, 800), ("click", 354, 1837),
+            ("shell", ["input", "text", "yashua"]), ("click", 135, 1902),
+            ("press", "back"), ("click", 1073, 1065),
+            ("click", 122, 1612), ("click", 631, 2518)])
+
+    def test_low_price_without_game_does_not_guess(self):
+        pages = self.low_price_pages()[:3] + [[block("搜索建议")]]
+        self.setup_low_price(pages)
+        self.assertFalse(self.walk["exec_search_low_price"](1, 1, "玩1次搜索并找低价"))
+        self.assertEqual(self.walk["d"].events[-1], ("click", 1073, 1065))
+
+    def test_low_price_no_reward_or_step_change_is_not_logged(self):
+        pages = self.low_price_pages()[:-2] + [[block("还剩2次机会")], task_list()]
+        self.setup_low_price(pages, after=913)
+        self.walk["log_task_completed"] = lambda *a: self.fail("不能虚报完成")
+        self.assertFalse(self.walk["execute_task"]("search_low_price", "玩1次搜索并找低价", 1, 1))
 
     def test_available_steps_ignores_today_and_milestones(self):
         blocks = walk_map(1299) + [block("20000步", 500, 300)]
