@@ -46,6 +46,9 @@ class Device:
     def swipe(self, *args):
         self.events.append(("swipe", args))
 
+    def shell(self, args):
+        self.events.append(("shell", args))
+
 
 def load_walk():
     path = Path(__file__).parents[1] / "走路赚元宝.py"
@@ -156,6 +159,70 @@ class WalkTasksTest(unittest.TestCase):
         self.assertFalse(self.walk["execute_task"]("browse", "浏览玩一次搜索并找低价", 950, 800))
         self.assertEqual(self.walk["d"].events, [])
         self.assertEqual(self.walk["match_task_type"]("浏览玩一次搜索并找低价"), "other")
+
+    def test_search_browse_title_is_paired_without_header_or_icon(self):
+        blocks = [block("随机任务", 120, 740), block("搜索宝贝后", 400, 780),
+                  block("浏览45秒", 400, 815), block("Q", 120, 825),
+                  block("去完成", 950, 825), block("文+150", 300, 860)]
+        tasks = self.walk["parse_tasks_from_blocks"](blocks)
+        self.assertEqual(tasks[0][1:3], ("search_browse", "搜索宝贝后浏览45秒"))
+        for name in ("搜索宝贝后浏览45秒并购买", "搜索宝贝后浏览45秒找低价"):
+            self.assertTrue(self.walk["is_blacklisted"](name))
+
+    def search_pages(self, countdown=True):
+        return [[block("搜索领步数", 350, 230), block("Q输入想买的商品", 630, 1327)],
+                [block("'牙刷", 134, 1900)],
+                [block("Q牙刷", 184, 391), block("搜索", 950, 390)],
+                [block("滑动浏览45", 950, 1270)] if countdown else [block("搜索看更多宝贝")]]
+
+    def setup_search_execution(self, pages):
+        self.scan_sequence(pages)
+        self.walk["pause_global_watcher"] = lambda _: None
+        self.walk["resume_global_watcher"] = lambda _: None
+        self.walk["read_search_step_balance"] = lambda: (100, [])
+
+    def test_search_browse_rescans_moved_field_and_button_before_timer(self):
+        completed = [block("赚步数", 500, 600), block("搜索宝贝后浏览45秒"), block("已完成", 950)]
+        pages = self.search_pages() + [completed, completed]
+        self.setup_search_execution(pages)
+        calls = []
+        self.walk["execute_browse_task"] = lambda _, **kw: calls.append(kw) or True
+        self.assertTrue(self.walk["exec_search_browse"](950, 800, "搜索宝贝后浏览45秒"))
+        self.assertEqual(self.walk["d"].events[:5], [
+            ("click", 950, 800), ("click", 630, 1327),
+            ("shell", ["input", "text", "yashua"]), ("click", 134, 1900), ("click", 950, 390)])
+        self.assertEqual(calls, [{"min_duration": 45, "max_wait": 75}])
+
+    def test_search_without_countdown_never_starts_browsing(self):
+        self.setup_search_execution(self.search_pages(False) + [[block("空白")]] * 2)
+        self.walk["execute_browse_task"] = lambda *a, **k: self.fail("不应开始计时")
+        self.assertFalse(self.walk["exec_search_browse"](950, 800, "搜索宝贝后浏览45秒"))
+
+    def test_search_still_actionable_does_not_log_completion(self):
+        self.setup_search_execution(self.search_pages() + [task_list("搜索宝贝后浏览45秒")] * 2)
+        self.walk["execute_browse_task"] = lambda *a, **k: True
+        self.walk["log_task_completed"] = lambda *a: self.fail("不应记为完成")
+        self.assertFalse(self.walk["execute_task"]("search_browse", "搜索宝贝后浏览45秒", 950, 800))
+
+    def test_repeatable_search_success_requires_actual_step_increase(self):
+        self.setup_search_execution(self.search_pages() + [task_list("搜索宝贝后浏览45秒")] * 2)
+        balances = iter([(375, []), (525, [])])
+        self.walk["read_search_step_balance"] = lambda: next(balances)
+        self.walk["execute_browse_task"] = lambda *a, **k: True
+        self.assertTrue(self.walk["exec_search_browse"](950, 800, "搜索宝贝后浏览45秒"))
+
+    def test_missing_title_is_not_proof_of_completion(self):
+        self.setup_search_execution(self.search_pages() + [task_list("看视频60秒")] * 2)
+        self.walk["execute_browse_task"] = lambda *a, **k: True
+        self.assertFalse(self.walk["exec_search_browse"](950, 800, "搜索宝贝后浏览45秒"))
+
+    def test_step_balance_reopens_list_using_current_ocr(self):
+        self.scan_sequence([task_list() + [block("X", 1000, 610)], walk_map(375),
+                            task_list(), task_list()])
+        balance, blocks = self.walk["read_search_step_balance"]()
+        self.assertEqual(balance, 375)
+        self.assertEqual(blocks, task_list())
+        self.assertEqual(self.walk["d"].events, [("click", 1000, 610), ("click", 980, 1600)])
 
     def test_available_steps_ignores_today_and_milestones(self):
         blocks = walk_map(1299) + [block("20000步", 500, 300)]

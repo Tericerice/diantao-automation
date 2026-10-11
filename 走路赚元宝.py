@@ -70,6 +70,7 @@ TASK_PRIORITY = {
     "video": 2,
     "guess_price": 3,
     "browse": 4,
+    "search_browse": 4,
 }
 
 
@@ -81,6 +82,8 @@ def parse_seconds(text, default=60):
 
 def match_task_type(text):
     """精确匹配任务名 → 返回类型字符串"""
+    if is_search_browse_task(text):
+        return "search_browse"
     if "搜索" in text or "找低价" in text:
         return "other"
     if "福利直播" in text or ("看直播" in text and "福利" in text):
@@ -116,13 +119,15 @@ def detect_task_name(blocks, btn_block):
             continue
         if re.match(r"^(额外得|额外返|奖励|\+|得\d|.{0,2}[+＋]\s*\d)", text):
             continue
-        if text in ("赚步数", "任务列表", "每日任务"):
+        if text in ("赚步数", "任务列表", "每日任务", "随机任务", "Q"):
             continue
         labels.append(block)
     if not labels:
         return ""
     # 任何标题片段包含禁用词，整行都不可执行，不能回退到邻行的安全任务。
     joined = "".join(b["text"] for b in sorted(labels, key=lambda b: (b["cy"], b["cx"])))
+    if is_search_browse_task(joined):
+        return joined
     if is_blacklisted(joined):
         return joined
     titles = [b for b in labels if is_whitelisted(b["text"])]
@@ -279,10 +284,18 @@ def restore_walk_task_list(blocks):
     return False
 
 
+def is_search_browse_task(text):
+    """只放行搜索宝贝后限时浏览，不放行搜索找低价或购买任务。"""
+    compact = re.sub(r"\s+", "", text)
+    return bool(re.fullmatch(r"搜索宝贝后浏览\d+秒(?:[（(]\d+/\d+[）)])?", compact))
+
+
 def is_blacklisted(text):
     """检查任务名是否在黑名单中"""
     if not text:
         return True
+    if is_search_browse_task(text):
+        return False
     # 走路任务中的商城限时浏览已确认可执行，只放行该任务标题。
     compact = re.sub(r"\s+", "", text)
     if re.fullmatch(r"浏览元宝商城(?:\d+秒)?(?:[（(]\d+/\d+[）)])?", compact):
@@ -296,6 +309,8 @@ def is_whitelisted(text):
     """
     if not text:
         return False
+    if is_search_browse_task(text):
+        return True
     return any(kw in text for kw in WHITELIST)
 
 
@@ -382,11 +397,106 @@ def exec_browse(btn_cx, btn_cy, task_name=""):
     time.sleep(2)
 
 
+def read_search_step_balance():
+    """关闭任务面板读取可走步数，再重新打开，返回最新任务坐标。"""
+    blocks = get_ocr_text_blocks(d)
+    if not is_walk_task_list(blocks):
+        return None, []
+    heading = next((b for b in blocks if "赚步数" in b["text"]), None)
+    close = next((b for b in blocks if b["text"].strip() in ("X", "×", "x")
+                  and b["cx"] > screen_width * .8 and heading
+                  and abs(b["cy"] - heading["cy"]) < screen_height * .05), None)
+    if not close:
+        return None, blocks
+    d.click(int(close["cx"]), int(close["cy"]))
+    time.sleep(1)
+    blocks = get_ocr_text_blocks(d)
+    if not is_walk_map(blocks):
+        return None, []
+    balance = read_available_steps(blocks)
+    if not open_walk_task_list(blocks):
+        return None, []
+    return balance, get_ocr_text_blocks(d)
+
+
+def exec_search_browse(btn_cx, btn_cy, task_name=""):
+    """入口、框体、键盘候选和搜索按钮均从当前 OCR 定位。"""
+    print(f"  🎯 {task_name}")
+    pause_global_watcher(d)
+    try:
+        before, tasks = read_search_step_balance()
+        if tasks:
+            fresh = next((t for t in parse_tasks_from_blocks(tasks) if t[1] == "search_browse"), None)
+            if not fresh:
+                return False
+            btn_cx, btn_cy = fresh[3:5]
+        elif before is None:
+            return False
+        d.click(btn_cx, btn_cy)
+        time.sleep(2)
+        blocks = get_ocr_text_blocks(d)
+        field = next((b for b in blocks if "输入想买的商品" in b["text"]), None)
+        if not field or not any("搜索领步数" in b["text"] for b in blocks):
+            return False
+        d.click(int(field["cx"]), int(field["cy"]))
+        time.sleep(1)
+        # 手机已有搜狗输入法；通过拼音候选输入中文，避免 send_keys 安装 ATX。
+        d.shell(["input", "text", "yashua"])
+        time.sleep(1)
+        blocks = get_ocr_text_blocks(d)
+        candidate = next((b for b in blocks if "牙刷" in b["text"]
+                          and b["cy"] > screen_height * .6), None)
+        if not candidate:
+            return False
+        d.click(int(candidate["cx"]), int(candidate["cy"]))
+        time.sleep(1)
+        blocks = get_ocr_text_blocks(d)
+        if not any("牙刷" in b["text"] and b["cy"] < screen_height * .2 for b in blocks):
+            return False
+        button = next((b for b in blocks if b["text"].strip() in ("搜索", "领步数", "下一步")
+                       and b["cx"] > screen_width * .7 and b["cy"] < screen_height * .2), None)
+        if not button:
+            return False
+        d.click(int(button["cx"]), int(button["cy"]))
+        for _ in range(3):
+            time.sleep(2)
+            blocks = get_ocr_text_blocks(d)
+            if any(re.search(r"滑动浏览\s*\d+", b["text"]) for b in blocks):
+                break
+        else:
+            print("  ⚠️ 搜索后未识别到浏览倒计时，停止")
+            return False
+        duration = parse_seconds(task_name, default=45)
+        if not execute_browse_task(d, min_duration=duration, max_wait=duration + 30):
+            return False
+        d.press("back")
+        time.sleep(2)
+        if not restore_walk_task_list(get_ocr_text_blocks(d)):
+            return False
+        blocks = get_ocr_text_blocks(d)
+        if not blocks or not is_walk_task_list(blocks):
+            return False
+        titles = [b for b in blocks if is_search_browse_task(b["text"])]
+        if any(b["text"].strip() == "已完成" and b["cx"] > title["cx"]
+               and abs(b["cy"] - title["cy"]) < screen_height * .04
+               for title in titles for b in blocks):
+            return True
+        # 随机任务可重复执行，按钮会保留；以实际增加的可走步数验证奖励。
+        after, _ = read_search_step_balance()
+        print(f"  可走步数：{before} → {after}")
+        return before is not None and after is not None and after > before
+    finally:
+        resume_global_watcher(d)
+
+
 def execute_task(task_type, task_name, btn_cx, btn_cy):
     """根据任务类型执行"""
     if is_blacklisted(task_name) or not is_whitelisted(task_name):
         return False
-    if task_type == "video":
+    if is_search_browse_task(task_name):
+        if not exec_search_browse(btn_cx, btn_cy, task_name):
+            return False
+    elif task_type == "video":
         exec_video(btn_cx, btn_cy, task_name)
     elif task_type in ("live_welfare", "live"):
         exec_live(btn_cx, btn_cy, task_name)
