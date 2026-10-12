@@ -83,8 +83,9 @@ def select_device():
 
 def connect_device():
     """连接设备并启动原生弹窗监控。"""
+    from device_connection import connect_with_retry
     selected = select_device()
-    d = u2.connect(selected)
+    d = connect_with_retry(selected)
     print(f"[OK] 已连接设备：{selected}")
 
     # 强制关闭 u2 触摸调试覆盖层（若有），否则会挡住所有 UI 内容

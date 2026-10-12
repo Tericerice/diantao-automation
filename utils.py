@@ -481,8 +481,9 @@ def resume_global_watcher(d):
 
 def connect_device():
     """连接设备（简化版：自动选设备），自动启动U2全局弹窗监控"""
+    from device_connection import connect_with_retry
     selected = select_device()
-    d = u2.connect(selected)
+    d = connect_with_retry(selected)
     print(f"已成功连接设备：{selected}")
     d._global_watcher_ctx = setup_global_watcher(d)
     return d
