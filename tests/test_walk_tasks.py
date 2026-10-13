@@ -162,6 +162,15 @@ class WalkTasksTest(unittest.TestCase):
         self.assertEqual(self.walk["d"].events, [])
         self.assertEqual(self.walk["match_task_type"]("浏览玩一次搜索并找低价"), "other")
 
+    def test_external_cash_tasks_are_blocked_before_clicking(self):
+        for name in ("去同程旅行签到换现金", "去同城旅行签到换现金",
+                     "去头条极速版赚现金", "浏览头条极速版赚现金(0/1)"):
+            with self.subTest(name=name):
+                self.assertTrue(self.walk["is_blacklisted"](name))
+                self.assertEqual(self.walk["parse_tasks_from_blocks"](task_list(name)), [])
+                self.assertFalse(self.walk["execute_task"]("browse", name, 950, 800))
+                self.assertEqual(self.walk["d"].events, [])
+
     def test_search_browse_title_is_paired_without_header_or_icon(self):
         blocks = [block("随机任务", 120, 740), block("搜索宝贝后", 400, 780),
                   block("浏览45秒", 400, 815), block("Q", 120, 825),
