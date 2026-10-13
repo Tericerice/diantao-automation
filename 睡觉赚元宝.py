@@ -31,10 +31,16 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 BROWSE_TIME = 65
 STALE_LIMIT = 3
 
+# 直播气泡白名单：主标题和时长均精确匹配，只忽略 OCR 空白/换行。
+LIVE_TASK_WHITELIST = {
+    "看李佳琦直播": 60,
+    "看香菇来了直播间": 60,
+    "看福利直播": 30,
+}
+
 TASK_KW = [
     "猜价格", "去玩一次猜",
-    "看直播", "看福利", "看视频",
-    "直播间",
+    "看视频",
     "精选推荐", "精选好物", "精选宝贝", "新好物", "省钱专区",
     "浏览", "去浏览", "查看",
 ]
@@ -63,12 +69,41 @@ def check_center_btn():
     return "no_button"
 
 
+def match_live_bubble(blocks):
+    """合并同一气泡的相邻标题行，按白名单完整标题精确识别。"""
+    scale = screen_height / 2400
+    for block in blocks:
+        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
+        if not screen_height * 0.15 <= cy <= screen_height * 0.65:
+            continue
+        text = re.sub(r"\s+", "", str(block.get("text", "")))
+        candidates = [text]
+        for below in blocks:
+            if (abs(below.get("cx", 0) - cx) <= 100 * scale
+                    and 0 < below.get("cy", 0) - cy <= 100 * scale):
+                candidates.append(text + re.sub(r"\s+", "", str(below.get("text", ""))))
+        for name in candidates:
+            for title, seconds in LIVE_TASK_WHITELIST.items():
+                if re.fullmatch(re.escape(f"{title}{seconds}秒") + r"(?:[（(]\d+/\d+[）)])?", name):
+                    return {"name": name, "cx": cx, "cy": cy}
+    return None
+
+
 def find_bubble():
     """找气泡任务（文字本身就是可点击的气泡按钮）"""
+    from utils import get_ocr_text_blocks
+
+    blocks = get_ocr_text_blocks(d, retries=0)
+    live = match_live_bubble(blocks)
+    if live:
+        print(f"    [白名单精确匹配] {live['name']} @({live['cx']},{live['cy']})")
+        return live
     for kw in TASK_KW:
         btn = d(textContains=kw)
         if btn.exists(timeout=1):
             text = btn.get_text().strip()
+            if "直播" in text:
+                continue
             try:
                 cx, cy = btn.center()
                 cx, cy = int(cx), int(cy)
