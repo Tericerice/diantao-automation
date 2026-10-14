@@ -18,6 +18,9 @@ def test_register_splits_existing_entry_and_preserves_other_targets(tmp_path):
     assert source.endswith(anchor)
     assert source.count("  - id: diantao-one-click\n") == 1
     assert source.count("  - id: diantao-one-click-tasks\n") == 1
+    assert source.count("  - id: diantao-coupon\n") == 1
+    assert (SCRIPT_DIR / "养优惠.py").as_posix() in source
+    assert 'name: "养优惠"' in source
     assert 'description: "连通性 → 下滑"' in source
     assert 'description: "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠"' in source
     assert "一键任务执行.py" in source
@@ -27,14 +30,15 @@ def test_register_splits_existing_entry_and_preserves_other_targets(tmp_path):
     assert registry.read_text(encoding="utf-8") == source
 
 
-def test_register_adds_both_entries_to_fresh_registry(tmp_path):
+def test_register_adds_entries_to_fresh_registry(tmp_path):
     registry = tmp_path / "tools" / "managed_process" / "registry.yaml"
     registry.parent.mkdir(parents=True)
     registry.write_text("targets:\n  - id: diantao-anchor\n", encoding="utf-8")
     register(tmp_path)
     source = registry.read_text(encoding="utf-8")
     assert source.index("id: diantao-one-click\n") < source.index("id: diantao-one-click-tasks\n")
-    assert source.index("id: diantao-one-click-tasks\n") < source.index("id: diantao-anchor\n")
+    assert source.index("id: diantao-one-click-tasks\n") < source.index("id: diantao-coupon\n")
+    assert source.index("id: diantao-coupon\n") < source.index("id: diantao-anchor\n")
 
 
 def test_individual_task_routes_use_current_project_instead_of_old_copy(tmp_path):
