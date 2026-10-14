@@ -18,7 +18,7 @@ def register(butler_dir):
     entries = (
         (TARGET_ID, "点淘一键顺序执行", "一键顺序执行.py", "连通性 → 下滑"),
         (REMAINING_TARGET_ID, "点淘一键任务执行", "一键任务执行.py",
-         "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工 → 走路 → 元宝中心小任务"),
+         "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠"),
     )
     for target_id, name, filename, description in entries:
         command_path = json.dumps((SCRIPT_DIR / filename).as_posix(), ensure_ascii=False)

@@ -84,6 +84,12 @@
     "checked": true
   },
   {
+    "name": "养优惠",
+    "file": "养优惠.py",
+    "timeout": 14400,
+    "checked": true
+  },
+  {
     "name": "618花花乐",
     "file": "618花花乐.py",
     "timeout": 1500,

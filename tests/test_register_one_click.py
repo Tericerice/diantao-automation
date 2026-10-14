@@ -19,7 +19,7 @@ def test_register_splits_existing_entry_and_preserves_other_targets(tmp_path):
     assert source.count("  - id: diantao-one-click\n") == 1
     assert source.count("  - id: diantao-one-click-tasks\n") == 1
     assert 'description: "连通性 → 下滑"' in source
-    assert 'description: "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工 → 走路 → 元宝中心小任务"' in source
+    assert 'description: "主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠"' in source
     assert "一键任务执行.py" in source
     assert "全部九项任务" not in source
 
