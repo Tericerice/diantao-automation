@@ -5,6 +5,7 @@ OCR 通用扫描框架
 ========================================================
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import re
 import random
 import math
@@ -307,6 +308,8 @@ def navigate_chain(device, steps):
             print(f"     ⚠️ OCR 未找到【{keyword}】，本步骤未点击")
             return False
         time.sleep(4)
+        if keyword == "元宝中心" and not handle_yuanbao_live_popups(device):
+            return False
     return True
 
 

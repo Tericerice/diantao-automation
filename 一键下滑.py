@@ -16,6 +16,7 @@
     - nav_func:     导航函数（接收 device 参数，负责进入对应页面）
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 import random
 
@@ -85,7 +86,7 @@ def _enter_yuanbao_center_ocr(device):
             print(f"  🎯 OCR 点击【元宝中心】@({target_x},{target_y})")
             device.click(target_x, target_y)
             time.sleep(CENTER_OCR_CLICK_WAIT_SECONDS)
-            return True
+            return handle_yuanbao_live_popups(device)
 
         print(
             f"  ⚠️ OCR 未找到【元宝中心】（第 "
@@ -314,7 +315,8 @@ def run_round(label, name, swipe_seconds, nav_func):
 
     # Step 2: 进入元宝中心
     if not _enter_yuanbao_center_ocr(d):
-        print("  ⚠️ OCR 未能确认元宝中心，仍继续尝试本轮目标入口")
+        print("  ⚠️ 元宝中心导航或活动弹窗未完成，停止本轮")
+        return
 
     # Step 3: 使用该轮次自己的导航函数进入目标页面
     nav_func(d)

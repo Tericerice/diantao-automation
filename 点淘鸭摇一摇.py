@@ -3,6 +3,7 @@
 流程：导航 → 右滑 → 点击去摇一摇 → OCR扫描赚次数 → 循环做直播/浏览
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 from task_recheck import report_task_found, report_round_finished
 import re
@@ -81,6 +82,8 @@ def navigate():
         print("    ⚠️ 未找到元宝中心文字，点击底部右侧区域...")
         d.click(int(screen_width * 0.7), int(screen_height * 0.93))
     time.sleep(4)
+    if not handle_yuanbao_live_popups(d):
+        return False
 
     duck_btn = d(textContains="点淘鸭家园")
     if duck_btn.exists(timeout=3):
@@ -285,7 +288,8 @@ def test_mode():
     print("    仅展示页面内容，不执行任何点击操作")
     print("=" * 60)
 
-    navigate()
+    if navigate() is False:
+        return
     swipe_to_rightmost()
     time.sleep(2)
 
@@ -315,7 +319,8 @@ def run_mode():
     print(f"    白名单: {' | '.join(TASK_WHITELIST)}")
     print("=" * 60)
 
-    navigate()
+    if navigate() is False:
+        return
     swipe_to_rightmost()
     time.sleep(2)
 

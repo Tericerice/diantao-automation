@@ -16,6 +16,7 @@ smart_navigator.py - 智能导航与异常自愈状态机
 import os
 import sys
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import json
 import re
 import random
@@ -219,6 +220,8 @@ class SmartNavigator:
             print(f"  👆 点击进入【{target_name}】 @({cx}, {cy})...")
             self.d.click(cx, cy)
             time.sleep(4)
+            if target_name == "元宝中心":
+                return handle_yuanbao_live_popups(self.d)
             return True
 
         # 3. 若找不到目标，保留现场并停止

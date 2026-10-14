@@ -5,6 +5,7 @@
 """
 import sys
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 
 from u2_scanner import connect_device, DT_APP
 from utils import get_ocr_text_blocks
@@ -176,7 +177,7 @@ def _enter_yuanbao_center_ocr(device):
             target_x, target_y = int(target["cx"]), int(target["cy"])
             print(f"  🎯 OCR 点击【元宝中心】@({target_x},{target_y})")
             device.click(target_x, target_y)
-            return True
+            return handle_yuanbao_live_popups(device)
 
         print(
             f"  ⚠️ OCR 未找到【元宝中心】（第 "
@@ -208,9 +209,12 @@ def _run_attempt(device, entry_name, nav_func, sw, sh, attempt_index):
 
     try:
         print("  🧭 OCR 查找元宝中心...")
-        _enter_yuanbao_center_ocr(device)
+        if not _enter_yuanbao_center_ocr(device):
+            print("  ⚠️ 元宝中心导航或活动弹窗未完成，停止本次入口尝试")
+            return
     except Exception as exc:
-        print(f"  ⚠️ 元宝中心导航中断，仍继续目标入口步骤：{exc}")
+        print(f"  ⚠️ 元宝中心导航中断，停止本次入口尝试：{exc}")
+        return
     time.sleep(STEP_SETTLE_SECONDS)
 
     try:

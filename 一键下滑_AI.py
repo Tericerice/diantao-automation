@@ -24,6 +24,7 @@
 import os
 import sys
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import random
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -81,7 +82,7 @@ def _nav_to_yuanbao_center(device, sw: int, sh: int) -> bool:
     print("  🧭 正在进入【元宝中心】...", flush=True)
     if _has_ocr(device, ["我的元宝", "提现", "兑红包"]):
         print("  ✅ OCR 确认已处于元宝中心", flush=True)
-        return True
+        return handle_yuanbao_live_popups(device)
     for attempt in range(4):
         if _has_ocr(device, "刷新", settle_seconds=0.2):
             print("    ⚠️ OCR 检测到【刷新】，尝试点击恢复...", flush=True)
@@ -92,6 +93,8 @@ def _nav_to_yuanbao_center(device, sw: int, sh: int) -> bool:
             dismiss_popups(device)
             continue
         time.sleep(4)
+        if not handle_yuanbao_live_popups(device):
+            return False
         dismiss_popups(device)
         if _has_ocr(device, ["我的元宝", "提现", "兑红包"], settle_seconds=0.5, attempts=2):
             device.swipe(sw // 2, int(sh * 0.30), sw // 2, int(sh * 0.80), duration=0.2)

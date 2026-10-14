@@ -3,6 +3,7 @@
 流程：进点淘 → 元宝中心 → 固定坐标进入点淘鸭家园 → 固定坐标打开任务列表 → OCR扫描执行白名单任务
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 from task_recheck import report_task_found, report_round_finished
 import re
@@ -119,6 +120,9 @@ def navigate_to_duck_page(device):
         print("    ⚠️ 未找到【元宝中心】，点击底部右侧区域...")
         device.click(int(screen_width * 0.7), int(screen_height * 0.93))
     time.sleep(4)
+
+    if not handle_yuanbao_live_popups(device):
+        return False
 
     # 3. 优先按可见文字点击，固定坐标只做兜底
     print("  Step 2: 点击点淘鸭家园...")

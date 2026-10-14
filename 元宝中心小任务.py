@@ -6,6 +6,7 @@
    任务名    @(224, y)    去完成 @(900, y)
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 from task_recheck import recheck_enabled, report_task_found, report_round_finished
 import re
@@ -52,7 +53,7 @@ def navigate():
             if btn.exists(timeout=2):
                 click_u2_control(d, btn, text)
                 time.sleep(4)
-                return True
+                return handle_yuanbao_live_popups(d)
         time.sleep(2)
 
     d.click(int(screen_width * 0.7), int(screen_height * 0.93))

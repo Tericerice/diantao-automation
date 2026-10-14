@@ -3,6 +3,7 @@
 流程：进点淘 → 元宝中心 → 下滑找今日签到 → 去看看 → 自动执行任务
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 from task_recheck import report_task_found, report_round_finished
 import re
@@ -50,7 +51,7 @@ def navigate():
             if btn.exists(timeout=2):
                 click_u2_control(d, btn, text)
                 time.sleep(4)
-                return True
+                return handle_yuanbao_live_popups(d)
         time.sleep(2)
 
     d.click(int(screen_width * 0.7), int(screen_height * 0.93))

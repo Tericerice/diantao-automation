@@ -10,6 +10,7 @@
     浏览省钱专区30秒  → 浏览类
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 import re
 
@@ -74,6 +75,9 @@ def navigate():
     else:
         d.click(int(screen_width * 0.7), int(screen_height * 0.93))
         time.sleep(4)
+
+    if not handle_yuanbao_live_popups(d):
+        return False
 
     # 下滑找合成百元大红包 → 点去合成
     print("🔄 下滑找合成百元大红包...")

@@ -3,6 +3,7 @@
 流程：进点淘 → 元宝中心 → 固定坐标934,1723 → 查看更多 → U2扫描"去完成"/"去浏览"
 """
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 from task_recheck import report_task_found, report_round_finished
 import re
@@ -69,6 +70,9 @@ def navigate():
             time.sleep(3)
             click_u2_control(d, d(textContains="元宝中心"), "元宝中心")
     time.sleep(3)
+
+    if not handle_yuanbao_live_popups(d):
+        return False
 
     enter_shopping_tasks()
     time.sleep(3)
@@ -381,7 +385,8 @@ def main():
 
     show_dev_guide()  # 启动时显示开发规范摘要
 
-    navigate()
+    if navigate() is False:
+        return
     total = 0
 
     print("\n🔍 OCR扫描去完成/去浏览按钮...")

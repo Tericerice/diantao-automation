@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import time
+from yuanbao_popup import handle_yuanbao_live_popups
 import random
 from typing import Optional
 
@@ -72,6 +73,9 @@ def navigate_to_money_card() -> bool:
             # 屏幕底部经验点击
             d.click(int(screen_width * 0.7), int(screen_height * 0.93))
             time.sleep(3)
+
+    if not handle_yuanbao_live_popups(d):
+        return False
 
     handle_open_allow_popup(d)
 
@@ -281,6 +285,9 @@ def main():
     print("==================================================")
 
     nav_ok = navigate_to_money_card()
+    if not nav_ok:
+        print("  ⚠️ 元宝中心活动弹窗或赚钱卡导航未完成，停止任务执行")
+        return
 
     # 依次执行三大任务
     run_live_subtask()
