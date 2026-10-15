@@ -195,8 +195,9 @@ def _nav_to_signin(device):
 
 def _nav_to_shop(device):
     """固定点击元宝中心购物卡片，兼容双11活动改名。"""
-    print("  🎯 固定点击购物入口 @(934,1600)")
-    device.click(934, 1600)
+    # 有/无“额外福利”横条时，购物卡片的共同覆盖区域。
+    print("  🎯 固定点击购物入口 @(934,1530)")
+    device.click(934, 1530)
     time.sleep(OCR_CLICK_WAIT_SECONDS)
 
 

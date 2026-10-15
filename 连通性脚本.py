@@ -130,8 +130,8 @@ def _nav_to_signin(device, sw, sh):
 
 def _nav_to_shop(device, sw, sh):
     """与购物任务一致，固定点击元宝中心双11活动卡片。"""
-    print("  🎯 固定点击购物入口 @(934,1600)")
-    device.click(934, 1600)
+    print("  🎯 固定点击购物入口 @(934,1530)")
+    device.click(934, 1530)
     time.sleep(ACTION_SETTLE_SECONDS)
 
 

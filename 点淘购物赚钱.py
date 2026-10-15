@@ -42,8 +42,9 @@ SHOPPING_TASK_ROUTE_OVERRIDE_MAP: dict[str, str] = {
 
 def enter_shopping_tasks():
     """固定点击元宝中心购物卡片，兼容双11活动改名。"""
-    print("  🎯 固定点击购物入口 @(934,1600)")
-    d.click(934, 1600)
+    # 有/无“额外福利”横条时，购物卡片的共同覆盖区域。
+    print("  🎯 固定点击购物入口 @(934,1530)")
+    d.click(934, 1530)
     time.sleep(2.5)
 
 
@@ -81,7 +82,14 @@ def navigate():
             print(f"  ✅ 点击查看更多 @({b['cx']},{b['cy']})")
             time.sleep(2)
             break
+    else:
+        print("  ⚠️ 未找到购物任务列表入口，停止导航")
+        return False
+    if not any("做任务领元宝" in b.get("text", "") for b in get_ocr_text_blocks(d)):
+        print("  ⚠️ 未确认购物任务列表，停止导航")
+        return False
     print("  ✅ 导航完成")
+    return True
 
 
 def browse(seconds):
