@@ -129,9 +129,10 @@ def _nav_to_signin(device, sw, sh):
 
 
 def _nav_to_shop(device, sw, sh):
-    """OCR 定位领元宝兑权益入口，不使用固定坐标。"""
-    if not _ocr_click_target(device, "领元宝兑权益"):
-        raise RuntimeError("OCR 未找到领元宝兑权益，停止本次购物入口导航")
+    """与购物任务一致，固定点击元宝中心双11活动卡片。"""
+    print("  🎯 固定点击购物入口 @(934,1600)")
+    device.click(934, 1600)
+    time.sleep(ACTION_SETTLE_SECONDS)
 
 
 def _nav_to_yaoyiyao(device, sw, sh):

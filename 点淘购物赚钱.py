@@ -41,17 +41,14 @@ SHOPPING_TASK_ROUTE_OVERRIDE_MAP: dict[str, str] = {
 
 
 def enter_shopping_tasks():
-    """OCR 点击购物入口；找不到目标时中止，避免在错误页面继续扫描。"""
-    from utils import click_ocr_text
-
-    if not click_ocr_text(
-        d, "领元宝兑权益", settle_seconds=2.5, attempts=4, log=True,
-    ):
-        raise RuntimeError("OCR 未找到领元宝兑权益，停止购物赚钱导航")
+    """固定点击元宝中心购物卡片，兼容双11活动改名。"""
+    print("  🎯 固定点击购物入口 @(934,1600)")
+    d.click(934, 1600)
+    time.sleep(2.5)
 
 
 def navigate():
-    """进点淘 → 元宝中心 → OCR领元宝兑权益 → 查看更多"""
+    """进点淘 → 元宝中心 → 固定点击购物入口 → 查看更多"""
     print("🔄 导航中...")
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
