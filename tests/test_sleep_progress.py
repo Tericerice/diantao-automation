@@ -51,33 +51,34 @@ def test_reward_is_counted_only_when_clicked_bubble_changes(after, expected):
 def sleep_loop(**overrides):
     ns = {
         "d": Mock(), "time": SimpleNamespace(sleep=lambda _: None), "re": re,
-        "STALE_LIMIT": 3, "check_center_btn": lambda: "waiting",
-        "get_ocr_text_blocks": Mock(return_value=[bubble("睡觉赚元宝")]),
+        "STALE_LIMIT": 3, "screen_height": 2780, "check_center_btn": lambda: "waiting",
+        "get_ocr_text_blocks": Mock(return_value=[bubble("睡觉赚元宝", y=220)]),
         "navigate_to_sleep_page": Mock(return_value=True),
+        "return_to_sleep_page": Mock(return_value=True),
         "find_bubble": Mock(return_value=None), "do_bubble_task": Mock(),
         "click_float_bubbles": Mock(return_value=0),
         "report_task_found": Mock(), "report_round_finished": Mock(),
     }
     ns.update(overrides)
-    return load_functions("睡觉赚元宝.py", {"scan_and_collect"}, ns)
+    return load_functions("睡觉赚元宝.py", {"scan_and_collect", "is_sleep_page"}, ns)
 
 
 def test_sleep_does_not_collect_live_room_numbers_and_bounds_failed_return():
-    ns = sleep_loop(get_ocr_text_blocks=Mock(return_value=[bubble("家具灯饰榜第100+名")]))
+    ns = sleep_loop(get_ocr_text_blocks=Mock(return_value=[bubble("家具灯饰榜第100+名")]),
+                    return_to_sleep_page=Mock(return_value=False))
     assert ns["scan_and_collect"]() == 0
-    assert ns["navigate_to_sleep_page"].call_count == 3
+    ns["return_to_sleep_page"].assert_called_once()
+    ns["find_bubble"].assert_not_called()
     ns["click_float_bubbles"].assert_not_called()
     ns["report_round_finished"].assert_not_called()
 
 
-def test_same_task_without_progress_stops_after_three_attempts():
+def test_repeatable_live_task_is_not_limited_by_its_name():
     target = {"name": "看福利直播30秒", "cx": 160, "cy": 860}
-    ns = sleep_loop(find_bubble=Mock(return_value=target))
-    # A finite mock sequence also makes the regression fail fast before the fix.
-    ns["do_bubble_task"].side_effect = [None] * 3 + [AssertionError("repeated task did not stop")]
-    assert ns["scan_and_collect"]() == 3
-    assert ns["do_bubble_task"].call_count == 3
-    ns["report_round_finished"].assert_not_called()
+    ns = sleep_loop(find_bubble=Mock(side_effect=[target] * 5 + [None]))
+    assert ns["scan_and_collect"]() == 5
+    assert ns["do_bubble_task"].call_count == 5
+    ns["report_round_finished"].assert_called_once()
 
 
 def test_changed_progress_is_allowed_and_empty_round_finishes():
@@ -89,9 +90,62 @@ def test_changed_progress_is_allowed_and_empty_round_finishes():
 
 def test_sleep_recovers_page_then_resumes_scanning():
     ns = sleep_loop(get_ocr_text_blocks=Mock(side_effect=[
-        [bubble("直播间")], [bubble("睡觉赚元宝")],
+        [bubble("直播间")], [bubble("睡觉赚元宝", y=220)],
     ]))
     assert ns["scan_and_collect"]() == 0
-    ns["navigate_to_sleep_page"].assert_called_once()
+    ns["return_to_sleep_page"].assert_called_once()
     ns["click_float_bubbles"].assert_called_once()
     ns["report_round_finished"].assert_called_once()
+
+
+def test_center_entry_is_not_sleep_page_title():
+    ns = sleep_loop()
+    assert not ns["is_sleep_page"]([bubble("睡觉赚元宝", y=2240)])
+
+
+@pytest.mark.parametrize("pages, navigated, expected, backs", [
+    ([[bubble("直播间")], [bubble("睡觉赚元宝", y=220)]], False, True, 1),
+    ([[bubble("睡觉赚元宝", y=220)]], False, True, 0),
+    ([[bubble("直播间")]] * 4, False, False, 3),
+    ([[bubble("直播间")]] * 4 + [[bubble("睡觉赚元宝", y=220)]], True, True, 3),
+    ([[bubble("直播间")]] * 5, True, False, 3),
+])
+def test_return_checks_actual_page_and_bounds_recovery(pages, navigated, expected, backs):
+    ns = sleep_loop(get_ocr_text_blocks=Mock(side_effect=pages),
+                    navigate_to_sleep_page=Mock(return_value=navigated))
+    load_functions("睡觉赚元宝.py", {"return_to_sleep_page"}, ns)
+    assert ns["return_to_sleep_page"]() is expected
+    assert ns["d"].press.call_count == backs
+
+
+def test_live_return_failure_is_not_logged_as_success():
+    ns = sleep_loop(return_to_sleep_page=Mock(return_value=False))
+    ns.update(execute_live_task=Mock(), click_device_point=Mock(), log_task_completed=Mock())
+    load_functions("睡觉赚元宝.py", {"do_bubble_task"}, ns)
+    assert ns["do_bubble_task"]("看福利直播30秒", 160, 860) is False
+    ns["execute_live_task"].assert_called_once()
+    ns["log_task_completed"].assert_not_called()
+
+
+def test_failed_live_return_stops_before_rewards_or_completion():
+    target = {"name": "看福利直播30秒", "cx": 160, "cy": 860}
+    ns = sleep_loop(find_bubble=Mock(return_value=target), do_bubble_task=Mock(return_value=False))
+    assert ns["scan_and_collect"]() == 0
+    ns["click_float_bubbles"].assert_not_called()
+    ns["report_task_found"].assert_not_called()
+    ns["report_round_finished"].assert_not_called()
+
+
+def test_reward_click_opening_live_room_cannot_trigger_live_reward_scan():
+    ns = sleep_loop(
+        get_ocr_text_blocks=Mock(side_effect=[
+            [bubble("睡觉赚元宝", y=220)],
+            [bubble("家具灯饰榜第100+名"), bubble("58")],
+            [bubble("睡觉赚元宝", y=220)],
+        ]),
+        click_float_bubbles=Mock(side_effect=[1, 0]),
+    )
+    assert ns["scan_and_collect"]() == 1
+    ns["return_to_sleep_page"].assert_called_once()
+    assert ns["find_bubble"].call_count == 2
+    assert ns["click_float_bubbles"].call_count == 2

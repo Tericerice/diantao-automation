@@ -118,6 +118,29 @@ def find_bubble(blocks=None):
     return None
 
 
+def is_sleep_page(blocks):
+    """只接受顶部页面标题，避免将元宝中心的入口当成睡觉页。"""
+    return any(re.sub(r"\s+", "", block.get("text", "")) == "睡觉赚元宝"
+               and 0 <= block.get("cy", screen_height) <= screen_height * 0.12
+               for block in blocks)
+
+
+def return_to_sleep_page():
+    """先逐层返回，再尝试一次重新导航；确认失败时禁止继续扫奖励。"""
+    for attempt in range(STALE_LIMIT + 1):
+        if is_sleep_page(get_ocr_text_blocks(d, retries=0)):
+            return True
+        if attempt < STALE_LIMIT:
+            print(f"  未回到睡觉页，按返回 {attempt + 1}/{STALE_LIMIT}")
+            d.press("back")
+            time.sleep(1.5)
+    print("  返回后仍未确认睡觉页，尝试重新导航")
+    if navigate_to_sleep_page(d) and is_sleep_page(get_ocr_text_blocks(d, retries=0)):
+        return True
+    print("  ⚠️ 未能返回睡觉页，停止本轮，不扫描奖励")
+    return False
+
+
 def do_bubble_task(name, btn_cx, btn_cy):
     """执行气泡任务"""
     print(f"  🎯 {name}")
@@ -153,8 +176,8 @@ def do_bubble_task(name, btn_cx, btn_cy):
         click_device_point(d, btn_cx, btn_cy, "直播任务按钮")
         time.sleep(0.5)
         execute_live_task(d, name, btn_cx, btn_cy)
-        d.press("back")
-        time.sleep(1.5)
+        if not return_to_sleep_page():
+            return False
     elif "精选宝贝" in name or ("查看" in name and "个" in name) or "签到" in name:
         click_device_point(d, btn_cx, btn_cy, "精选宝贝任务按钮")
         time.sleep(0.5)
@@ -191,9 +214,6 @@ def do_bubble_task(name, btn_cx, btn_cy):
 def scan_and_collect():
     """主循环：找气泡 → 执行 → 收集浮动气泡"""
     total = 0
-    last_task = None
-    same_task_attempts = 0
-    return_attempts = 0
 
     btn_status = check_center_btn()
     if btn_status == "waiting":
@@ -207,26 +227,16 @@ def scan_and_collect():
         print(f"\n📡 扫描中 ({total}个)...")
 
         blocks = get_ocr_text_blocks(d, retries=0)
-        if not any("睡觉赚元宝" in block.get("text", "") for block in blocks):
-            if return_attempts >= STALE_LIMIT:
-                print("  ⚠️ 连续返回后仍未确认睡觉页，停止本轮")
+        if not is_sleep_page(blocks):
+            if not return_to_sleep_page():
                 return total
-            return_attempts += 1
-            print(f"  未确认睡觉页，重新导航 {return_attempts}/{STALE_LIMIT}")
-            navigate_to_sleep_page(d)
             continue
-        return_attempts = 0
 
         target = find_bubble(blocks)
         if target:
-            task_name = re.sub(r"\s+", "", target["name"])
-            same_task_attempts = same_task_attempts + 1 if task_name == last_task else 1
-            last_task = task_name
-            if same_task_attempts > STALE_LIMIT:
-                print(f"  ⚠️ 同一任务连续 {STALE_LIMIT} 次未变化，停止本轮: {task_name}")
+            if do_bubble_task(target["name"], target["cx"], target["cy"]) is False:
                 return total
             report_task_found()
-            do_bubble_task(target["name"], target["cx"], target["cy"])
             total += 1
             print(f"  ✅ 已完成: {total}")
             continue

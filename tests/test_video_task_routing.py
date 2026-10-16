@@ -223,6 +223,7 @@ class VideoTaskRoutingTest(unittest.TestCase):
                 "d": Device(),
                 "time": types.SimpleNamespace(sleep=lambda _seconds: None),
                 "execute_live_task": lambda *_args, **_kwargs: events.append("live"),
+                "return_to_sleep_page": lambda: events.append("return_verified") or True,
                 "execute_video_task": lambda *_args, **_kwargs: events.append("video"),
                 "click_device_point": lambda *_args: events.append("entry"),
                 "log_task_completed": lambda *_args: None,
@@ -231,7 +232,7 @@ class VideoTaskRoutingTest(unittest.TestCase):
 
         do_bubble_task("看直播60秒", 100, 200)
 
-        self.assertEqual(events, ["entry", "live", ("press", "back")])
+        self.assertEqual(events, ["entry", "live", "return_verified"])
 
     def test_sleep_video_task_uses_shared_video_swipe_default(self):
         video_calls = []
