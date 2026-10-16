@@ -619,7 +619,7 @@ def scan_float_bubbles(device):
         if n["cy"] < int(screen_h * 0.13) or n["cy"] > int(screen_h * 0.40):
             continue
         
-        if "+" in text or re.match(r"^\d{1,4}$", text):
+        if re.fullmatch(r"\+?\d{1,4}", text):
             key = (n["cx"] // 30, n["cy"] // 30)
             if key not in seen:
                 seen.add(key)
@@ -636,6 +636,13 @@ def click_float_bubbles(device, max_collect=10):
         print(f"      点击浮动气泡: [{b['text']}] @({b['cx']}, {b['cy']})")
         device.click(b["cx"], b["cy"])
         time.sleep(1.5)
+        remaining = scan_float_bubbles(device)
+        if any(other["text"] == b["text"]
+               and abs(other["cx"] - b["cx"]) <= 30
+               and abs(other["cy"] - b["cy"]) <= 30
+               for other in remaining):
+            print("      气泡点击后未变化，不计为收集成功")
+            break
         clicked += 1
         break  # 每次只点1个，主循环下次扫描再点下一个
     if clicked > 0:

@@ -18,7 +18,7 @@ from u2_scanner import (
     scan_float_bubbles, click_float_bubbles,
     u2_find_task_buttons, is_stale_task_list, is_stale_no_buttons,
 )
-from utils import log_task_completed, show_today_summary
+from utils import get_ocr_text_blocks, log_task_completed, show_today_summary
 from utils import click_device_point
 
 # ========================================================
@@ -89,11 +89,12 @@ def match_live_bubble(blocks):
     return None
 
 
-def find_bubble():
+def find_bubble(blocks=None):
     """找气泡任务（文字本身就是可点击的气泡按钮）"""
     from utils import get_ocr_text_blocks
 
-    blocks = get_ocr_text_blocks(d, retries=0)
+    if blocks is None:
+        blocks = get_ocr_text_blocks(d, retries=0)
     live = match_live_bubble(blocks)
     if live:
         print(f"    [白名单精确匹配] {live['name']} @({live['cx']},{live['cy']})")
@@ -190,8 +191,9 @@ def do_bubble_task(name, btn_cx, btn_cy):
 def scan_and_collect():
     """主循环：找气泡 → 执行 → 收集浮动气泡"""
     total = 0
-    prev_snap = []
-    prev_empty = []
+    last_task = None
+    same_task_attempts = 0
+    return_attempts = 0
 
     btn_status = check_center_btn()
     if btn_status == "waiting":
@@ -204,10 +206,25 @@ def scan_and_collect():
         time.sleep(1.5)
         print(f"\n📡 扫描中 ({total}个)...")
 
-        target = find_bubble()
+        blocks = get_ocr_text_blocks(d, retries=0)
+        if not any("睡觉赚元宝" in block.get("text", "") for block in blocks):
+            if return_attempts >= STALE_LIMIT:
+                print("  ⚠️ 连续返回后仍未确认睡觉页，停止本轮")
+                return total
+            return_attempts += 1
+            print(f"  未确认睡觉页，重新导航 {return_attempts}/{STALE_LIMIT}")
+            navigate_to_sleep_page(d)
+            continue
+        return_attempts = 0
+
+        target = find_bubble(blocks)
         if target:
-            prev_snap.clear()
-            prev_empty.clear()
+            task_name = re.sub(r"\s+", "", target["name"])
+            same_task_attempts = same_task_attempts + 1 if task_name == last_task else 1
+            last_task = task_name
+            if same_task_attempts > STALE_LIMIT:
+                print(f"  ⚠️ 同一任务连续 {STALE_LIMIT} 次未变化，停止本轮: {task_name}")
+                return total
             report_task_found()
             do_bubble_task(target["name"], target["cx"], target["cy"])
             total += 1
@@ -218,9 +235,6 @@ def scan_and_collect():
         count = click_float_bubbles(d, max_collect=5)
         if count > 0:
             report_task_found()
-            prev_snap.clear()
-            
-            prev_empty.clear()
             total += count
             continue
 
