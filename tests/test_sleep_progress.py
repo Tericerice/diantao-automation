@@ -60,6 +60,18 @@ def test_rankings_are_not_float_rewards():
     assert [b["text"] for b in ns["scan_float_bubbles"](device)] == ["+58", "10"]
 
 
+def test_task_reward_amount_is_not_a_collectible_bubble():
+    nodes = [bubble("58", x=328, y=481), bubble("元宝", x=328, y=517),
+             bubble("看蜜蜂惊喜", x=327, y=592), bubble("社直播60秒", x=327, y=635),
+             bubble("58", x=162, y=738), bubble("看直播60秒", x=160, y=860),
+             bubble("+10", x=900, y=600)]
+    ns = load_functions("u2_scanner.py", {"scan_float_bubbles"}, {
+        "re": re, "scan_page": lambda _: nodes,
+    })
+    device = SimpleNamespace(window_size=lambda: (1264, 2780))
+    assert ns["scan_float_bubbles"](device) == [bubble("+10", x=900, y=600)]
+
+
 @pytest.mark.parametrize("after, expected", [
     ([bubble("10", x=472, y=628)], 0),
     ([], 1),

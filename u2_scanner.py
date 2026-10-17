@@ -604,7 +604,7 @@ def handle_guess_price_game(device, search_first=False):
 # ========================================================
 def scan_float_bubbles(device, ocr_height_ratio=None):
     """
-    扫描浮动 "+数字" 或纯数字气泡
+    扫描浮动 "+数字" 或纯数字气泡，排除下方带任务标题的奖励金额
     返回 [{"text": str, "cx": int, "cy": int}, ...]
     """
     nodes = (scan_page(device) if ocr_height_ratio is None else
@@ -621,6 +621,12 @@ def scan_float_bubbles(device, ocr_height_ratio=None):
             continue
         
         if re.fullmatch(r"\+?\d{1,4}", text):
+            # 任务圆圈的金额也可以点进任务，不能绕过任务识别当作直接奖励领取。
+            if any(abs(other["cx"] - n["cx"]) <= screen_w * 0.10
+                   and 0 < other["cy"] - n["cy"] <= screen_h * 0.10
+                   and re.search(r"直播|视频|浏览|查看|精选|猜价格|去玩", other["text"])
+                   for other in nodes):
+                continue
             key = (n["cx"] // 30, n["cy"] // 30)
             if key not in seen:
                 seen.add(key)
