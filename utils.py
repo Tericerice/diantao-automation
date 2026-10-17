@@ -123,12 +123,13 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
     return []
 
 
-def get_ocr_text_blocks(device, retries=2):
+def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
     """
     全屏 OCR（云端 PaddleOCRv4），返回文本块列表 [{"text", "cx", "cy", "conf"}]
     参数:
         device: u2 设备对象
         retries: 截图失败时的重试次数（默认 2 次，应对 activity 过渡期）
+        height_ratio: 从截图顶部识别的高度比例（默认全屏）
     返回: 文本块列表
     """
     # ===== 外层重试：截图 + 云 OCR 整个过程 =====
@@ -153,6 +154,9 @@ def get_ocr_text_blocks(device, retries=2):
                 time.sleep(2.0)
                 continue
             return []
+
+        if height_ratio != 1.0:
+            img = img.crop((0, 0, img.width, int(img.height * height_ratio)))
 
         # OCR
         blocks = _cloud_ocr(img, retries=0)

@@ -74,12 +74,13 @@ def match_live_bubble(blocks):
     scale = screen_height / 2400
     for block in blocks:
         cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
-        if not screen_height * 0.15 <= cy <= screen_height * 0.65:
+        if not screen_height * 0.15 <= cy <= screen_height * 0.50:
             continue
         text = re.sub(r"\s+", "", str(block.get("text", "")))
         candidates = [text]
         for below in blocks:
-            if (abs(below.get("cx", 0) - cx) <= 100 * scale
+            if (below.get("cy", 0) <= screen_height * 0.50
+                    and abs(below.get("cx", 0) - cx) <= 100 * scale
                     and 0 < below.get("cy", 0) - cy <= 100 * scale):
                 candidates.append(text + re.sub(r"\s+", "", str(below.get("text", ""))))
         for name in candidates:
@@ -94,7 +95,7 @@ def find_bubble(blocks=None):
     from utils import get_ocr_text_blocks
 
     if blocks is None:
-        blocks = get_ocr_text_blocks(d, retries=0)
+        blocks = get_ocr_text_blocks(d, retries=0, height_ratio=0.5)
     live = match_live_bubble(blocks)
     if live:
         print(f"    [白名单精确匹配] {live['name']} @({live['cx']},{live['cy']})")
@@ -110,8 +111,8 @@ def find_bubble(blocks=None):
                 cx, cy = int(cx), int(cy)
             except:
                 continue
-            # 气泡按钮在屏幕 15%~65% 范围内才接受
-            if cy < int(screen_height * 0.15) or cy > int(screen_height * 0.65):
+            # 气泡按钮在屏幕 15%~50% 范围内才接受
+            if cy < int(screen_height * 0.15) or cy > int(screen_height * 0.50):
                 continue
             print(f"    [匹配] {text} → 点击文字本身 @({cx},{cy})")
             return {"name": text, "cx": cx, "cy": cy}
@@ -128,14 +129,14 @@ def is_sleep_page(blocks):
 def return_to_sleep_page():
     """先逐层返回，再尝试一次重新导航；确认失败时禁止继续扫奖励。"""
     for attempt in range(STALE_LIMIT + 1):
-        if is_sleep_page(get_ocr_text_blocks(d, retries=0)):
+        if is_sleep_page(get_ocr_text_blocks(d, retries=0, height_ratio=0.5)):
             return True
         if attempt < STALE_LIMIT:
             print(f"  未回到睡觉页，按返回 {attempt + 1}/{STALE_LIMIT}")
             d.press("back")
             time.sleep(1.5)
     print("  返回后仍未确认睡觉页，尝试重新导航")
-    if navigate_to_sleep_page(d) and is_sleep_page(get_ocr_text_blocks(d, retries=0)):
+    if navigate_to_sleep_page(d) and is_sleep_page(get_ocr_text_blocks(d, retries=0, height_ratio=0.5)):
         return True
     print("  ⚠️ 未能返回睡觉页，停止本轮，不扫描奖励")
     return False
@@ -226,7 +227,7 @@ def scan_and_collect():
         time.sleep(1.5)
         print(f"\n📡 扫描中 ({total}个)...")
 
-        blocks = get_ocr_text_blocks(d, retries=0)
+        blocks = get_ocr_text_blocks(d, retries=0, height_ratio=0.5)
         if not is_sleep_page(blocks):
             if not return_to_sleep_page():
                 return total
@@ -242,7 +243,7 @@ def scan_and_collect():
             continue
 
         # 收集浮动气泡
-        count = click_float_bubbles(d, max_collect=5)
+        count = click_float_bubbles(d, max_collect=5, ocr_height_ratio=0.5)
         if count > 0:
             report_task_found()
             total += count

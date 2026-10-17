@@ -27,6 +27,10 @@ class SleepWhitelistTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.match([block(name)]), {"name": name, "cx": 400, "cy": 800})
 
+    def test_live_bubble_is_limited_to_upper_half(self):
+        self.assertIsNotNone(self.match([block("看福利直播30秒", y=1200)]))
+        self.assertIsNone(self.match([block("看福利直播30秒", y=1201)]))
+
     def test_screenshot_line_breaks(self):
         for first, second, expected in (
                 ("看李佳琦直", "播60秒", "看李佳琦直播60秒"),

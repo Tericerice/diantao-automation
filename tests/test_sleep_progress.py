@@ -22,6 +22,34 @@ def bubble(text, x=470, y=626):
     return {"text": text, "cx": x, "cy": y}
 
 
+@pytest.mark.parametrize("ratio, cropped", [(0.5, True), (1.0, False)])
+def test_ocr_crops_before_recognition_and_keeps_screen_coordinates(ratio, cropped):
+    image = Mock(width=1264, height=2780)
+    device = Mock()
+    device.screenshot.return_value = image
+    result = [bubble("看视频", y=1200)]
+    ocr = Mock(return_value=result)
+    ns = load_functions("utils.py", {"get_ocr_text_blocks"}, {"_cloud_ocr": ocr})
+    assert ns["get_ocr_text_blocks"](device, height_ratio=ratio) == result
+    if cropped:
+        image.crop.assert_called_once_with((0, 0, 1264, 1390))
+    else:
+        image.crop.assert_not_called()
+    assert ocr.call_args.args[0] is (image.crop.return_value if cropped else image)
+
+
+def test_sleep_rewards_use_cropped_ocr_instead_of_full_page_scan():
+    ocr = Mock(return_value=[bubble("+58")])
+    full_page = Mock()
+    ns = load_functions("u2_scanner.py", {"scan_float_bubbles"}, {
+        "re": re, "get_ocr_text_blocks": ocr, "scan_page": full_page,
+    })
+    device = SimpleNamespace(window_size=lambda: (1264, 2780))
+    assert ns["scan_float_bubbles"](device, ocr_height_ratio=0.5) == [bubble("+58")]
+    ocr.assert_called_once_with(device, retries=0, height_ratio=0.5)
+    full_page.assert_not_called()
+
+
 def test_rankings_are_not_float_rewards():
     ns = load_functions("u2_scanner.py", {"scan_float_bubbles"}, {
         "re": re,

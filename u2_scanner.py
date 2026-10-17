@@ -602,12 +602,13 @@ def handle_guess_price_game(device, search_first=False):
 # ========================================================
 # 浮动气泡检测
 # ========================================================
-def scan_float_bubbles(device):
+def scan_float_bubbles(device, ocr_height_ratio=None):
     """
     扫描浮动 "+数字" 或纯数字气泡
     返回 [{"text": str, "cx": int, "cy": int}, ...]
     """
-    nodes = scan_page(device)
+    nodes = (scan_page(device) if ocr_height_ratio is None else
+             get_ocr_text_blocks(device, retries=0, height_ratio=ocr_height_ratio))
     screen_w, screen_h = device.window_size()
     bubbles = []
     
@@ -628,15 +629,15 @@ def scan_float_bubbles(device):
     return bubbles
 
 
-def click_float_bubbles(device, max_collect=10):
+def click_float_bubbles(device, max_collect=10, ocr_height_ratio=None):
     """点击浮动气泡（每次只点1个，防止多点导致UI错乱）"""
-    bubbles = scan_float_bubbles(device)
+    bubbles = scan_float_bubbles(device, ocr_height_ratio=ocr_height_ratio)
     clicked = 0
     for b in bubbles[:max_collect]:
         print(f"      点击浮动气泡: [{b['text']}] @({b['cx']}, {b['cy']})")
         device.click(b["cx"], b["cy"])
         time.sleep(1.5)
-        remaining = scan_float_bubbles(device)
+        remaining = scan_float_bubbles(device, ocr_height_ratio=ocr_height_ratio)
         if any(other["text"] == b["text"]
                and abs(other["cx"] - b["cx"]) <= 30
                and abs(other["cy"] - b["cy"]) <= 30
