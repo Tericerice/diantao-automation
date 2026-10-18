@@ -1,0 +1,84 @@
+"""CLI 和任务选择器共用的脚本执行器，不依赖设备或界面。"""
+
+import os
+import queue
+import subprocess
+import sys
+import threading
+import time
+from collections.abc import Callable
+from pathlib import Path
+
+
+def run_script(
+    filepath: str | Path,
+    *,
+    cwd: str | Path,
+    timeout: float,
+    should_stop: Callable[[], bool],
+    on_line: Callable[[str], None],
+    env_overrides: dict[str, str] | None = None,
+) -> tuple[bool, float, str]:
+    """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。"""
+    start = time.monotonic()
+    if timeout <= 0:
+        raise ValueError("任务超时必须大于 0")
+    if should_stop():
+        return False, 0.0, "用户停止"
+
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    if env_overrides:
+        env.update(env_overrides)
+    proc = subprocess.Popen(
+        [sys.executable, "-u", str(filepath)], cwd=cwd,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        encoding="utf-8", errors="replace", env=env, bufsize=1,
+    )
+    assert proc.stdout is not None
+    output = proc.stdout
+    lines: queue.Queue[str | None] = queue.Queue()
+
+    def read_output() -> None:
+        try:
+            for line in output:
+                lines.put(line.rstrip())
+        finally:
+            lines.put(None)
+
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    eof = False
+    reason = ""
+    try:
+        while True:
+            elapsed = time.monotonic() - start
+            if should_stop():
+                reason = "用户停止"
+                break
+            if elapsed >= timeout:
+                reason = f"超时 ({timeout:g}s)"
+                break
+            if eof and proc.poll() is not None:
+                break
+            try:
+                line = lines.get(timeout=min(0.1, timeout - elapsed))
+            except queue.Empty:
+                continue
+            if line is None:
+                eof = True
+            else:
+                on_line(line)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        # 后代进程可能继承输出管道，不能让它阻塞主线程的超时处理。
+        reader.join(timeout=0.5)
+        if not reader.is_alive():
+            output.close()
+
+    success = not reason and proc.returncode == 0
+    if not reason:
+        reason = "成功" if success else f"错误码 {proc.returncode}"
+    return success, time.monotonic() - start, reason

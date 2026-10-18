@@ -1,0 +1,667 @@
+# diantao architecture documents for vector database
+
+Source thread: codex://threads/019f076f-5fd2-7990-8226-da1964787718
+Encoding: UTF-8 without BOM
+
+
+============================================================
+SOURCE_FILE: README_ARCH.md
+SOURCE_PATH: D:\GitHub Program\docs\README_ARCH.md
+============================================================
+
+# 点淘自动化项目架构文档
+
+## 项目概述
+
+本项目是面向点淘（`com.taobao.live`）和少量淘宝系任务页的 Android 自动化脚本集合。当前主线是 **Python + uiautomator2 + 云端 PaddleOCR + ADB 截图**，并保留 OpenCV 模板匹配、LightRAG 开发规范查询、GUI/CLI 调度器等辅助能力。
+
+截至 2026-06-27，`diantao/` 是活跃主项目目录；`hamibot.diantao/` 在当前工作区未发现，相关文档仅作为历史/备用实现说明。
+
+## 当前核心流程
+
+```text
+任务选择器.py / 全部执行.py
+        │
+        ▼
+读取 task_config.json 中已勾选脚本
+        │
+        ▼
+逐个启动业务脚本（超时、日志、Ctrl+C 停止）
+        │
+        ▼
+connect_device() 连接真机并启动弹窗 watcher
+        │
+        ├── U2 hierarchy / textContains 定位
+        ├── 云端 PaddleOCR 识别 WebView/图片文字
+        ├── ADB screencap 兜底截图
+        └── 坐标盲点 / OpenCV 模板匹配兜底
+        │
+        ▼
+导航任务页 → 扫描按钮/气泡 → 黑白名单过滤 → 执行任务
+        │
+        ▼
+返回任务页 / 写 task_log.json / 进入下一个脚本
+```
+
+## 模块索引
+
+| 模块 | 当前代码位置 | 说明 | 文档 |
+|---|---|---|---|
+| A：点淘核心任务 | `diantao/*.py` | 签到、购物、睡觉、打工、点淘鸭、淘金币、红包、走路等业务脚本 | `docs/diantao_core.md` |
+| B：执行调度系统 | `diantao/任务选择器.py`、`diantao/全部执行.py` | GUI 选择、保存配置、串行执行、超时和日志 | `docs/execution_scheduler.md` |
+| C：OCR/识别引擎 | `diantao/utils.py`、`diantao/tools/*.py` | 云端 PaddleOCR、ADB 截图、模板匹配和调试工具 | `docs/ocr_engine.md` |
+| D：通用任务处理器 | `diantao/u2_scanner.py`、`diantao/utils.py` | 设备连接、扫描、导航、浏览/直播/视频/猜价格执行器、返回流控 | `docs/task_handlers.md` |
+| E：Hamibot 脚本 | 当前工作区未发现 `hamibot.diantao/` | 历史/备用 Auto.js 版本说明 | `docs/hamibot_js.md` |
+| F：辅助开发工具 | `diantao/tools/`、`AGENT工具脚本/`、调试脚本 | OCR、截图、校准、页面扫描、LightRAG 工具 | `docs/dev_tools.md` |
+
+## 技术栈
+
+| 技术 | 用途 |
+|---|---|
+| Python 3.x | 主开发语言 |
+| uiautomator2 | Android 控件树、点击、滑动、watcher 弹窗监控 |
+| ADB | 设备发现、`exec-out screencap` 截图、前台 App 检测兜底 |
+| 云端 PaddleOCRv4 | `utils.py` 通过 `OCR_SERVER_URL` 做全屏 OCR |
+| OpenCV / NumPy | 模板匹配、截图分析、棋盘/图像调试 |
+| Tkinter | `任务选择器.py` GUI |
+| LightRAG | 开发规范和历史经验查询 |
+
+## 关键目录和文件
+
+| 路径 | 当前状态 |
+|---|---|
+| `diantao/u2_scanner.py` | 约 52 KB，当前是完整纯 U2 通用扫描框架，不再是薄层转发器 |
+| `diantao/utils.py` | 约 40 KB，包含云端 OCR、ADB 截图、App/设备工具、日志、黑名单、RAG 查询和部分委托入口 |
+| `diantao/任务选择器.py` | Tkinter GUI，扫描脚本、勾选、排序、保存 `task_config.json`、直接运行 |
+| `diantao/全部执行.py` | CLI 调度器，读取 `task_config.json` 中 checked 任务并串行执行 |
+| `diantao/tools/` | OCR、ADB 截图、直播 OCR、滚动/截图分析、校准工具 |
+| `diantao/img/` | 模板图片，如 `live_close.png`、`click_btn.png` |
+| `diantao/task_log.json` | 已存在，记录任务完成日志 |
+
+## 当前业务脚本概览
+
+当前 `diantao/` 中活跃业务/入口脚本包括：
+
+- `签到赢元宝.py`
+- `点淘购物赚钱.py`
+- `睡觉赚元宝.py`
+- `打工得体力.py`
+- `打工加速.py`
+- `点淘鸭钻石任务.py`
+- `点淘鸭摇一摇.py`
+- `元宝中心小任务.py`
+- `合成百元大红包.py`
+- `淘金币任务.py`
+- `618花花乐.py`
+- `主播打卡粉丝礼.py`
+- `走路赚元宝.py`
+- `一键下滑.py`
+- `任务选择器.py`
+- `全部执行.py`
+
+## 配置和运行产物
+
+| 文件/目录 | 说明 |
+|---|---|
+| `task_config.json` | 由 `任务选择器.py` 生成/维护；当前目录未发现现成文件时，GUI 会扫描脚本生成默认列表 |
+| `task_log.json` | 任务完成记录，当前已存在 |
+| `logs/` | `全部执行.py` 运行后写入 `run_日期_时间.log` |
+| `ocr_debug_cells/`、`debug_*.png` | 图像识别和棋盘/裁剪调试产物 |
+
+## 架构注意事项
+
+- 旧文档中提到的 `diantao/bailian_api.py`、`ocr_config.json`、`bailian_config.json`、`定时计划.py`、`定时任务配置.json` 在当前 `diantao/` 目录未发现；不要再把它们当作主线依赖。
+- OCR 主线已切到 `utils.py` 的云端 PaddleOCR 服务；`u2_scanner.py` 中大量逻辑尽量走 U2 控件树，只有 WebView/图片文字场景再走 OCR。
+- 调度主线是 `任务选择器.py` + `全部执行.py`，不是旧版定时计划。
+
+
+============================================================
+SOURCE_FILE: diantao_core.md
+SOURCE_PATH: D:\GitHub Program\docs\diantao_core.md
+============================================================
+
+# A：点淘核心任务脚本（`diantao/`）
+
+## 概述
+
+`diantao/` 是当前活跃主目录，业务脚本直接导入 `u2_scanner.py` 和 `utils.py`。当前实现已经不是“业务脚本 → 薄层转发器 → AGENT 工具”的结构，而是：
+
+```text
+业务脚本
+  ├── u2_scanner.py：纯 U2 任务扫描、导航、执行器、结束判断
+  └── utils.py：云端 OCR、ADB 截图、通用工具、日志、RAG 查询、部分委托入口
+```
+
+## 通用依赖调用链
+
+```text
+业务脚本
+  │
+  ├── connect_device()
+  │     ├── adb devices 选择设备
+  │     ├── u2.connect()
+  │     └── watch_context 自动处理确认/关闭/刷新等弹窗
+  │
+  ├── 页面定位
+  │     ├── U2 textContains / hierarchy
+  │     ├── scan_page()
+  │     ├── get_ocr_text_blocks() 云端 OCR
+  │     └── get_ocr_text_blocks_adb() ADB 截图 OCR 兜底
+  │
+  ├── 任务执行器
+  │     ├── execute_browse_task() / browse_task()
+  │     ├── execute_live_task()
+  │     ├── execute_video_task()
+  │     ├── handle_guess_price_game()
+  │     └── click_three_selected_items()
+  │
+  └── 日志/汇总
+        ├── log_task_completed()
+        └── show_today_summary()
+```
+
+## 当前业务脚本清单
+
+| 脚本 | 核心定位/执行方式 | 备注 |
+|---|---|---|
+| `签到赢元宝.py` | OCR 解析“去完成”附近任务名，按浏览/直播/视频/猜价格/精选宝贝分流 | 含进度、里程碑弹窗处理 |
+| `点淘购物赚钱.py` | OCR + U2 混合，识别按钮前任务名和任务类型 | 购物赚钱任务页 |
+| `睡觉赚元宝.py` | U2 气泡模式 + 中央按钮检测 + 浮动气泡收集 | 使用 `navigate_to_sleep_page()` |
+| `打工得体力.py` | OCR 解析任务列表，黑名单过滤后执行 | 支持浏览、直播、视频、猜价格 |
+| `打工加速.py` | OCR 找浏览任务和附近按钮，快速执行浏览 | 专注“打工”加速小任务 |
+| `点淘鸭钻石任务.py` | OCR 行聚类 + 白名单 + 危险页检测 | 点淘鸭家园任务列表 |
+| `点淘鸭摇一摇.py` | 导航到点淘鸭活动，右滑到目标区域，白名单执行 | 支持测试模式和运行模式 |
+| `元宝中心小任务.py` | OCR 扫描元宝中心额外任务区域 | 黑名单过滤，按任务类型分流 |
+| `合成百元大红包.py` | 导航红包活动，扫能量/任务，按浏览/直播/猜价格执行 | 含能量扫描点击 |
+| `淘金币任务.py` | 淘宝/天猫/点淘跨 App 任务，U2 节点解析进度和按钮 | 使用 `TB_APP`、`DT_APP`、`TMALL_APP` |
+| `618花花乐.py` | 活动页 OCR 扫描 + 黑名单过滤 | 618 活动专属 |
+| `主播打卡粉丝礼.py` | OCR/U2 扫描打卡按钮，执行打卡并返回 | 直播/粉丝礼相关 |
+| `走路赚元宝.py` | OCR 解析任务，白名单/黑名单双过滤 | 步数/走路任务页 |
+| `一键下滑.py` | 多页面导航 + 执行下滑浏览 | 辅助批量浏览 |
+
+## 任务类型分流
+
+| 类型 | 典型关键词 | 执行器 |
+|---|---|---|
+| 浏览类 | 浏览精选、猜你喜欢、逛一逛、滑动浏览 | `execute_browse_task()` 或 `utils.browse_task()` |
+| 直播类 | 看直播、看福利直播、看黄金档 | `execute_live_task()` |
+| 视频类 | 看视频、短视频 | `execute_video_task()` |
+| 猜价格 | 猜价格、猜价格游戏 | `handle_guess_price_game()` |
+| 精选宝贝 | 查看3个、看3个、精选宝贝 | `click_three_selected_items()` |
+| 气泡收集 | 睡觉/签到气泡、浮动气泡 | `find_bubble()`、`scan_float_bubbles()`、`click_float_bubbles()` |
+
+## 黑白名单策略
+
+- 通用黑名单集中在 `utils.py` 和部分脚本本地常量中，核心是拦截邀请、下单、购买、充值、付款、小游戏、外部 App 引流等任务。
+- “含 `猜` 但不含 `猜价格/猜价格游戏`”一般视为危险任务并跳过。
+- 点淘鸭、走路等页面使用白名单，只执行明确允许的直播/浏览类任务。
+
+## 结束条件
+
+常见结束判断包括：
+
+- 连续多轮任务列表快照相同：`is_stale_task_list()`
+- 连续多轮没有按钮：`is_stale_no_buttons()`
+- OCR 无候选任务达到阈值
+- 活动页无新任务或已执行任务去重后为空
+- 单任务执行超时，由脚本内部或调度器兜底
+
+## 重要变更记录
+
+- `diantao/u2_scanner.py` 当前是完整实现，包含 `connect_device()`、`u2_find_task_buttons()`、`navigate_to_sleep_page()`、`navigate_to_dagong_page()`、`navigate_to_duck_page()`、`execute_live_task()`、`execute_video_task()`、`execute_browse_task()` 等。
+- `utils.py` 当前承担云端 OCR、ADB 截图、模板匹配、App 状态、日志和 LightRAG 查询，不只是“任务日志、战报”工具。
+- 旧的百炼 OCR 客户端文件在当前目录未发现，文档不再引用它作为主线。
+
+
+============================================================
+SOURCE_FILE: execution_scheduler.md
+SOURCE_PATH: D:\GitHub Program\docs\execution_scheduler.md
+============================================================
+
+# B：执行调度系统（`任务选择器.py` + `全部执行.py`）
+
+## 概述
+
+当前调度主线由两个文件组成：
+
+1. `任务选择器.py`：Tkinter GUI，扫描脚本、勾选、排序、设置超时、保存 `task_config.json`，也可以直接运行选中任务。
+2. `全部执行.py`：CLI 调度器，读取 `task_config.json` 中 `checked=true` 的任务，按顺序逐个执行并写入 `logs/`。
+
+旧文档中的 `定时计划.py`、`定时任务配置.json`、`定时计划.bat` 在当前 `diantao/` 目录未发现；不要再视为当前调度入口。
+
+## `任务选择器.py`
+
+### 功能
+
+- 扫描 `diantao/` 下可执行 `.py` 脚本。
+- 排除调试、工具和调度器自身：`调试`、`点击`、`utils`、`全部执行`、`任务选择器`、`__pycache__`、`test`。
+- 支持上移、下移、置顶、置底、全选、取消全选。
+- 每个任务可配置 timeout。
+- 保存配置到 `task_config.json`。
+- 可直接在 GUI 中串行运行选中任务，并实时显示日志。
+- 附加外部任务：`../coin11-tb-main/2026淘宝618活动.py`。
+
+### 默认超时
+
+| 任务 | 默认超时 |
+|---|---:|
+| `主播打卡粉丝礼` | 2100 秒 |
+| `点淘购物赚钱` | 2100 秒 |
+| `睡觉赚元宝` | 3600 秒 |
+| `点淘鸭钻石任务` | 2100 秒 |
+| `打工得体力` | 3600 秒 |
+| `618花花乐` | 2100 秒 |
+| `2026淘宝618活动` | 2100 秒 |
+| `签到赢元宝` | 2100 秒 |
+| `走路赚元宝` | 600 秒 |
+| 名称包含 `点淘鸭` 的任务 | 2100 秒 |
+| 其他脚本 | 600 秒 |
+
+## `task_config.json`
+
+由 `任务选择器.py` 生成，`全部执行.py` 读取。格式是任务对象数组：
+
+```json
+[
+  {
+    "name": "签到赢元宝",
+    "file": "签到赢元宝.py",
+    "timeout": 2100,
+    "checked": true
+  }
+]
+```
+
+当前目录未发现现成 `task_config.json` 时，先运行 `任务选择器.py` 生成配置。
+
+## `全部执行.py`
+
+### 功能
+
+- 读取 `task_config.json`。
+- 只执行 `checked=true` 的任务。
+- 每个任务以 `subprocess.Popen([sys.executable, "-u", filepath])` 启动。
+- 设置 `PYTHONIOENCODING=utf-8`，实时读取并缩进输出子进程日志。
+- 超过任务 timeout 后 `kill()` 子进程。
+- Ctrl+C 第一次设置停止标记并优雅退出，第二次强制退出。
+- 执行结果保存到 `diantao/logs/run_YYYY-MM-DD_HHMMSS.log`。
+
+### 执行流程
+
+```text
+全部执行.py 启动
+  │
+  ├── load_task_config()
+  │     └── 读取 task_config.json，筛选 checked 任务
+  │
+  ├── 打印待执行任务、文件和超时
+  │
+  ├── 3 秒倒计时
+  │
+  ├── 逐个 run_task()
+  │     ├── 检查脚本存在
+  │     ├── 子进程实时输出
+  │     ├── timeout/stop_flag 兜底 kill
+  │     └── 返回 name/success/elapsed
+  │
+  ├── 汇总成功数和耗时
+  │
+  └── save_run_log()
+```
+
+## 调度注意事项
+
+- 调度器不会自动生成 `task_config.json`，配置生成由 GUI 负责。
+- 当前执行方式是串行，不并发。
+- 调度器不负责设备连接；每个业务脚本自行调用 `connect_device()`。
+- `run_task()` 中外部路径检查有一段备用逻辑，但主路径仍以 `SCRIPT_DIR + file` 为准。
+
+
+============================================================
+SOURCE_FILE: ocr_engine.md
+SOURCE_PATH: D:\GitHub Program\docs\ocr_engine.md
+============================================================
+
+# C：OCR 与图像识别引擎（`utils.py` + `tools/`）
+
+## 概述
+
+当前主线 OCR 不再是旧文档里的阿里百炼 `bailian_api.py`。截至 2026-06-27，`diantao/` 目录中未发现 `bailian_api.py`、`ocr_config.json`、`bailian_config.json`。
+
+当前 OCR 主线在 `diantao/utils.py`：
+
+- `OCR_SERVER_URL = os.getenv("DIANTAO_OCR_SERVER_URL", "")`（内部地址通过环境变量注入，不硬编码）
+- 截图压缩为 JPEG 后发往云端 PaddleOCRv4 服务。
+- 返回结构化文本块：`{"text": str, "cx": int, "cy": int, "conf": float}`。
+
+## OCR 调用链
+
+```text
+业务脚本
+  │
+  ├── get_ocr_text_blocks(device)
+  │     ├── device.screenshot()
+  │     ├── JPEG quality=70
+  │     └── POST OCR_SERVER_URL
+  │
+  └── get_ocr_text_blocks_adb(device)
+        ├── adb exec-out screencap -p
+        ├── PIL 解码
+        └── POST OCR_SERVER_URL
+```
+
+## 核心函数
+
+| 函数 | 位置 | 说明 |
+|---|---|---|
+| `_cloud_ocr(screenshot_pil, retries=3)` | `utils.py` | 调用云端 OCR，过滤空文本和低置信度结果 |
+| `get_ocr_text_blocks(device, retries=2)` | `utils.py` | 使用 u2 截图并 OCR，外层重试过渡帧/空白页 |
+| `adb_screencap(device)` | `utils.py` | 通过 ADB 截图，失败回退 u2 截图 |
+| `get_ocr_text_blocks_adb(device, retries=2)` | `utils.py` | ADB 截图 + OCR，用于需要绕过 u2 覆盖层的页面 |
+| `simple_ocr_region(d, x1, y1, x2, y2, keyword)` | `utils.py` | 区域内搜索关键词 |
+
+## 返回数据结构
+
+```python
+[
+    {"text": "去完成", "cx": 1018, "cy": 1450, "conf": 0.92},
+    {"text": "浏览精选推荐30秒", "cx": 460, "cy": 1452, "conf": 0.88}
+]
+```
+
+脚本通常用 `cx/cy` 做按钮邻近匹配，用 `text` 做任务类型和黑白名单判断。
+
+## 与 U2 的分工
+
+| 场景 | 优先方案 |
+|---|---|
+| 原生控件文本、按钮、可点击节点 | `uiautomator2` / `scan_page()` |
+| WebView 中 U2 抓不到的文字 | `get_ocr_text_blocks()` |
+| u2 截图受覆盖层影响 | `get_ocr_text_blocks_adb()` |
+| 固定图标/关闭按钮 | OpenCV 模板匹配 |
+| 已实测固定交互 | 坐标盲点法 |
+
+## OpenCV / 图像辅助
+
+`utils.py` 仍保留：
+
+- `find_button_center()`
+- `find_button_multiscale()`
+
+`diantao_1024_auto.py`、`debug_find_grid.py`、`debug_find_board.py`、`debug_crop_analysis.py`、`ocr_debug_cells/` 等属于棋盘/裁剪/图像识别调试体系，和点淘日常任务主流程相对独立。
+
+## 调试工具
+
+| 工具 | 说明 |
+|---|---|
+| `tools/test_ocr_screenshot.py` | 测试截图上传 OCR |
+| `tools/test_adb_screenshot.py` | 测试 ADB 截图 + OCR |
+| `tools/ocr_scan_live.py` | 直播/当前页面 OCR 扫描 |
+| `tools/live_ocr.py` | 连接设备并输出 OCR 结果 |
+| `tools/debug_screenshot.py` | 截图与控件调试 |
+| `tools/debug_ocr_coins.py` | 淘金币 OCR 调试 |
+| `tools/analyze_scroll.py` | 滚动任务分析 |
+| `tools/analyze_screenshot.py` | 静态截图分析 |
+| `tools/calibrate.py`、`calibrate.py` | 坐标校准 |
+
+## 错误处理
+
+- OCR 请求失败会按 2 秒、4 秒、6 秒左右递增等待重试。
+- 服务返回非 200 code 会重试，最终返回空列表。
+- OCR 空结果会被视为过渡帧/空白页，外层等待后重试。
+- ADB 截图失败会回退到 `device.screenshot()`。
+
+
+============================================================
+SOURCE_FILE: task_handlers.md
+SOURCE_PATH: D:\GitHub Program\docs\task_handlers.md
+============================================================
+
+# D：通用任务处理器（`diantao/u2_scanner.py` + `diantao/utils.py`）
+
+## 概述
+
+当前通用任务处理器分布在两个文件：
+
+- `diantao/u2_scanner.py`：完整纯 U2 框架，负责设备连接、控件树扫描、导航、任务按钮查找、直播/视频/浏览/猜价格执行器、气泡收集和结束判断。
+- `diantao/utils.py`：云端 OCR、ADB 截图、模板匹配、App 状态、日志、黑名单常量、LightRAG 查询，以及对部分 `u2_scanner` 执行器的薄层委托。
+
+旧文档中“`diantao/u2_scanner.py` 薄层转发到 `AGENT工具脚本/u2_scanner.py`”已经不符合当前代码。
+
+## `u2_scanner.py` 函数分组
+
+### 设备连接
+
+| 函数/常量 | 说明 |
+|---|---|
+| `DT_APP = "com.taobao.live"` | 点淘包名 |
+| `get_connected_devices()` | 通过 `adb devices` 枚举真机 |
+| `select_device()` | 单设备自动选，多设备交互选择 |
+| `connect_device()` | 连接 u2，关闭触摸/指针覆盖层，启动 watcher |
+
+### U2 查找与扫描
+
+| 函数 | 说明 |
+|---|---|
+| `u2_find_text()` | text/textContains 查找 |
+| `u2_click_text()` | text/textContains 点击 |
+| `scan_page()` | 解析 hierarchy XML，返回结构化节点 |
+| `find_clickable_with_text()` | 在扫描节点中找可点击文本 |
+| `u2_find_task_buttons()` | 任务按钮扫描，先按任务关键词定位，再回退按钮文本，再回退 XML |
+| `_find_task_buttons_via_hierarchy()` | hierarchy XML 兜底 |
+
+### 导航
+
+| 函数 | 说明 |
+|---|---|
+| `navigate_chain()` | 关键词链式导航 |
+| `navigate_to_sleep_page()` | 点淘 → 元宝中心 → 睡觉赚元宝 |
+| `navigate_to_dagong_page()` | 点淘 → 元宝中心 → 打工赚元宝 |
+| `navigate_to_duck_page()` | 点淘 → 元宝中心 → 点淘鸭家园 → 任务列表 |
+| `back_to_task()` | 智能返回任务页，支持关键词检测和导航回调 |
+
+### 任务执行器
+
+| 函数 | 说明 |
+|---|---|
+| `execute_browse_task()` | 通用浏览任务，监控“滑动浏览XX秒”，字样消失或固定时长后结束 |
+| `execute_live_task()` | 直播任务，随机上滑、倒计时/完成提示检测、弹窗关闭 |
+| `execute_video_task()` | 视频任务，短视频流快速翻页、倒计时/完成提示检测 |
+| `handle_guess_price_game()` | 猜价格游戏处理 |
+| `click_three_selected_items()` | 按实测坐标点击 3 个精选宝贝 |
+| `execute_task()` | 通用点击并分流执行 |
+
+### 气泡与弹窗
+
+| 函数 | 说明 |
+|---|---|
+| `scan_float_bubbles()` | 扫描浮动气泡 |
+| `click_float_bubbles()` | 收集浮动气泡 |
+| `handle_open_allow_popup()` | 处理打开/允许类弹窗 |
+| `close_live_popups()` | 直播/视频页弹窗关闭 |
+| `detect_live_completion()` | 任务完成提示检测 |
+| `_close_guess_price_popup()` | 猜价格弹窗关闭 |
+
+### 结束判断
+
+| 函数 | 说明 |
+|---|---|
+| `is_stale_task_list()` | 连续 N 轮任务快照相同则认为耗尽 |
+| `is_stale_no_buttons()` | 连续 N 轮无按钮则认为滑到底 |
+
+## `utils.py` 补充能力
+
+| 能力 | 关键函数/常量 |
+|---|---|
+| 多 App 包名 | `TB_APP`、`DT_APP`、`ALIPAY_APP`、`FISH_APP`、`TMALL_APP` |
+| 云端 OCR | `_cloud_ocr()`、`get_ocr_text_blocks()` |
+| ADB 截图 OCR | `adb_screencap()`、`get_ocr_text_blocks_adb()` |
+| 模板匹配 | `find_button_center()`、`find_button_multiscale()` |
+| App 状态 | `start_app()`、`get_current_app()`、`ensure_app()` |
+| 通用浏览 | `browse_task()` |
+| 日志 | `log_task_completed()`、`TASK_LOG_PATH` |
+| 黑名单/标准化 | `BLACKLIST_KEYWORDS`、`normalize_task_name()`、`is_blacklisted()` |
+| RAG 查询 | `show_dev_guide()`、`query_dev_guide()`、`ask_dev_guide()`、`check_rag_service()` |
+
+## 关键策略
+
+### 任务按钮扫描
+
+`u2_find_task_buttons()` 的当前策略：
+
+1. 优先按任务关键词找文本，如浏览精选、看直播、看视频、猜价格、省钱、上新好物等。
+2. 将按钮 X 坐标估算为屏幕宽度 `0.84`，Y 坐标取任务文本中心。
+3. 找不到时回退扫描“去完成/去浏览/去观看/去领取”等按钮文本。
+4. 仍找不到时解析 hierarchy XML。
+5. 按 Y 轴或坐标网格去重。
+
+### 浏览任务
+
+`execute_browse_task()` / `browse_task()` 的核心逻辑：
+
+- 进入页面后立即先滑一次，减少等待。
+- 检测“滑动浏览XX秒”并提取秒数。
+- 文案消失且已满足最小秒数后判定完成。
+- 未检测到滑动文案时按 `min_duration` 固定浏览。
+- 同时检测“恭喜完成任务/任务完成/获得奖励”等提示。
+
+### 直播/视频任务
+
+- 自动从任务名解析秒/分钟，默认 120 秒并追加缓冲。
+- 直播每 5-10 秒随机上滑，视频每 2-4 秒快速翻页。
+- 若检测到“XX秒后完成”倒计时，倒计时文案消失即可提前完成。
+- 持续尝试关闭弹窗，但通过冷却和关键词控制降低误点。
+
+### 返回任务页
+
+`back_to_task()` 先检测是否已在目标页，再点击关闭/返回/再逛逛等文本，最后按系统返回键；多次失败时可调用导航回调重进任务页。
+
+
+============================================================
+SOURCE_FILE: dev_tools.md
+SOURCE_PATH: D:\GitHub Program\docs\dev_tools.md
+============================================================
+
+# F：辅助开发工具
+
+## 概述
+
+当前辅助工具主要分三类：
+
+1. `diantao/tools/`：与当前主项目紧密相关的 OCR、截图、滚动、校准工具。
+2. `AGENT工具脚本/`：早期/独立 U2 扫描和猜价格调试工具。
+3. `diantao/` 根目录下的 `debug_*.py`、`calibrate.py`、`diantao_1024_auto.py`、`rag_client.py`、`lightrag_helper.py` 等专项工具。
+
+## `diantao/tools/`
+
+| 工具 | 用途 |
+|---|---|
+| `test_ocr_screenshot.py` | 测试截图上传云端 OCR |
+| `test_adb_screenshot.py` | 测试 ADB 截图 + OCR |
+| `ocr_scan_live.py` | 对当前直播/页面做 OCR 扫描 |
+| `live_ocr.py` | 连接设备并输出实时 OCR 识别 |
+| `debug_screenshot.py` | 截图、控件树、页面状态调试 |
+| `debug_ocr_coins.py` | 淘金币页面 OCR 调试 |
+| `analyze_scroll.py` | 滚动浏览行为分析 |
+| `analyze_screenshot.py` | 静态截图分析 |
+| `calibrate.py` | 坐标校准 |
+
+## `AGENT工具脚本/`
+
+当前目录存在：
+
+| 工具 | 用途 |
+|---|---|
+| `u2_scan_once.py` | 单次扫描当前页面控件和坐标 |
+| `u2_realtime_scanner.py` | 持续扫描页面变化 |
+| `u2_only_scan.py` | 只扫描不执行 |
+| `u2_guess_price_test.py` | 猜价格游戏专项测试 |
+| `u2_test_启动脚本.py` | 设备连接和 App 启动测试 |
+
+注意：当前主项目的 `diantao/u2_scanner.py` 已经是完整实现，不再依赖 `AGENT工具脚本/u2_scanner.py` 转发。
+
+## 根目录调试脚本
+
+| 文件 | 用途 |
+|---|---|
+| `debug_ocr_cloud_test.py` | 云端 OCR 连通性/结果测试 |
+| `debug_raw_ocr.py`、`debug_ocr_diagnose.py` | OCR 原始结果和诊断 |
+| `debug_find_grid.py`、`debug_find_board.py` | 棋盘/网格识别调试 |
+| `debug_crop_analysis.py`、`debug_check_crop.py`、`debug_check_all.py` | 裁剪区域分析 |
+| `debug_auto_calibrate.py` | 自动校准辅助 |
+| `calibrate.py` | 主校准脚本 |
+| `diantao_1024_auto.py` | 1024/棋盘类自动化，包含 Config、ADBController、BoardRecognizer、GameEngine、GameAI、AutoPlayer |
+
+## LightRAG 工具
+
+| 文件 | 说明 |
+|---|---|
+| `lightrag_helper.py` | 简化查询/上传/状态检查 |
+| `rag_client.py` | 更完整的 RAG 客户端，支持 query、insert、upload、list/delete document、track status、query_rules、insert_change_log |
+
+`utils.py` 中的 `show_dev_guide()`、`query_dev_guide()`、`ask_dev_guide()`、`check_rag_service()` 会调用这些文件，用于查询开发规范和历史经验。
+
+## 使用场景
+
+```text
+当前页面按钮抓不到？
+  └── 先用 u2_scan_once.py 或 debug_screenshot.py 看 hierarchy
+
+OCR 结果不稳定？
+  ├── test_ocr_screenshot.py 验证云端 OCR
+  ├── test_adb_screenshot.py 验证 ADB 截图链路
+  └── debug_raw_ocr.py / debug_ocr_diagnose.py 看原始文本块
+
+坐标不准？
+  └── calibrate.py / tools/calibrate.py 重新校准
+
+淘金币/直播页异常？
+  ├── debug_ocr_coins.py
+  └── live_ocr.py / ocr_scan_live.py
+
+需要查开发规范？
+  └── rag_client.py / lightrag_helper.py / utils.query_dev_guide()
+```
+
+## 已过期项
+
+旧文档提到的 `init.py`、`ocr_config.json`、`bailian_config.json`、`task_config.json` “必然存在”并不准确。当前只确认 `task_log.json` 已存在；`task_config.json` 由 GUI 需要时生成。
+
+
+============================================================
+SOURCE_FILE: hamibot_js.md
+SOURCE_PATH: D:\GitHub Program\docs\hamibot_js.md
+============================================================
+
+# E：Hamibot 脚本（历史/备用说明）
+
+## 当前状态
+
+截至 2026-06-27，在 `D:\GitHub Program` 当前工作区未发现 `hamibot.diantao/` 目录。因此本文件不再把 Hamibot 视为当前可运行主线，只保留为历史/备用架构说明。
+
+当前活跃实现是 `diantao/` 下的 Python + uiautomator2 脚本。
+
+## 与当前 Python 主线的差异
+
+| 维度 | Python 主线 | Hamibot 备用思路 |
+|---|---|---|
+| 运行位置 | PC 连接 Android 设备 | Android 设备内 Hamibot/Auto.js 环境 |
+| 自动化框架 | uiautomator2 + ADB | Auto.js/Hamibot API |
+| OCR | 云端 PaddleOCR + ADB/u2 截图 | Hamibot 内置 OCR 或第三方 OCR |
+| 调度 | `任务选择器.py` / `全部执行.py` | Hamibot 平台定时或手动运行 |
+| 共享工具 | `u2_scanner.py`、`utils.py` | 需要 JS 版工具函数自行维护 |
+
+## 若恢复 Hamibot 目录，应同步的能力
+
+- 任务选择与批量执行。
+- 黑名单和白名单常量。
+- 浏览任务“先滑动再 OCR/检测”的加速策略。
+- 直播/视频任务倒计时消失提前完成。
+- 猜价格、点击 3 个精选宝贝的当前坐标规则。
+- 弹窗关闭策略和返回任务页规范。
+- 任务日志记录格式。
+
+## 建议
+
+除非明确需要脱离 PC 运行，否则优先维护 Python 主线。Hamibot 版本如果重新启用，应先从当前 `u2_scanner.py` 和 `utils.py` 提炼同名 JS 工具函数，再同步各业务脚本，避免两套逻辑继续漂移。
+
