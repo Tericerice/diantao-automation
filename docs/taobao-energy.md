@@ -3,6 +3,9 @@
 运行入口：`run_taobao_energy.cmd`。复用现有 `device_connection.connect_with_retry`，不启动旧点淘任务调度器。
 
 ```powershell
+# 从首页或活动页面进入并连续执行免费浏览任务
+.\run_taobao_energy.cmd run --repeat 30
+
 # 从淘宝首页“领淘金币”或活动主页面进入赚能量列表
 .\run_taobao_energy.cmd enter
 
@@ -25,3 +28,11 @@
 - 多设备连接时用 `--serial` 明确选择设备。仅连接一台时自动选择。
 
 最近一次截图和 OCR 坐标保存在 `screenshots/taobao_energy/current.png`、`current.json`；`browse.png` 是返回前的浏览页。
+
+启动管家的“Python脚本”分类中已注册 **淘金币双11赚能量**，执行 `run --repeat 30`，不会随管家启动自动运行。管家重启后载入注册表。重新注册：
+
+```powershell
+uv run --no-project python deploy/register_taobao_energy.py "D:\My Github Program\automation-butler"
+```
+
+入口保留上述授权截止时间，到期后拒绝控制手机，后续使用需先重新授权。

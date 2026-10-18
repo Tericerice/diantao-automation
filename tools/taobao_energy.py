@@ -108,7 +108,7 @@ def enter(d, deadline):
         guard(deadline)
         d.app_start(TB)
         time.sleep(3)
-    if "Welcome" in d.app_current()["activity"]:
+    if any(name in d.app_current()["activity"] for name in ("Welcome", "TBMainActivity")):
         entry = d(description="领淘金币")
         if entry.exists:
             guard(deadline)
@@ -189,7 +189,7 @@ def browse(d, title, seconds, deadline, nodes):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["enter", "scan", "auto", "browse", "tap", "back", "swipe", "text"])
+    parser.add_argument("action", choices=["run", "enter", "scan", "auto", "browse", "tap", "back", "swipe", "text"])
     parser.add_argument("values", nargs="*")
     parser.add_argument("--serial")
     parser.add_argument("--seconds", type=int, default=25)
@@ -208,8 +208,8 @@ def main():
     if args.action == "enter":
         enter(d, deadline)
         return
-    elif args.action == "auto":
-        nodes = scan(d)
+    elif args.action in ("auto", "run"):
+        nodes = enter(d, deadline) if args.action == "run" else scan(d)
         for _ in range(min(max(args.repeat, 1), 30)):
             if not any("做任务赚能量" in n["text"] for n in nodes):
                 raise RuntimeError("请先进入赚能量任务列表")
