@@ -27,7 +27,7 @@ def register(butler_dir):
         "    lifecycle: managed_job\n"
         f"    command: {json.dumps(command, ensure_ascii=False)}\n"
         f"    working_directory: {json.dumps(SCRIPT_DIR.as_posix(), ensure_ascii=False)}\n"
-        '    description: "进入赚能量并执行免费浏览任务；U2控制、本地OCR识别，不升级不兑换；授权截止2026-10-19零点"\n'
+        '    description: "赚能量：淘宝→支付宝→其他应用；缺应用/下载页直接返回，不下载不升级不兑换；授权截止2026-10-19零点"\n'
         "    risk: device_automation\n"
         "    enabled: true\n"
         "    requires_human_approval: false\n\n"
