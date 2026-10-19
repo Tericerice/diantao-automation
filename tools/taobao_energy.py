@@ -315,7 +315,7 @@ def enter(d, deadline):
         return nodes
     if not any("淘金币双11" in n["text"] for n in nodes):
         raise RuntimeError("请先回到淘宝首页，确认领淘金币入口；未点击未知页面")
-    buttons = [n for n in nodes if n["text"] == "赚能量"]
+    buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量")]
     if len(buttons) != 1:
         raise RuntimeError("未唯一识别赚能量按钮")
     guard(deadline)
