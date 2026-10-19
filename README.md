@@ -140,6 +140,12 @@ py -3.10 一键全部执行.py
 py -3.10 打工得体力.py
 ```
 
+在自动化大管家中注册为「Python脚本」入口（大管家重启后载入）：
+
+```powershell
+py -3.10 deploy/register_all_in_one.py "<automation-butler目录>"
+```
+
 ---
 
 ## 六、环境与依赖
