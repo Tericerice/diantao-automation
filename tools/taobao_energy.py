@@ -1,7 +1,7 @@
 """淘金币双11赚能量：U2 优先扫描，OCR 后备，逐项浏览并复查。
 
-uv run --no-project --with uiautomator2 --with rapidocr-onnxruntime python tools/taobao_energy.py scan
-uv run --no-project --with uiautomator2 --with rapidocr-onnxruntime python tools/taobao_energy.py browse 好物随心逛 --seconds 25
+uv run python tools/taobao_energy.py scan
+uv run python tools/taobao_energy.py browse 好物随心逛 --seconds 25
 默认不批量点击未知任务，不升级赛车、不花积分、不购买、不发送邀请。
 """
 import argparse
@@ -19,6 +19,7 @@ import uiautomator2 as u2
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from device_connection import connect_with_retry
+from cloud_ocr import recognize, ocr_server_url
 
 TB = "com.taobao.taobao"
 SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约")
@@ -39,7 +40,6 @@ VISIT = {
     "去百度App领现金": "com.baidu.searchbox",
 }
 OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
-_ocr = None
 LOG = logging.getLogger("taobao_energy")
 _raw_scan = False
 _session = {}
@@ -93,7 +93,6 @@ def run_deadline(value, minutes, now=None):
 
 
 def scan(d):
-    global _ocr
     OUT.mkdir(parents=True, exist_ok=True)
     shot = d.screenshot()
     shot.save(OUT / "current.png")
@@ -110,15 +109,9 @@ def scan(d):
             x1, y1, x2, y2 = bounds
             nodes.append(dict(text=text, cx=(x1+x2)//2, cy=(y1+y2)//2))
     if not any("做任务赚能量" in n["text"] for n in nodes):
-        from rapidocr_onnxruntime import RapidOCR
-        if _ocr is None:
-            _ocr = RapidOCR(intra_op_num_threads=2, inter_op_num_threads=1)
-        rows, _ = _ocr(str(OUT / "current.png"))
-        source = "U2+OCR" if nodes else "OCR"
-        for box, text, score in rows or []:
-            node = dict(text=text, cx=round(sum(p[0] for p in box)/4),
-                        cy=round(sum(p[1] for p in box)/4))
-            if score >= .4 and not any(n["text"] == text and abs(n["cx"]-node["cx"]) < 30
+        source = "U2+腾讯云OCR" if nodes else "腾讯云OCR"
+        for node in recognize(shot):
+            if not any(n["text"] == node["text"] and abs(n["cx"]-node["cx"]) < 30
                                       and abs(n["cy"]-node["cy"]) < 30 for n in nodes):
                 nodes.append(node)
     else:
@@ -402,6 +395,7 @@ def main():
         path = setup_logging()
         LOG.info("[开始] 淘金币赚能量 | 本次截止 %s", deadline.strftime("%m-%d %H:%M"))
         LOG.info("[日志] 详细记录：%s", path)
+    ocr_server_url()
     guard(deadline)
     serial = args.serial
     if not serial:
@@ -411,7 +405,7 @@ def main():
         serial = devices[0].serial
     LOG.info("[连接] 正在连接手机")
     d = connect_with_retry(serial)
-    LOG.info("[连接] 手机已连接 | U2 控制，本地 OCR 识别")
+    LOG.info("[连接] 手机已连接 | U2 控制，腾讯云 PaddleOCR 识别")
     if args.action == "enter":
         enter(d, deadline)
         return

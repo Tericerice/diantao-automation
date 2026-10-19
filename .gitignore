@@ -20,3 +20,4 @@ bailian_config.json
 ocr_debug/
 .cb_vision_temp/
 *.output
+.env
