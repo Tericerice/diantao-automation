@@ -42,7 +42,19 @@ _ocr = None
 
 def guard(deadline):
     if datetime.now(timezone(timedelta(hours=8))) >= deadline:
-        raise RuntimeError("手机控制授权已到期")
+        raise RuntimeError("本次运行时限已到，已停止手机操作")
+
+
+def run_deadline(value, minutes, now=None):
+    now = now or datetime.now(timezone(timedelta(hours=8)))
+    if minutes <= 0:
+        raise ValueError("--run-minutes 必须大于0")
+    deadline = datetime.fromisoformat(value) if value else now + timedelta(minutes=minutes)
+    if deadline.tzinfo is None or deadline.utcoffset() is None:
+        raise ValueError("--deadline 必须包含时区，例如 +08:00")
+    if deadline <= now:
+        raise ValueError("--deadline 已过期，请指定未来时间")
+    return deadline
 
 
 def scan(d):
@@ -332,9 +344,13 @@ def main():
     parser.add_argument("--serial")
     parser.add_argument("--seconds", type=int, default=25)
     parser.add_argument("--repeat", type=int, default=1)
-    parser.add_argument("--deadline", default="2026-10-19T00:00:00+08:00")
+    parser.add_argument("--deadline", help="本次运行的截止时间，需包含时区；默认从启动起计算")
+    parser.add_argument("--run-minutes", type=int, default=60, help="本次最长运行分钟数，默认60；--deadline 优先")
     args = parser.parse_args()
-    deadline = datetime.fromisoformat(args.deadline)
+    try:
+        deadline = run_deadline(args.deadline, args.run_minutes)
+    except ValueError as error:
+        parser.error(str(error))
     guard(deadline)
     serial = args.serial
     if not serial:
