@@ -32,9 +32,9 @@
 - 通过启动器运行时，子进程会**继承**启动器的环境变量，要注意
 - 验证命令示例（PowerShell）：
   ```powershell
-  $env:USERPROFILE = 'C:\Users\星期五'
-  $env:HOME = 'C:\Users\星期五'
-  & 'C:\Users\星期五\AppData\Local\Programs\Python\Python310\python.exe' -c "..."
+  $env:USERPROFILE = 'C:\Users\示例用户'
+  $env:HOME = 'C:\Users\示例用户'
+  & 'C:\Users\示例用户\AppData\Local\Programs\Python\Python310\python.exe' -c "..."
   ```
 
 ---
@@ -48,15 +48,15 @@
 **规则**：
 - `Cannot open file` + 文件存在 → **先怀疑路径/编码**，不要急着重新下载
 - 验证文件完整性：用 `file` 命令看类型，用 `xxd` / `head -c` 检查文件头
-- Windows 上含中文的路径（`C:\Users\星期五\`）是 Paddle 的已知问题
+- Windows 上含中文的路径（`C:\Users\示例用户\`）是 Paddle 的已知问题
 
 ---
 
 ### ❌ 坑4：Windows 中文路径 = PaddlePaddle 的「死穴」
 
-**现象**：`C:\Users\星期五\.paddleocr\whl\det\ch\ch_PP-OCRv4_det_infer\inference.pdmodel`，文件存在、格式正确，但 `inference.create_predictor()` 始终报错。
+**现象**：`C:\Users\示例用户\.paddleocr\whl\det\ch\ch_PP-OCRv4_det_infer\inference.pdmodel`，文件存在、格式正确，但 `inference.create_predictor()` 始终报错。
 
-**原因**：PaddlePaddle 的 C++ 底层在 Windows 上使用 `ifstream` 打开文件，**对中文字符路径支持不良**。`星期五` 三个字直接让 Paddle 崩溃。
+**原因**：PaddlePaddle 的 C++ 底层在 Windows 上使用 `ifstream` 打开文件，**对中文字符路径支持不良**。`示例用户` 三个字直接让 Paddle 崩溃。
 
 **规则**：
 - Windows 下使用 PaddlePaddle（含 PaddleOCR）时，**模型路径必须全英文**
