@@ -16,8 +16,8 @@ def register(butler_dir):
         raise RuntimeError("未找到 uv，请先安装后重新注册")
     registry = butler_dir / "tools" / "managed_process" / "registry.yaml"
     source = registry.read_text(encoding="utf-8")
-    command = [uv, "run", "--no-project", "--with", "uiautomator2",
-               "--with", "rapidocr-onnxruntime", "python",
+    command = [uv, "--quiet", "run", "--with", "uiautomator2",
+               "--with", "rapidocr-onnxruntime", "python", "-u",
                (SCRIPT_DIR / "tools" / "taobao_energy.py").as_posix(),
                "run", "--repeat", "30"]
     entry = (

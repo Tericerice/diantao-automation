@@ -6,6 +6,8 @@ uv run --no-project --with uiautomator2 --with rapidocr-onnxruntime python tools
 """
 import argparse
 import json
+import logging
+import os
 import re
 import sys
 import time
@@ -38,6 +40,39 @@ VISIT = {
 }
 OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
 _ocr = None
+LOG = logging.getLogger("taobao_energy")
+_raw_scan = False
+_session = {}
+
+
+def setup_logging(directory=None):
+    directory = directory or Path(__file__).resolve().parents[1] / "logs" / "taobao_energy"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}.log"
+    for handler in LOG.handlers[:]:
+        LOG.removeHandler(handler)
+        handler.close()
+    LOG.setLevel(logging.DEBUG)
+    LOG.propagate = False
+    console = logging.StreamHandler(sys.stdout)
+    console.setLevel(logging.INFO)
+    console.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", datefmt="%H:%M:%S"))
+    detail = logging.FileHandler(path, encoding="utf-8")
+    detail.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOG.addHandler(console)
+    LOG.addHandler(detail)
+    _session.clear()
+    _session.update(start=time.monotonic(), completed=0)
+    return path
+
+
+def log_summary():
+    if "start" not in _session:
+        return
+    balance, initial = _session.get("balance"), _session.get("initial")
+    gain = f"，能量 +{balance-initial}，余额 {balance}" if balance is not None and initial is not None else ""
+    LOG.info("[汇总] 本次确认完成 %s 项%s，耗时 %s 秒", _session["completed"], gain,
+             round(time.monotonic()-_session["start"]))
 
 
 def guard(deadline):
@@ -90,7 +125,14 @@ def scan(d):
         source = "U2"
     result = dict(app=app, source=source, blocks=sorted(nodes, key=lambda n: (n["cy"], n["cx"])))
     (OUT / "current.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps(result, ensure_ascii=False), flush=True)
+    LOG.debug("屏幕识别 %s", json.dumps(result, ensure_ascii=False))
+    if _raw_scan:
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+    if any("做任务赚能量" in n["text"] for n in nodes):
+        balance = energy_balance(nodes)
+        if balance is not None:
+            _session.setdefault("initial", balance)
+            _session["balance"] = balance
     return nodes
 
 
@@ -148,7 +190,9 @@ def verify_gain(d, nodes, before, before_energy, deadline):
         if (after is not None and before is not None and after > before) or (
                 after == before and after is not None and after >= 50
                 and balance is not None and before_energy is not None and balance > before_energy):
-            print(f"已确认任务进度 {before} -> {after}；能量 {before_energy} -> {balance}", flush=True)
+            _session["completed"] = _session.get("completed", 0) + 1
+            gain = f"+{balance-before_energy}" if balance is not None and before_energy is not None else "待核对"
+            LOG.info("[到账] 能量 %s | 余额 %s | 累计 %s/50", gain, balance, after)
             return nodes
         if attempt < 2:
             if task_progress(nodes) is None and any("做任务赚能量" in n["text"] for n in nodes):
@@ -189,12 +233,12 @@ def visit(d, title, deadline, nodes):
                 guard(deadline)
                 d.click(buttons[0]["cx"], buttons[0]["cy"])
             elif current in ("com.android.chrome", "com.heytap.market", "com.android.packageinstaller"):
-                print(f"{title} 进入下载/安装页面，直接返回", flush=True)
+                LOG.info("[跳过] %s：进入下载/安装页，直接返回", title)
                 break
             elif current not in (TB, package):
                 raise RuntimeError("访问任务跳转到未知应用: " + current)
     if not installed:
-        print(f"{title}：已查看任务入口，未安装应用，不点击下载", flush=True)
+        LOG.info("[跳过] %s：未安装应用，返回并继续，不下载", title)
     guard(deadline)
     if d.app_current()["package"] == TB:
         d.press("back")
@@ -214,12 +258,13 @@ def visit(d, title, deadline, nodes):
         nodes = scan(d)
         if not any("做任务赚能量" in n["text"] for n in nodes):
             raise
-        print(f"{title} 未确认到账，本轮不再重复尝试", flush=True)
+        LOG.info("[未到账] %s：本轮不再重复尝试", title)
         return nodes
 
 
 def next_task(d, nodes, attempted, deadline):
     """先扫描列表各页，再按淘宝、支付宝、其他应用的顺序选择。"""
+    LOG.info("[扫描] 检查剩余任务，顺序：淘宝 → 支付宝 → 其他应用")
     header = [n for n in nodes if n["cx"] < 250 and re.fullmatch(r"\d+/50", n["text"])]
     candidates = {}
     w, h = d.window_size()
@@ -338,6 +383,7 @@ def browse(d, title, seconds, deadline, nodes):
 
 
 def main():
+    global _raw_scan
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["run", "enter", "scan", "auto", "browse", "tap", "back", "swipe", "text"])
     parser.add_argument("values", nargs="*")
@@ -351,6 +397,11 @@ def main():
         deadline = run_deadline(args.deadline, args.run_minutes)
     except ValueError as error:
         parser.error(str(error))
+    _raw_scan = args.action == "scan"
+    if not _raw_scan:
+        path = setup_logging()
+        LOG.info("[开始] 淘金币赚能量 | 本次截止 %s", deadline.strftime("%m-%d %H:%M"))
+        LOG.info("[日志] 详细记录：%s", path)
     guard(deadline)
     serial = args.serial
     if not serial:
@@ -358,18 +409,22 @@ def main():
         if len(devices) != 1:
             raise RuntimeError("请用 --serial 明确选择设备")
         serial = devices[0].serial
+    LOG.info("[连接] 正在连接手机")
     d = connect_with_retry(serial)
+    LOG.info("[连接] 手机已连接 | U2 控制，本地 OCR 识别")
     if args.action == "enter":
         enter(d, deadline)
         return
     elif args.action in ("auto", "run"):
         nodes = enter(d, deadline) if args.action == "run" else scan(d)
+        LOG.info("[进度] 累计 %s/50 | 当前能量 %s", task_progress(nodes), energy_balance(nodes))
         attempted = set()
         for _ in range(min(max(args.repeat, 1), 30)):
             if not any("做任务赚能量" in n["text"] for n in nodes):
                 raise RuntimeError("请先进入赚能量任务列表")
             rewards = [n for n in nodes if n["text"] == "立即领取" and n["cy"] < 900]
             for reward in rewards:
+                LOG.info("[领取] 领取已解锁的累计任务奖励")
                 guard(deadline)
                 d.click(reward["cx"], reward["cy"])
                 time.sleep(2)
@@ -377,12 +432,16 @@ def main():
                 nodes = scan(d)
             selected, nodes = next_task(d, nodes, attempted, deadline)
             if selected is None:
-                print("当前屏幕没有已确认的免费浏览任务，停止并保留现场", flush=True)
+                LOG.info("[结束] 没有可继续执行的白名单任务，已保留任务列表")
                 return
+            tier = {"taobao": "淘宝", "alipay": "支付宝", "external": "其他应用"}[task_kind(selected)]
+            LOG.info("[任务] %s/%s | %s | %s", _+1, min(max(args.repeat, 1), 30), tier, selected)
             if selected in VISIT:
+                LOG.info("[等待] 等待页面加载并访问，随后返回核对奖励")
                 attempted.add(selected)
                 nodes = visit(d, selected, deadline, nodes)
             else:
+                LOG.info("[浏览] 滑动浏览约 %s 秒", min(max(args.seconds, 5), 60))
                 nodes = browse(d, selected, args.seconds, deadline, nodes)
         return
     elif args.action == "browse":
@@ -410,7 +469,23 @@ def main():
     scan(d)
 
 
+def cli():
+    try:
+        main()
+        return 0
+    except KeyboardInterrupt:
+        LOG.info("[停止] 用户中断运行")
+        return 130
+    except Exception as error:
+        LOG.error("[停止] %s", error)
+        LOG.debug("异常详情", exc_info=True)
+        return 1
+    finally:
+        if not _raw_scan:
+            log_summary()
+
+
 if __name__ == "__main__":
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
-    main()
+    sys.exit(cli())

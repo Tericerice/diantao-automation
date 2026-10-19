@@ -148,3 +148,32 @@ def test_invalid_runtime_options_are_rejected(value, minutes):
     from datetime import datetime
     with pytest.raises(ValueError):
         run_deadline(value, minutes, datetime.fromisoformat("2026-10-19T18:00:00+08:00"))
+
+
+def test_console_is_concise_and_error_details_stay_in_file(tmp_path, monkeypatch, capsys):
+    from tools import taobao_energy as task
+    monkeypatch.setattr(task, "_raw_scan", False)
+    path = task.setup_logging(tmp_path)
+    try:
+        task.LOG.debug('屏幕识别 {"blocks": [{"text": "OCR详情"}]}')
+        task.LOG.info("[任务] 1/30 | 支付宝 | 去蚂蚁森林收能量")
+        task._session.update(initial=32900, balance=33300, completed=1)
+        def failed_main():
+            raise RuntimeError("当前不是赚能量任务列表")
+        monkeypatch.setattr(task, "main", failed_main)
+        assert task.cli() == 1
+        output = capsys.readouterr().out
+        assert "[任务] 1/30 | 支付宝" in output
+        assert "[停止] 当前不是赚能量任务列表" in output
+        assert "完成 1 项，能量 +400，余额 33300" in output
+        assert "Traceback" not in output
+        assert "OCR详情" not in output
+        detail = path.read_text(encoding="utf-8")
+        assert "OCR详情" in detail
+        assert "Traceback" in detail
+        assert "RuntimeError" in detail
+    finally:
+        for handler in task.LOG.handlers[:]:
+            task.LOG.removeHandler(handler)
+            handler.close()
+        task._session.clear()
