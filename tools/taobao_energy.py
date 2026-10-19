@@ -24,7 +24,9 @@ from cloud_ocr import recognize, ocr_server_url
 TB = "com.taobao.taobao"
 SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约")
 BROWSE = ("好物随心逛", "好物沉浸看", "去省钱卡领红包", "去芭芭农场领水果", "去签到领红包",
-          "搜一搜你心仪的宝贝", "天天签到免费拿IP周边")
+          "搜一搜你心仪的宝贝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
+          "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝")
+QUIZ = "淘金币省钱等级考试"
 # 仅访问已实测的页面，不操作目的应用内的消费、抽奖、授权或邀请。
 VISIT = {
     "领闪购红包下单直接省": TB,
@@ -35,9 +37,13 @@ VISIT = {
     "去一淘签到领现金": "com.taobao.etao",
     "去淘宝特价版0元购": "com.taobao.litetao",
     "去蚂蚁森林收能量": "com.eg.android.AlipayGphone",
+    "逛一逛蚂蚁庄园": "com.eg.android.AlipayGphone",
+    "逛一逛支付宝农场": "com.eg.android.AlipayGphone",
     "逛一逛支付宝金豆夺宝": "com.eg.android.AlipayGphone",
     "去支付宝抽1000元红包": "com.eg.android.AlipayGphone",
     "去百度App领现金": "com.baidu.searchbox",
+    "去百度极速版领现金": "com.baidu.searchbox.lite",
+    "逛一逛领购物红包": "com.tmall.wireless",
 }
 OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
 LOG = logging.getLogger("taobao_energy")
@@ -130,11 +136,11 @@ def scan(d):
 
 
 def task_button(nodes, title, width):
-    if any(s in title for s in SKIP) and title != "领闪购红包下单直接省":
+    if any(s in title for s in SKIP) and title not in ("领闪购红包下单直接省", "拍立淘逛感兴趣的宝贝"):
         raise RuntimeError("此任务按约定跳过: " + title)
     if not any("做任务赚能量" in n["text"] for n in nodes):
         raise RuntimeError("当前不是赚能量任务列表")
-    matches = [n for n in nodes if title in n["text"]]
+    matches = [n for n in nodes if re.split(r"[(（]", n["text"])[0].strip() == title]
     if len(matches) != 1:
         raise RuntimeError("任务未唯一定位: " + title)
     row = matches[0]
@@ -157,17 +163,19 @@ def task_progress(nodes):
 
 def energy_balance(nodes):
     for n in nodes:
-        if n["cx"] < 300 and 300 < n["cy"] < 390 and re.fullmatch(r"\d+>?", n["text"]):
-            return int(n["text"].rstrip(">"))
+        match = re.match(r"^(\d+)(?:>|已累计|$)", n["text"])
+        if n["cx"] < 400 and 300 < n["cy"] < 390 and match:
+            return int(match[1])
     return None
 
 
 def allowed_browse(title):
-    return not any(s in title for s in SKIP) and (title in BROWSE or title.startswith("看看#"))
+    return title == "拍立淘逛感兴趣的宝贝" or (
+        not any(s in title for s in SKIP) and (title in BROWSE or title.startswith("看看#")))
 
 
 def task_kind(title):
-    if allowed_browse(title):
+    if allowed_browse(title) or title == QUIZ:
         return "taobao"
     if title in VISIT:
         if VISIT[title] == TB:
@@ -180,9 +188,9 @@ def verify_gain(d, nodes, before, before_energy, deadline):
     # 回到列表后，金币动画可能暂时遮住累计次数；只重读，不重复做任务。
     for attempt in range(3):
         after, balance = task_progress(nodes), energy_balance(nodes)
-        if (after is not None and before is not None and after > before) or (
-                after == before and after is not None and after >= 50
-                and balance is not None and before_energy is not None and balance > before_energy):
+        if any("做任务赚能量" in n["text"] for n in nodes) and (
+                (after is not None and before is not None and after > before) or (
+                balance is not None and before_energy is not None and balance > before_energy)):
             _session["completed"] = _session.get("completed", 0) + 1
             gain = f"+{balance-before_energy}" if balance is not None and before_energy is not None else "待核对"
             LOG.info("[到账] 能量 %s | 余额 %s | 累计 %s/50", gain, balance, after)
@@ -199,23 +207,27 @@ def verify_gain(d, nodes, before, before_energy, deadline):
 
 def visit(d, title, deadline, nodes):
     before, balance = task_progress(nodes), energy_balance(nodes)
-    if before is None or balance is None:
-        raise RuntimeError("请将任务列表滚到顶部，确保累计次数和能量可见")
+    if balance is None:
+        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
     package = VISIT[title]
     installed = package == TB or bool(d.adb_device.shell(["pm", "path", package]).strip())
     button = task_button(nodes, title, d.window_size()[0])
     guard(deadline)
     d.click(button["cx"], button["cy"])
-    # 初次冷启动/登录后的跳转较慢，不能把前几秒空白当成失败。
+    # 只等待跳转发生；进入目标应用后立即返回，不等待活动页面加载。
     for second in range(30 if installed else 5):
         guard(deadline)
         time.sleep(1)
-        if second in (4, 14, 24):
+        if installed or second == 4:
             current = d.app_current()["package"]
             if not installed:
                 break
+            if current == package and (package != TB or second >= 3):
+                break
             if current == "com.oplus.securitypermission":
                 dialog = scan(d)
+                if d.app_current()["package"] != current:
+                    continue
                 once = [n for n in dialog if n["text"] == "仅本次允许"]
                 opening = [n for n in dialog if n["text"] == "打开"]
                 if not any("淘宝" in n["text"] and "想要打开" in n["text"] for n in dialog):
@@ -239,6 +251,12 @@ def visit(d, title, deadline, nodes):
         d.app_start(TB)
     time.sleep(4)
     nodes = scan(d)
+    if installed and package != TB and d.app_current()["package"] == package:
+        # 冷启动的延迟跳转可能抢回前台，再明确启动淘宝首页。
+        guard(deadline)
+        d.app_start(TB, use_monkey=True)
+        time.sleep(3)
+        nodes = scan(d)
     if not any("做任务赚能量" in n["text"] for n in nodes):
         if d.app_current()["package"] == TB and "BrowserActivity" in d.app_current()["activity"]:
             guard(deadline)
@@ -324,13 +342,89 @@ def enter(d, deadline):
     return scan(d)
 
 
+def browse_seconds(nodes, title, fallback):
+    rows = [n for n in nodes if title in n["text"]]
+    if len(rows) == 1:
+        labels = [re.search(r"浏览\s*(\d+)\s*秒", n["text"]) for n in nodes
+                  if n["cx"] < 800 and 0 < n["cy"]-rows[0]["cy"] < 100]
+        durations = {int(m[1]) for m in labels if m}
+        if len(durations) == 1:
+            return min(max(durations.pop()+2, 5), 60)
+    return min(max(fallback, 5), 60)
+
+
+def search_topic(nodes, width, height, index):
+    discovery = [n for n in nodes if n["text"] == "搜索发现"]
+    if discovery:
+        top = max(n["cy"] for n in discovery)
+        topics = [n for n in nodes if top+50 < n["cy"] < height*.62
+                  and 2 <= len(n["text"]) <= 30
+                  and any(abs(n["cx"]-width*column) < width*.07 for column in (.26, .74))]
+    elif any("搜索有福利" in n["text"] for n in nodes):
+        topics = [n for n in nodes if n["text"] in ("牙刷", "牛肉", "u盘", "移动硬盘", "固态硬盘")]
+    else:
+        topics = []
+    if not topics:
+        raise RuntimeError("未识别到可点击的搜索推荐词")
+    return topics[index % len(topics)]
+
+
+def return_from_browse(d, deadline):
+    for _ in range(5):
+        guard(deadline)
+        if d.app_current()["package"] != TB:
+            raise RuntimeError("返回时离开淘宝，请检查现场")
+        d.press("back")
+        time.sleep(3)
+        nodes = scan(d)
+        if any("做任务赚能量" in n["text"] for n in nodes):
+            return nodes
+        activity = d.app_current()["activity"].lower()
+        if not ("search" in activity or any(
+                label in n["text"] for n in nodes
+                for label in ("搜索有福利", "系统出了点问题", "系统开小差", "已得400"))):
+            raise RuntimeError("返回了未知页面，请检查截图")
+    raise RuntimeError("返回次数达到上限，请检查现场")
+
+
+def quiz(d, deadline, nodes):
+    before, balance = task_progress(nodes), energy_balance(nodes)
+    if balance is None:
+        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
+    button = task_button(nodes, QUIZ, d.window_size()[0])
+    guard(deadline)
+    d.click(button["cx"], button["cy"])
+    time.sleep(3)
+    nodes = scan(d)
+    text = "".join(n["text"] for n in nodes)
+    answers = [n for n in nodes if re.fullmatch(r"A\s*及时邀请好友助力", n["text"])]
+    question = re.sub(r"[\s，,？?。.]", "", text)
+    if (d.app_current()["package"] != TB
+            or "进入比赛期后想继续追赶对手哪项操作最有效" not in question or len(answers) != 1):
+        raise RuntimeError("遇到未验证的考试题目，保留现场，不自动猜答案")
+    guard(deadline)
+    d.click(answers[0]["cx"], answers[0]["cy"])
+    nodes = scan(d)
+    buttons = [n for n in nodes if n["text"] == "我选好了"]
+    if len(buttons) != 1:
+        raise RuntimeError("未唯一定位答题提交按钮")
+    guard(deadline)
+    d.click(buttons[0]["cx"], buttons[0]["cy"])
+    time.sleep(3)
+    nodes = scan(d)
+    if not any("回答正确" in n["text"] or "已成功领取奖励" in n["text"] for n in nodes):
+        raise RuntimeError("未确认考试结果，保留现场")
+    return verify_gain(d, return_from_browse(d, deadline), before, balance, deadline)
+
+
 def browse(d, title, seconds, deadline, nodes):
     if d.app_current()["package"] != TB:
         raise RuntimeError("浏览任务必须从淘宝开始")
     before = task_progress(nodes)
-    if before is None:
-        raise RuntimeError("请将任务列表滚到顶部，确保累计次数可见")
     before_energy = energy_balance(nodes)
+    if before_energy is None:
+        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
+    seconds = browse_seconds(nodes, title, seconds)
     button = task_button(nodes, title, d.window_size()[0])
     guard(deadline)
     d.click(button["cx"], button["cy"])
@@ -342,36 +436,18 @@ def browse(d, title, seconds, deadline, nodes):
         raise RuntimeError("任务跳转到其他应用，请先分类: " + current)
     if "搜一搜" in title:
         search_nodes = scan(d)
-        if not any("搜索有福利" in n["text"] for n in search_nodes):
-            raise RuntimeError("未识别到任务专用搜索页")
-        topics = [n for n in search_nodes if n["text"] in ("牙刷", "牛肉", "u盘", "移动硬盘", "固态硬盘")]
-        if not topics:
-            raise RuntimeError("未识别到可点击的搜索推荐词")
-        topic = topics[(before or 0) % len(topics)]
+        topic = search_topic(search_nodes, *d.window_size(), before or 0)
         guard(deadline)
         d.click(topic["cx"], topic["cy"])
         time.sleep(3)
     w, h = d.window_size()
     for second in range(min(max(seconds, 5), 60)):
         guard(deadline)
-        if second % 6 == 0:
+        if second % 6 == 0 and title != "拍立淘逛感兴趣的宝贝":
             d.swipe(w*.5, h*.78, w*.5, h*.4, duration=.5)
         time.sleep(1)
     d.screenshot().save(OUT / "browse.png")
-    guard(deadline)
-    d.press("back")
-    time.sleep(3)
-    after_nodes = scan(d)
-    for _ in range(2):
-        if any("做任务赚能量" in n["text"] for n in after_nodes):
-            break
-        if not any("搜索有福利" in n["text"] or "系统出了点问题" in n["text"] or "已得400" in n["text"]
-                   for n in after_nodes):
-            raise RuntimeError("返回了未知页面，请检查截图")
-        guard(deadline)
-        d.press("back")
-        time.sleep(2)
-        after_nodes = scan(d)
+    after_nodes = return_from_browse(d, deadline)
     return verify_gain(d, after_nodes, before, before_energy, deadline)
 
 
@@ -431,11 +507,14 @@ def main():
             tier = {"taobao": "淘宝", "alipay": "支付宝", "external": "其他应用"}[task_kind(selected)]
             LOG.info("[任务] %s/%s | %s | %s", _+1, min(max(args.repeat, 1), 30), tier, selected)
             if selected in VISIT:
-                LOG.info("[等待] 等待页面加载并访问，随后返回核对奖励")
+                LOG.info("[跳转] 确认打开目标应用后立即返回核对奖励")
                 attempted.add(selected)
                 nodes = visit(d, selected, deadline, nodes)
+            elif selected == QUIZ:
+                attempted.add(selected)
+                nodes = quiz(d, deadline, nodes)
             else:
-                LOG.info("[浏览] 滑动浏览约 %s 秒", min(max(args.seconds, 5), 60))
+                LOG.info("[浏览] 按任务要求浏览约 %s 秒", browse_seconds(nodes, selected, args.seconds))
                 nodes = browse(d, selected, args.seconds, deadline, nodes)
         return
     elif args.action == "browse":
