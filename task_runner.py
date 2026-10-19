@@ -18,8 +18,13 @@ def run_script(
     should_stop: Callable[[], bool],
     on_line: Callable[[str], None],
     env_overrides: dict[str, str] | None = None,
+    command: list[str] | None = None,
 ) -> tuple[bool, float, str]:
-    """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。"""
+    """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。
+
+    默认用当前解释器执行 filepath；传入 command 时按显式命令启动（如带子命令的入口），
+    此时 filepath 只用于校验存在性和展示。
+    """
     start = time.monotonic()
     if timeout <= 0:
         raise ValueError("任务超时必须大于 0")
@@ -31,7 +36,7 @@ def run_script(
     if env_overrides:
         env.update(env_overrides)
     proc = subprocess.Popen(
-        [sys.executable, "-u", str(filepath)], cwd=cwd,
+        command or [sys.executable, "-u", str(filepath)], cwd=cwd,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         encoding="utf-8", errors="replace", env=env, bufsize=1,
     )
