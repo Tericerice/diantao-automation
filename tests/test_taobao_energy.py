@@ -58,11 +58,25 @@ def test_energy_balance_ignores_prices_and_car_level():
     assert energy_balance(nodes) == 11500
 
 
+def test_energy_balance_accepts_ocr_merged_header():
+    assert energy_balance([dict(text="69400已累计升级已得", cx=347, cy=329)]) == 69400
+    assert energy_balance([dict(text="0.72", cx=347, cy=368)]) is None
+
+
 @pytest.mark.parametrize("title,kind", [
     ("领闪购红包下单直接省", "taobao"),
     ("看淘宝视频领红包", "taobao"),
     ("去芭芭农场领水果", "taobao"),
     ("去蚂蚁森林收能量", "alipay"),
+    ("逛一逛蚂蚁庄园", "alipay"),
+    ("逛一逛支付宝农场", "alipay"),
+    ("搜一搜你喜欢的宝贝", "taobao"),
+    ("拍立淘逛感兴趣的宝贝", "taobao"),
+    ("淘金币省钱等级考试", "taobao"),
+    ("去组队可加快升级", "taobao"),
+    ("你关注的商品都可抵", "taobao"),
+    ("逛一逛领购物红包", "external"),
+    ("去百度极速版领现金", "external"),
     ("逛一逛支付宝金豆夺宝", "alipay"),
     ("去百度App领现金", "external"),
     ("去淘宝特价版0元购", "external"),
@@ -209,3 +223,116 @@ def test_console_is_concise_and_error_details_stay_in_file(tmp_path, monkeypatch
             task.LOG.removeHandler(handler)
             handler.close()
         task._session.clear()
+
+
+def test_visit_title_in_reward_description_is_not_a_second_task():
+    nodes = page("逛一逛蚂蚁庄园(0/1)") + [dict(text="逛一逛蚂蚁庄园+600", cx=430, cy=1524)]
+    assert task_button(nodes, "逛一逛蚂蚁庄园", 1264)["cy"] == 1492
+
+
+def test_only_verified_photo_browse_is_allowed():
+    assert allowed_browse("拍立淘逛感兴趣的宝贝")
+    assert task_button(page("拍立淘逛感兴趣的宝贝(0/5)"), "拍立淘逛感兴趣的宝贝", 1264)
+    assert not allowed_browse("拍立淘上传照片")
+    assert task_kind("拍立淘上传照片") == "skip"
+
+
+def test_balance_verifies_after_cumulative_banner_disappears(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    ready = page() + [dict(text="69400", cx=210, cy=343)]
+    monkeypatch.setattr(task, "_session", {})
+    assert task.verify_gain(object(), ready, None, 69000,
+                            datetime.now(timezone.utc)+timedelta(minutes=1)) == ready
+    assert task._session["completed"] == 1
+
+
+def test_five_second_label_does_not_shorten_fifteen_second_task():
+    from tools.taobao_energy import browse_seconds
+    nodes = page("你关注的商品都可抵(0/1)") + [
+        dict(text="浏览15秒+400", cx=390, cy=1524),
+        dict(text="浏览5秒+400", cx=390, cy=1754)]
+    assert browse_seconds(nodes, "你关注的商品都可抵", 25) == 17
+
+
+def test_search_uses_discovery_not_history_or_keyboard():
+    from tools.taobao_energy import search_topic
+    nodes = [dict(text="历史记录", cx=328, cy=525),
+             dict(text="搜索发现", cx=146, cy=792),
+             dict(text="牙刷", cx=328, cy=950),
+             dict(text="ABC", cx=328, cy=2062)]
+    assert search_topic(nodes, 1264, 2780, 0)["text"] == "牙刷"
+    with pytest.raises(RuntimeError, match="推荐词"):
+        search_topic(nodes[:1], 1264, 2780, 0)
+
+
+def test_search_returns_through_keyboard_and_search_page(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="com.taobao.search.SearchActivity")
+    scans = iter([[dict(text="搜索发现", cx=146, cy=792)],
+                  [dict(text="历史搜索", cx=146, cy=390)], page()])
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    assert task.return_from_browse(d, datetime.now(timezone.utc)+timedelta(minutes=1)) == page()
+    assert d.press.call_count == 3
+
+
+def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = page("去快手打卡领手机(0/1)") + [dict(text="50/50", cx=120, cy=846),
+                                             dict(text="63000", cx=210, cy=343)]
+    ready = nodes + []
+    ready[-1] = dict(text="63600", cx=210, cy=343)
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    d.adb_device.shell.return_value = "package:installed"
+    d.app_current.side_effect = [dict(package="com.kuaishou.nebula"),
+                                dict(package="com.kuaishou.nebula"),
+                                dict(package=task.TB)]
+    waits = []
+    monkeypatch.setattr(task.time, "sleep", waits.append)
+    monkeypatch.setattr(task, "scan", lambda _: ready)
+    monkeypatch.setattr(task, "_session", {})
+    task.visit(d, "去快手打卡领手机", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
+    assert waits == [1, 4]
+    d.app_start.assert_called_once_with(task.TB)
+
+
+def test_unknown_quiz_is_not_answered(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = page(task.QUIZ+"(0/1)") + [dict(text="53800", cx=210, cy=343)]
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    d.app_current.return_value = dict(package=task.TB)
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    monkeypatch.setattr(task, "scan", lambda _: [dict(text="另一道题", cx=500, cy=700)])
+    with pytest.raises(RuntimeError, match="未验证的考试"):
+        task.quiz(d, datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
+    d.click.assert_called_once_with(1102, 1492)
+
+
+def test_known_quiz_submits_verified_answer_and_checks_reward(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock, call
+    nodes = page(task.QUIZ+"(0/1)") + [dict(text="53800", cx=210, cy=343)]
+    question = [dict(text="1.进入比赛期后，想继续追赶对手，哪项操作最有效？", cx=600, cy=745),
+                dict(text="A 及时邀请好友助力", cx=314, cy=1018)]
+    ready = page() + [dict(text="54800", cx=210, cy=343)]
+    scans = iter([question, question+[dict(text="我选好了", cx=630, cy=2659)],
+                  [dict(text="回答正确", cx=500, cy=1000)], ready])
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    d.app_current.return_value = dict(package=task.TB)
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task, "_session", {})
+    assert task.quiz(d, datetime.now(timezone.utc)+timedelta(minutes=1), nodes) == ready
+    assert d.click.call_args_list == [call(1102, 1492), call(314, 1018), call(630, 2659)]
