@@ -125,3 +125,26 @@ def test_taobao_on_lower_page_precedes_alipay_on_first_page(monkeypatch):
     assert title == "看淘宝视频领红包"
     assert task.task_progress(nodes) == 50
     d.click.assert_not_called()
+
+
+def test_manual_launch_deadline_is_relative_to_current_start():
+    from tools.taobao_energy import run_deadline
+    from datetime import datetime, timedelta
+    # 回归：历史截止日期之后也能正常手动启动，跨日运行仍有明确上限。
+    now = datetime.fromisoformat("2026-10-19T23:30:00+08:00")
+    assert run_deadline(None, 60, now) == now + timedelta(hours=1)
+    assert run_deadline("2026-10-20T00:00:00+08:00", 60, now).hour == 0
+
+
+@pytest.mark.parametrize("value,minutes", [
+    ("2026-10-19T00:00:00+08:00", 60),
+    ("2026-10-20T00:00:00", 60),
+    ("invalid", 60),
+    (None, 0),
+    (None, -1),
+])
+def test_invalid_runtime_options_are_rejected(value, minutes):
+    from tools.taobao_energy import run_deadline
+    from datetime import datetime
+    with pytest.raises(ValueError):
+        run_deadline(value, minutes, datetime.fromisoformat("2026-10-19T18:00:00+08:00"))
