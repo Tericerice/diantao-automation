@@ -48,6 +48,9 @@ TASK_KW = [
     "浏览", "去浏览", "查看",
 ]
 
+# 用户要求屏蔽的任务关键词；命中后不进入候选，避免反复命中同一气泡。
+BLOCKED_TASK_KEYWORDS = ("精选宝贝",)
+
 CENTER_WAITING = ["后可开启", "熟睡中", "倒计时"]
 CENTER_ACTIVE = ["开启晚睡", "开始睡觉", "收下元宝"]
 
@@ -107,6 +110,8 @@ def find_bubble(blocks=None):
         btn = d(textContains=kw)
         if btn.exists(timeout=1):
             text = btn.get_text().strip()
+            if any(kw_blocked in text for kw_blocked in BLOCKED_TASK_KEYWORDS):
+                continue
             if "直播" in text:
                 continue
             try:
@@ -148,6 +153,11 @@ def return_to_sleep_page():
 def do_bubble_task(name, btn_cx, btn_cy):
     """执行气泡任务"""
     print(f"  🎯 {name}")
+
+    # 用户要求屏蔽“查看3个精选宝贝 / 精选宝贝”类任务，不点击、不记录。
+    if "精选宝贝" in name:
+        print("  ⊘ 已屏蔽精选宝贝任务，跳过")
+        return
 
     if "猜价格" in name:
         d.click(btn_cx, btn_cy)

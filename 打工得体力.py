@@ -59,6 +59,8 @@ BLACKLIST_KEYWORDS = [
     "消消乐", "农场小游戏", "斗地主", "开心消消乐",
     "猜谜", "猜一猜",
     "搜索宝贝", "查看并完成", "玩小游戏",
+    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
+    "精选宝贝",
 ]
 
 # 去完成按钮关键词
@@ -88,9 +90,6 @@ TASK_TYPE_MAP: dict[str, str] = {
     "浏览当季上新好物": "browse",
     "签到": "browse",
     "查看": "browse",
-    "查看精选宝贝": "browse",
-    "查看3个精选宝贝": "browse",
-    "看3个精选宝贝": "browse",
 }
 TASK_CATEGORY_MAP: dict[str, str] = {
     "浏览": "browse",

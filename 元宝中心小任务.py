@@ -13,7 +13,7 @@ import re
 
 from u2_scanner import connect_device, DT_APP, click_u2_control
 from u2_scanner import handle_guess_price_game, execute_live_task, execute_video_task
-from u2_scanner import click_three_selected_items, execute_browse_task
+from u2_scanner import execute_browse_task
 from utils import get_ocr_text_blocks, show_today_summary
 
 # ========================================================
@@ -38,6 +38,8 @@ BLACKLIST_KEYWORDS = [
     "消消乐", "农场小游戏", "斗地主", "开心消消乐",
     "猜谜", "猜一猜",
     "查看并完成", "玩小游戏",
+    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
+    "精选宝贝",
 ]
 
 
@@ -74,8 +76,6 @@ def match_task_type(text):
     """根据任务名匹配任务类型"""
     if "猜价格" in text:
         return "guess_price"
-    if "查看" in text and ("宝贝" in text or "精选" in text):
-        return "three_click"
     if "看视频" in text:
         return "video"
     if "浏览" in text or "精选推荐" in text or "猜你喜欢" in text \
@@ -204,15 +204,6 @@ def execute_task(task_name, btn_cx, btn_cy):
         time.sleep(3)
         handle_guess_price_game(d)
         # 游戏结束返回任务列表
-        d.press("back")
-        time.sleep(2)
-
-    elif task_type == "three_click":
-        print("    类型: 查看3个精选宝贝（点击3次）")
-        d.click(btn_cx, btn_cy)
-        time.sleep(0.5)
-        click_three_selected_items(d)
-        # 返回任务列表
         d.press("back")
         time.sleep(2)
 
