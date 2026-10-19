@@ -140,7 +140,7 @@ py -3.10 打工得体力.py
 
 ## 六、环境与依赖
 
-- Python 3.10；`uiautomator2`、`opencv-python`、`Pillow`、`requests`、`rapidocr-onnxruntime`（赚能量本地 OCR）、`fastapi`/`uvicorn`（兼容服务）、`pytest`。
+- Python 3.10；`uiautomator2`、`opencv-python`、`Pillow`、`requests`、`python-dotenv`（赚能量腾讯云 OCR 配置）、`fastapi`/`uvicorn`（兼容服务）、`pytest`。
 - 真机需开启 USB/Wi-Fi 调试；脚本使用 Wi-Fi ADB 地址连接。
 - 云端 OCR 通过 `DIANTAO_OCR_SERVER_URL` 注入；未设置时云端 OCR 自动跳过（不会崩溃）。
 

@@ -17,7 +17,7 @@ def register(butler_dir):
     registry = butler_dir / "tools" / "managed_process" / "registry.yaml"
     source = registry.read_text(encoding="utf-8")
     command = [uv, "--quiet", "run", "--with", "uiautomator2",
-               "--with", "rapidocr-onnxruntime", "python", "-u",
+               "--with", "requests", "--with", "python-dotenv", "python", "-u",
                (SCRIPT_DIR / "tools" / "taobao_energy.py").as_posix(),
                "run", "--repeat", "30"]
     entry = (
