@@ -7,6 +7,7 @@ verify_all_tasks.py - CodeBuddy 多模态任务改造全面端到端验证
 import os
 import sys
 import time
+from pathlib import Path
 from PIL import Image
 
 # 导入改造后的 CodeBuddy 视觉模块
@@ -23,7 +24,7 @@ def step1_verify_local_image():
     print("\n--------------------------------------------------")
     print("🧪 Step 1: 验证本地样本图像的多模态定位与识别")
     print("--------------------------------------------------")
-    sample_img = r"D:\GitHub Program\diantao\img\click_btn.png"
+    sample_img = str(Path(__file__).resolve().parent / "img" / "click_btn.png")
     if not os.path.exists(sample_img):
         print(f"❌ 样本图片不存在: {sample_img}")
         return False
@@ -55,7 +56,7 @@ def step2_verify_phone_screen():
         d = u2.connect()
         print(f"  📱 成功连接当前设备: {d.serial}")
 
-        temp_screen = r"D:\GitHub Program\diantao\.cb_vision_temp\live_phone_test.jpg"
+        temp_screen = str(Path(__file__).resolve().parent / ".cb_vision_temp" / "live_phone_test.jpg")
         img = d.screenshot()
         img.save(temp_screen)
         print(f"  📸 成功截取手机实时画面: {img.size[0]}x{img.size[1]}")
@@ -92,7 +93,7 @@ def step3_verify_task_syntax():
 
     all_ok = True
     for s in scripts_to_check:
-        full_p = os.path.join(r"D:\GitHub Program\diantao", s)
+        full_p = str(Path(__file__).resolve().parent / s)
         try:
             with open(full_p, "r", encoding="utf-8") as f:
                 content = f.read()

@@ -6,7 +6,7 @@ Encoding: UTF-8 without BOM
 
 ============================================================
 SOURCE_FILE: README_ARCH.md
-SOURCE_PATH: D:\GitHub Program\docs\README_ARCH.md
+SOURCE_PATH: docs/README_ARCH.md
 ============================================================
 
 # 点淘自动化项目架构文档
@@ -117,7 +117,7 @@ connect_device() 连接真机并启动弹窗 watcher
 
 ============================================================
 SOURCE_FILE: diantao_core.md
-SOURCE_PATH: D:\GitHub Program\docs\diantao_core.md
+SOURCE_PATH: docs/diantao_core.md
 ============================================================
 
 # A：点淘核心任务脚本（`diantao/`）
@@ -215,7 +215,7 @@ SOURCE_PATH: D:\GitHub Program\docs\diantao_core.md
 
 ============================================================
 SOURCE_FILE: execution_scheduler.md
-SOURCE_PATH: D:\GitHub Program\docs\execution_scheduler.md
+SOURCE_PATH: docs/execution_scheduler.md
 ============================================================
 
 # B：执行调度系统（`任务选择器.py` + `全部执行.py`）
@@ -319,7 +319,7 @@ SOURCE_PATH: D:\GitHub Program\docs\execution_scheduler.md
 
 ============================================================
 SOURCE_FILE: ocr_engine.md
-SOURCE_PATH: D:\GitHub Program\docs\ocr_engine.md
+SOURCE_PATH: docs/ocr_engine.md
 ============================================================
 
 # C：OCR 与图像识别引擎（`utils.py` + `tools/`）
@@ -414,7 +414,7 @@ SOURCE_PATH: D:\GitHub Program\docs\ocr_engine.md
 
 ============================================================
 SOURCE_FILE: task_handlers.md
-SOURCE_PATH: D:\GitHub Program\docs\task_handlers.md
+SOURCE_PATH: docs/task_handlers.md
 ============================================================
 
 # D：通用任务处理器（`diantao/u2_scanner.py` + `diantao/utils.py`）
@@ -539,7 +539,7 @@ SOURCE_PATH: D:\GitHub Program\docs\task_handlers.md
 
 ============================================================
 SOURCE_FILE: dev_tools.md
-SOURCE_PATH: D:\GitHub Program\docs\dev_tools.md
+SOURCE_PATH: docs/dev_tools.md
 ============================================================
 
 # F：辅助开发工具
@@ -630,14 +630,14 @@ OCR 结果不稳定？
 
 ============================================================
 SOURCE_FILE: hamibot_js.md
-SOURCE_PATH: D:\GitHub Program\docs\hamibot_js.md
+SOURCE_PATH: docs/hamibot_js.md
 ============================================================
 
 # E：Hamibot 脚本（历史/备用说明）
 
 ## 当前状态
 
-截至 2026-06-27，在 `D:\GitHub Program` 当前工作区未发现 `hamibot.diantao/` 目录。因此本文件不再把 Hamibot 视为当前可运行主线，只保留为历史/备用架构说明。
+截至 2026-06-27，在 `<旧工作目录>` 当前工作区未发现 `hamibot.diantao/` 目录。因此本文件不再把 Hamibot 视为当前可运行主线，只保留为历史/备用架构说明。
 
 当前活跃实现是 `diantao/` 下的 Python + uiautomator2 脚本。
 

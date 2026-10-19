@@ -15,12 +15,12 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from PIL import Image
 from utils import connect_device, TB_APP, get_ocr_text_blocks
 
-ADB_PATH = r"D:\Android\Sdk\platform-tools\adb.exe"
+ADB_PATH = os.environ.get("ADB_PATH", "adb")
 d = connect_device()
 
 def adb_screencap_pil():
     """ADB 截图返回 PIL Image"""
-    cmd = [ADB_PATH, "-s", "192.168.110.211:44479", "exec-out", "screencap", "-p"]
+    cmd = [ADB_PATH, "-s", str(d.serial), "exec-out", "screencap", "-p"]
     result = subprocess.run(cmd, capture_output=True)
     if result.returncode != 0:
         print(f"  ❌ ADB 截图失败")

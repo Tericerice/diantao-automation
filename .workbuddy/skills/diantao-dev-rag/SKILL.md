@@ -57,7 +57,7 @@ trigger_phrases:
 from rag_client import upload_document
 from pathlib import Path
 
-spec_path = Path("D:/GitHub Program/diantao/开发规范.md")
+spec_path = Path("开发规范.md")
 if spec_path.exists():
     tid = upload_document(str(spec_path))
     print(f"  开发规范已上传到 RAG，track_id: {tid}")

@@ -31,9 +31,9 @@ import uiautomator2 as u2
 DT_APP = "com.taobao.live"
 CODEBUDDY_CLI = r"D:\WORKBUDDY\resources\app.asar.unpacked\cli\dist\codebuddy.js"
 VISION_MODEL = "deepseek-v4.1-flash"
-TEMP_DIR = Path(r"D:\GitHub Program\diantao\.cb_vision_temp")
+TEMP_DIR = (Path(__file__).resolve().parent / ".cb_vision_temp")
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
-RULES_FILE = Path(r"D:\GitHub Program\diantao\nav_rules.json")
+RULES_FILE = (Path(__file__).resolve().parent / "nav_rules.json")
 
 
 class SmartNavigator:
@@ -114,7 +114,7 @@ class SmartNavigator:
                 encoding="utf-8",
                 errors="replace",
                 timeout=30,
-                cwd=r"D:\GitHub Program\diantao"
+                cwd=Path(__file__).resolve().parent
             )
             return res.stdout.strip()
         except subprocess.TimeoutExpired:

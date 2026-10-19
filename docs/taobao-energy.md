@@ -36,7 +36,7 @@
 启动管家的“Python脚本”分类中已注册 **淘金币双11赚能量**，执行 `run --repeat 30`，不会随管家启动自动运行。管家重启后载入注册表。重新注册：
 
 ```powershell
-uv run --no-project python deploy/register_taobao_energy.py "D:\My Github Program\automation-butler"
+uv run --no-project python deploy/register_taobao_energy.py "<automation-butler目录>"
 ```
 
 管家中的“启动”按钮发起一次运行，不随管家自动执行。运行时限从本次启动计算，不使用历史授权日期；这不代表聊天助手取得长期手机控制权。
