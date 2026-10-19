@@ -50,6 +50,35 @@ def test_output_and_exit_code(tmp_path: Path, code: int) -> None:
     assert reason == ("成功" if code == 0 else "错误码 7")
 
 
+def test_no_timeout_waits_for_script_to_finish(tmp_path: Path) -> None:
+    script = tmp_path / "quick.py"
+    script.write_text("print('done')", encoding="utf-8")
+    lines: list[str] = []
+    success, _, reason = run_script(
+        script, cwd=tmp_path, timeout=None,
+        should_stop=lambda: False, on_line=lines.append,
+    )
+    assert (success, reason) == (True, "成功")
+    assert lines == ["done"]
+
+
+def test_no_timeout_still_responds_to_stop(tmp_path: Path) -> None:
+    script = tmp_path / "silent.py"
+    script.write_text("import time; time.sleep(10)", encoding="utf-8")
+    stop = threading.Event()
+    timer = threading.Timer(0.5, stop.set)
+    timer.start()
+    try:
+        success, elapsed, reason = run_script(
+            script, cwd=tmp_path, timeout=None,
+            should_stop=stop.is_set, on_line=lambda line: None,
+        )
+    finally:
+        timer.cancel()
+    assert (success, reason) == (False, "用户停止")
+    assert elapsed < 3
+
+
 def test_recheck_environment_is_only_set_for_requested_child(tmp_path: Path, monkeypatch):
     from task_recheck import RECHECK_ENV
 

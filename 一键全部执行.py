@@ -23,10 +23,13 @@ UV_PACKAGES = ("uiautomator2", "requests", "python-dotenv")
 
 
 class Step(NamedTuple):
-    """一个执行步骤：脚本、超时、附加参数、启动方式与复核轮数。"""
+    """一个执行步骤：脚本、超时、附加参数、启动方式与复核轮数。
+
+    timeout 为 None 表示不设置超时，一直等到脚本自行结束或用户按 Ctrl+C 停止。
+    """
 
     filename: str
-    timeout: int
+    timeout: int | None
     args: tuple = ()
     uv: bool = False
     rechecks: int = 0
@@ -34,26 +37,26 @@ class Step(NamedTuple):
 
 # 前两步与 一键顺序执行.py 一致：这两个脚本不输出复核标记，只执行一轮。
 SEQUENCE_TASKS = (
-    Step("连通性脚本.py", 1800),
-    Step("一键下滑.py", 2100),
+    Step("连通性脚本.py", None),
+    Step("一键下滑.py", None),
 )
 
 # 与 一键任务执行.py 的 REMAINING_TASKS 一致，每项最多复核 5 轮。
 REMAINING_TASKS = (
-    Step("主播打卡粉丝礼.py", 2100, rechecks=5),
-    Step("签到赢元宝.py", 2100, rechecks=5),
-    Step("睡觉赚元宝.py", 3600, rechecks=5),
-    Step("点淘鸭钻石任务.py", 2100, rechecks=5),
-    Step("点淘鸭摇一摇.py", 2100, rechecks=5),
-    Step("点淘购物赚钱.py", 2100, rechecks=5),
-    Step("打工得体力.py", 3600, rechecks=5),
-    Step("走路赚元宝.py", 900, rechecks=5),
-    Step("元宝中心小任务.py", 1500, rechecks=5),
-    Step("养优惠.py", 14400, rechecks=5),
+    Step("主播打卡粉丝礼.py", None, rechecks=5),
+    Step("签到赢元宝.py", None, rechecks=5),
+    Step("睡觉赚元宝.py", None, rechecks=5),
+    Step("点淘鸭钻石任务.py", None, rechecks=5),
+    Step("点淘鸭摇一摇.py", None, rechecks=5),
+    Step("点淘购物赚钱.py", None, rechecks=5),
+    Step("打工得体力.py", None, rechecks=5),
+    Step("走路赚元宝.py", None, rechecks=5),
+    Step("元宝中心小任务.py", None, rechecks=5),
+    Step("养优惠.py", None, rechecks=5),
 )
 
 # 赚能量依赖 uv 独立环境；内部 --repeat 30 自行循环，外层只跑一轮。
-ENERGY_TASK = Step(ENERGY_SCRIPT, 3600, ("run", "--repeat", "30"), uv=True)
+ENERGY_TASK = Step(ENERGY_SCRIPT, None, ("run", "--repeat", "30"), uv=True)
 
 ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
 
@@ -123,6 +126,11 @@ def run_task(step, stop):
     return success, total_elapsed, reason
 
 
+def _timeout_label(timeout):
+    """超时展示文案：None 表示不限制。"""
+    return "不设超时" if timeout is None else f"超时 {timeout}s"
+
+
 def execute(stop=None, tasks=None):
     """串行执行一轮；失败/超时继续下一项，停止信号取消后续项。"""
     stop = stop if stop is not None else Event()
@@ -136,7 +144,7 @@ def execute(stop=None, tasks=None):
     for index, step in enumerate(tasks, 1):
         if stop.is_set():
             break
-        print(f"\n[{index}/{len(tasks)}] 启动 {step.filename}（超时 {step.timeout}s）", flush=True)
+        print(f"\n[{index}/{len(tasks)}] 启动 {step.filename}（{_timeout_label(step.timeout)}）", flush=True)
         success, elapsed, reason = run_task(step, stop)
         results.append((step.filename, success, reason))
         print(f"{step.filename}：{reason}（{elapsed:.1f}s）", flush=True)
@@ -157,7 +165,7 @@ def main(tasks=None, description=__doc__):
     args = parser.parse_args()
     if args.list:
         for index, step in enumerate(tasks, 1):
-            print(f"{index}. {step.filename}（{step.timeout}s）")
+            print(f"{index}. {step.filename}（{_timeout_label(step.timeout)}）")
         return 0
 
     stop = Event()

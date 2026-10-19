@@ -33,6 +33,24 @@ def test_all_tasks_exist_on_disk():
         assert (module.SCRIPT_DIR / step.filename).is_file(), step.filename
 
 
+def test_no_step_has_a_timeout():
+    """用户要求全流程不设置超时，只等待脚本自行结束或手动停止。"""
+    assert all(step.timeout is None for step in module.ALL_TASKS)
+
+
+def test_timeout_label_marks_no_timeout():
+    assert module._timeout_label(None) == "不设超时"
+    assert module._timeout_label(1800) == "超时 1800s"
+
+
+def test_list_output_shows_no_timeout(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["一键全部执行.py", "--list"])
+    assert module.main(tasks=module.SEQUENCE_TASKS) == 0
+    out = capsys.readouterr().out
+    assert "1. 连通性脚本.py（不设超时）" in out
+    assert "2. 一键下滑.py（不设超时）" in out
+
+
 def test_uv_command_matches_registered_entry(monkeypatch):
     monkeypatch.setattr(module.shutil, "which", lambda name: "C:/tools/uv.exe")
     command = module.build_command(module.ENERGY_TASK)

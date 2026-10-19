@@ -14,7 +14,7 @@ def run_script(
     filepath: str | Path,
     *,
     cwd: str | Path,
-    timeout: float,
+    timeout: float | None,
     should_stop: Callable[[], bool],
     on_line: Callable[[str], None],
     env_overrides: dict[str, str] | None = None,
@@ -22,12 +22,13 @@ def run_script(
 ) -> tuple[bool, float, str]:
     """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。
 
+    timeout 传 None 表示不设置超时，只等待脚本自行结束或用户停止。
     默认用当前解释器执行 filepath；传入 command 时按显式命令启动（如带子命令的入口），
     此时 filepath 只用于校验存在性和展示。
     """
     start = time.monotonic()
-    if timeout <= 0:
-        raise ValueError("任务超时必须大于 0")
+    if timeout is not None and timeout <= 0:
+        raise ValueError("任务超时必须大于 0，或传 None 表示不设超时")
     if should_stop():
         return False, 0.0, "用户停止"
 
@@ -61,13 +62,15 @@ def run_script(
             if should_stop():
                 reason = "用户停止"
                 break
-            if elapsed >= timeout:
+            if timeout is not None and elapsed >= timeout:
                 reason = f"超时 ({timeout:g}s)"
                 break
             if eof and proc.poll() is not None:
                 break
+            # 不设超时时用固定短轮询，既能及时响应停止信号，也不会提前结束。
+            wait = 0.1 if timeout is None else min(0.1, timeout - elapsed)
             try:
-                line = lines.get(timeout=min(0.1, timeout - elapsed))
+                line = lines.get(timeout=wait)
             except queue.Empty:
                 continue
             if line is None:
