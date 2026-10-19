@@ -31,6 +31,8 @@
 
 最近一次截图和 OCR 坐标保存在 `screenshots/taobao_energy/current.png`、`current.json`；`browse.png` 是返回前的浏览页。
 
+管家日志只显示连接、任务名称/梯队、浏览等待、到账能量、跳过原因和结束汇总。正常运行不再输出整屏 OCR JSON，异常在管家中显示一行原因；完整识别数据和异常堆栈保存到 `logs/taobao_energy/日期-时间-进程号.log`，启动时会显示文件位置。显式执行 `scan` 仍输出 JSON，方便人工定位。启动入口使用 uv 静默模式，隐藏依赖准备提示。
+
 启动管家的“Python脚本”分类中已注册 **淘金币双11赚能量**，执行 `run --repeat 30`，不会随管家启动自动运行。管家重启后载入注册表。重新注册：
 
 ```powershell
