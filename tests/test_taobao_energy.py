@@ -127,6 +127,38 @@ def test_taobao_on_lower_page_precedes_alipay_on_first_page(monkeypatch):
     d.click.assert_not_called()
 
 
+@pytest.mark.parametrize("label", ["赚能量", "賺能量"])
+def test_enter_accepts_cloud_ocr_earn_button_variant(monkeypatch, label):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = [dict(text="淘金币双11狂享20亿", cx=506, cy=216),
+             dict(text=label, cx=1154, cy=1177)]
+    opened = page()
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    scans = iter([nodes, opened])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    assert task.enter(d, datetime.now(timezone.utc)+timedelta(minutes=1)) == opened
+    d.click.assert_called_once_with(1154, 1177)
+
+
+def test_enter_rejects_ambiguous_earn_button_variants(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = [dict(text="淘金币双11狂享20亿", cx=506, cy=216),
+             dict(text="赚能量", cx=1154, cy=1177),
+             dict(text="賺能量", cx=1154, cy=1300)]
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    monkeypatch.setattr(task, "scan", lambda _: nodes)
+    with pytest.raises(RuntimeError, match="未唯一"):
+        task.enter(d, datetime.now(timezone.utc)+timedelta(minutes=1))
+    d.click.assert_not_called()
+
+
 def test_manual_launch_deadline_is_relative_to_current_start():
     from tools.taobao_energy import run_deadline
     from datetime import datetime, timedelta
