@@ -16,9 +16,12 @@ def test_new_start_relaunches_even_when_taobao_is_already_open(
 ):
     device = Mock()
     home = dict(package=task.TB, activity="TBMainActivity")
-    device.app_current.side_effect = [
-        dict(package=task.TB, activity=initial_activity), home, home,
-    ]
+    device.app_current.side_effect = [dict(package=task.TB, activity=initial_activity)]
+    # 重启后所有读屏均处于首页；弹窗检查也会核对前台应用。
+    def start(*args, **kwargs):
+        device.app_current.side_effect = None
+        device.app_current.return_value = home
+    device.app_start.side_effect = start
     entry = Mock(exists=True)
     absent = Mock(exists=False)
     device.side_effect = lambda **query: entry if query == {"text": "领淘金币"} else absent

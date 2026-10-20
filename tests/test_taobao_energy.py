@@ -182,18 +182,25 @@ def test_home_entry_closes_known_logistics_prompt_and_supports_both_labels(
     from tools import taobao_energy as task
 
     controls = {}
+    dismissed = False
 
     def select(**query):
+        nonlocal dismissed
         key = tuple(query.items())
         if key not in controls:
             control = MagicMock()
-            control.exists = query in [
-                {"text": "开启快递物流提醒"},
-                {"text": "去授权"},
-                {selector_kind: "领淘金币"},
-            ]
             control.count = 1
+            if query == {"text": "取消"}:
+                def close():
+                    nonlocal dismissed
+                    dismissed = True
+                control.click.side_effect = close
             controls[key] = control
+        controls[key].exists = query == {selector_kind: "领淘金币"} or (
+            not dismissed and query in [
+                {"text": "开启快递物流提醒"}, {"text": "去授权"}, {"text": "取消"},
+            ]
+        )
         return controls[key]
 
     d = MagicMock(side_effect=select)
@@ -206,7 +213,7 @@ def test_home_entry_closes_known_logistics_prompt_and_supports_both_labels(
     assert task.enter(d, datetime.now(timezone.utc) + timedelta(minutes=1)) == page()
     controls[(("text", "取消"),)].click.assert_called_once()
     controls[((selector_kind, "领淘金币"),)].click.assert_called_once()
-    controls[(("text", "去授权"),)].click.assert_not_called()
+    select(text="去授权").click.assert_not_called()
     d.click.assert_called_once_with(1154, 1177)
 
 

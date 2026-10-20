@@ -53,7 +53,7 @@ REMAINING_TASKS = (
     Step("养优惠.py", None, rechecks=5),
 )
 
-# 赚能量复用固定环境；内部 --repeat 30 自行循环，外层只跑一轮。
+# 赚能量复用固定环境；内部每轮最多30项、默认复核5次，外层只启动一次。
 ENERGY_TASK = Step(ENERGY_SCRIPT, None, ("run", "--repeat", "30"), uv=True)
 
 ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
