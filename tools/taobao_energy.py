@@ -316,13 +316,31 @@ def next_task(d, nodes, attempted, deadline):
     return None, nodes
 
 
-def enter(d, deadline):
+def enter(d, deadline, *, restart=False):
     """复用农场库的首页 U2 入口；活动内部用实测可读的 OCR。"""
-    if d.app_current()["package"] != TB:
+    if restart:
+        guard(deadline)
+        LOG.info("[导航] 重新启动淘宝，等待首页")
+        d.app_start(TB, stop=True, use_monkey=True)
+        for _ in range(15):
+            guard(deadline)
+            current = d.app_current()
+            if current["package"] == TB and any(
+                name in current["activity"] for name in ("Welcome", "TBMainActivity")
+            ):
+                if (d(text="领淘金币").exists or d(description="领淘金币").exists
+                        or d(text="开启快递物流提醒").exists):
+                    LOG.info("[导航] 淘宝首页已确认")
+                    break
+            time.sleep(1)
+        else:
+            raise RuntimeError("重启后未确认淘宝首页，请检查手机登录状态和弹窗")
+    elif d.app_current()["package"] != TB:
         guard(deadline)
         d.app_start(TB)
         time.sleep(3)
-    if any(name in d.app_current()["activity"] for name in ("Welcome", "TBMainActivity")):
+    current = d.app_current()
+    if any(name in current["activity"] for name in ("Welcome", "TBMainActivity")):
         if d(text="开启快递物流提醒").exists and d(text="去授权").exists:
             cancel = d(text="取消")
             if cancel.count != 1:
@@ -340,21 +358,26 @@ def enter(d, deadline):
                 time.sleep(5)
                 break
     nodes = scan(d)
+    for _ in range(3):
+        if any("做任务赚能量" in n["text"] for n in nodes):
+            return nodes
+        current_event = (
+            any(n["text"] == "升级赛车拿钱" for n in nodes)
+            and any(n["text"] == "去赚能量" for n in nodes)
+        )
+        if not current_event and not any("淘金币双11" in n["text"] for n in nodes):
+            raise RuntimeError("请先回到淘宝首页，确认领淘金币入口；未点击未知页面")
+        buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量", "去赚能量")]
+        if len(buttons) != 1:
+            raise RuntimeError("未唯一识别赚能量按钮")
+        guard(deadline)
+        LOG.info("[导航] 进入赚能量任务列表")
+        d.click(buttons[0]["cx"], buttons[0]["cy"])
+        time.sleep(2)
+        nodes = scan(d)
     if any("做任务赚能量" in n["text"] for n in nodes):
         return nodes
-    current_event = (
-        any(n["text"] == "升级赛车拿钱" for n in nodes)
-        and any(n["text"] == "去赚能量" for n in nodes)
-    )
-    if not current_event and not any("淘金币双11" in n["text"] for n in nodes):
-        raise RuntimeError("请先回到淘宝首页，确认领淘金币入口；未点击未知页面")
-    buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量", "去赚能量")]
-    if len(buttons) != 1:
-        raise RuntimeError("未唯一识别赚能量按钮")
-    guard(deadline)
-    d.click(buttons[0]["cx"], buttons[0]["cy"])
-    time.sleep(2)
-    return scan(d)
+    raise RuntimeError("点击赚能量入口后仍未确认任务列表，已停止")
 
 
 def browse_seconds(nodes, title, fallback):
@@ -498,10 +521,10 @@ def main():
     d = connect_with_retry(serial)
     LOG.info("[连接] 手机已连接 | U2 控制，腾讯云 PaddleOCR 识别")
     if args.action == "enter":
-        enter(d, deadline)
+        enter(d, deadline, restart=True)
         return
     elif args.action in ("auto", "run"):
-        nodes = enter(d, deadline) if args.action == "run" else scan(d)
+        nodes = enter(d, deadline, restart=True) if args.action == "run" else scan(d)
         LOG.info("[进度] 累计 %s/50 | 当前能量 %s", task_progress(nodes), energy_balance(nodes))
         attempted = set()
         for _ in range(min(max(args.repeat, 1), 30)):
