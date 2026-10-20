@@ -128,7 +128,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
     return []
 
 
-def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
+def get_ocr_text_blocks(device, retries=2, height_ratio=1.0, log_low_confidence=False):
     """
     全屏 OCR（云端 PaddleOCRv4），返回文本块列表 [{"text", "cx", "cy", "conf"}]
     参数:
@@ -164,7 +164,7 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
             img = img.crop((0, 0, img.width, int(img.height * height_ratio)))
 
         # OCR
-        blocks = _cloud_ocr(img, retries=0)
+        blocks = _cloud_ocr(img, retries=0, log_low_confidence=log_low_confidence)
         if blocks:
             return blocks
 
@@ -180,7 +180,7 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
 # 🔧 ADB screencap（绕过 u2 覆盖层关闭问题）
 # ========================================================
 
-ADB_PATH = r"D:\Android\Sdk\platform-tools\adb.exe"
+ADB_PATH = os.environ.get("DIANTAO_ADB_PATH", "").strip() or "adb"
 
 def _get_adb_serial(device):
     """从 u2 device 对象提取 ADB serial（优先用 Wi-Fi ADB 地址）"""
@@ -218,7 +218,10 @@ def adb_screencap(device):
 
     cmd = [ADB_PATH, "-s", serial, "exec-out", "screencap", "-p"]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
         if result.returncode != 0 or len(result.stdout) < 100:
             print("  ⚠️ ADB 截图失败，回退 u2 截图")
             try:
@@ -400,7 +403,8 @@ def get_connected_devices():
             ["adb", "devices"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         output = result.stdout
         devices = []
