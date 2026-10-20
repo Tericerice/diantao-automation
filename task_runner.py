@@ -40,6 +40,7 @@ def run_script(
         command or [sys.executable, "-u", str(filepath)], cwd=cwd,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         encoding="utf-8", errors="replace", env=env, bufsize=1,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
     assert proc.stdout is not None
     output = proc.stdout

@@ -93,3 +93,29 @@ def test_recheck_environment_is_only_set_for_requested_child(tmp_path: Path, mon
         )
         assert success
     assert lines == ["1", "off"]
+
+
+def test_child_tasks_keep_logs_without_opening_a_console(tmp_path: Path, monkeypatch):
+    import subprocess
+    import sys
+    import task_runner
+
+    original = subprocess.Popen
+    calls = []
+
+    def start(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(task_runner.subprocess, "Popen", start)
+    script = tmp_path / "child.py"
+    script.write_text("print('background task complete')", encoding="utf-8")
+    lines = []
+    success, _, _ = run_script(
+        script, cwd=tmp_path, timeout=5,
+        should_stop=lambda: False, on_line=lines.append,
+    )
+    assert success
+    assert lines == ["background task complete"]
+    expected = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    assert calls[0]["creationflags"] == expected

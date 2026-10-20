@@ -213,7 +213,10 @@ def adb_screencap(device):
 
     cmd = [ADB_PATH, "-s", serial, "exec-out", "screencap", "-p"]
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=10)
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
         if result.returncode != 0 or len(result.stdout) < 100:
             print("  ⚠️ ADB 截图失败，回退 u2 截图")
             try:
@@ -395,7 +398,8 @@ def get_connected_devices():
             ["adb", "devices"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
         )
         output = result.stdout
         devices = []
