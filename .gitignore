@@ -23,3 +23,5 @@ ocr_debug/
 .env
 .venv-energy/
 .venv-ocr/
+workbench/.venv/
+.runtime/workbench/
