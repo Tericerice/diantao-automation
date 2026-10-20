@@ -6,7 +6,6 @@
 """
 
 import argparse
-import shutil
 import signal
 import sys
 from pathlib import Path
@@ -19,7 +18,6 @@ from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ENERGY_SCRIPT = "tools/taobao_energy.py"
-UV_PACKAGES = ("uiautomator2", "requests", "python-dotenv")
 
 
 class Step(NamedTuple):
@@ -55,23 +53,18 @@ REMAINING_TASKS = (
     Step("养优惠.py", None, rechecks=5),
 )
 
-# 赚能量依赖 uv 独立环境；内部 --repeat 30 自行循环，外层只跑一轮。
+# 赚能量复用固定环境；内部 --repeat 30 自行循环，外层只跑一轮。
 ENERGY_TASK = Step(ENERGY_SCRIPT, None, ("run", "--repeat", "30"), uv=True)
 
 ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
 
 
 def build_command(step):
-    """按步骤生成启动命令；uv 步骤使用与注册入口一致的依赖集合。"""
+    """能量任务经独立环境启动器运行，普通任务使用当前解释器。"""
     script = str(SCRIPT_DIR / step.filename)
     if step.uv:
-        uv = shutil.which("uv")
-        if not uv:
-            raise RuntimeError("未找到 uv，请先安装后运行赚能量任务")
-        command = [uv, "--quiet", "run"]
-        for package in UV_PACKAGES:
-            command += ["--with", package]
-        return command + ["python", "-u", script, *step.args]
+        return [sys.executable, "-u",
+                str(SCRIPT_DIR / "tools" / "run_taobao_energy.py"), *step.args]
     return [sys.executable, "-u", script, *step.args]
 
 

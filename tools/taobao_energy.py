@@ -323,17 +323,32 @@ def enter(d, deadline):
         d.app_start(TB)
         time.sleep(3)
     if any(name in d.app_current()["activity"] for name in ("Welcome", "TBMainActivity")):
-        entry = d(description="领淘金币")
-        if entry.exists:
+        if d(text="开启快递物流提醒").exists and d(text="去授权").exists:
+            cancel = d(text="取消")
+            if cancel.count != 1:
+                raise RuntimeError("物流提醒弹窗的取消按钮未唯一定位")
             guard(deadline)
-            entry.click()
-            time.sleep(5)
+            LOG.info("[导航] 关闭淘宝物流提醒弹窗")
+            cancel.click()
+            time.sleep(1)
+        for selector in (dict(text="领淘金币"), dict(description="领淘金币")):
+            entry = d(**selector)
+            if entry.exists:
+                guard(deadline)
+                LOG.info("[导航] 进入领淘金币")
+                entry.click()
+                time.sleep(5)
+                break
     nodes = scan(d)
     if any("做任务赚能量" in n["text"] for n in nodes):
         return nodes
-    if not any("淘金币双11" in n["text"] for n in nodes):
+    current_event = (
+        any(n["text"] == "升级赛车拿钱" for n in nodes)
+        and any(n["text"] == "去赚能量" for n in nodes)
+    )
+    if not current_event and not any("淘金币双11" in n["text"] for n in nodes):
         raise RuntimeError("请先回到淘宝首页，确认领淘金币入口；未点击未知页面")
-    buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量")]
+    buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量", "去赚能量")]
     if len(buttons) != 1:
         raise RuntimeError("未唯一识别赚能量按钮")
     guard(deadline)

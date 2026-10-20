@@ -51,15 +51,11 @@ def test_list_output_shows_no_timeout(monkeypatch, capsys):
     assert "2. 一键下滑.py（不设超时）" in out
 
 
-def test_uv_command_matches_registered_entry(monkeypatch):
-    monkeypatch.setattr(module.shutil, "which", lambda name: "C:/tools/uv.exe")
+def test_energy_command_uses_fixed_environment_launcher():
     command = module.build_command(module.ENERGY_TASK)
-    assert command[:3] == ["C:/tools/uv.exe", "--quiet", "run"]
-    assert command[3:9] == ["--with", "uiautomator2", "--with", "requests",
-                            "--with", "python-dotenv"]
-    assert command[9:12] == ["python", "-u",
-                             str(module.SCRIPT_DIR / "tools" / "taobao_energy.py")]
-    assert command[12:] == ["run", "--repeat", "30"]
+    assert command == [module.sys.executable, "-u",
+                       str(module.SCRIPT_DIR / "tools" / "run_taobao_energy.py"),
+                       "run", "--repeat", "30"]
 
 
 def test_plain_command_uses_current_interpreter():
@@ -68,8 +64,7 @@ def test_plain_command_uses_current_interpreter():
     assert command[1:3] == ["-u", str(module.SCRIPT_DIR / "连通性脚本.py")]
 
 
-def test_uv_missing_reports_startup_error(monkeypatch):
-    monkeypatch.setattr(module.shutil, "which", lambda name: None)
+def test_prepared_energy_environment_does_not_require_uv_in_scheduler(monkeypatch):
     calls = []
 
     def fake_run(filepath, **kwargs):
@@ -77,8 +72,8 @@ def test_uv_missing_reports_startup_error(monkeypatch):
         return True, 0, "成功"
 
     monkeypatch.setattr(module, "run_script", fake_run)
-    assert module.execute(tasks=(module.ENERGY_TASK,)) == 1
-    assert calls == []
+    assert module.execute(tasks=(module.ENERGY_TASK,)) == 0
+    assert calls == ["taobao_energy.py"]
 
 
 def test_sequence_continues_after_failure(monkeypatch):
@@ -165,8 +160,7 @@ def test_energy_step_receives_explicit_command(monkeypatch):
         return True, 0, "成功"
 
     monkeypatch.setattr(module, "run_script", fake_run)
-    monkeypatch.setattr(module.shutil, "which", lambda name: "C:/tools/uv.exe")
     assert module.execute(tasks=(module.ENERGY_TASK,)) == 0
     assert captured["name"] == "taobao_energy.py"
-    assert captured["command"][0] == "C:/tools/uv.exe"
+    assert captured["command"][0] == module.sys.executable
     assert captured["env"] is None

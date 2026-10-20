@@ -173,6 +173,59 @@ def test_enter_rejects_ambiguous_earn_button_variants(monkeypatch):
     d.click.assert_not_called()
 
 
+@pytest.mark.parametrize("selector_kind", ["text", "description"])
+def test_home_entry_closes_known_logistics_prompt_and_supports_both_labels(
+    monkeypatch, selector_kind
+):
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    from tools import taobao_energy as task
+
+    controls = {}
+
+    def select(**query):
+        key = tuple(query.items())
+        if key not in controls:
+            control = MagicMock()
+            control.exists = query in [
+                {"text": "开启快递物流提醒"},
+                {"text": "去授权"},
+                {selector_kind: "领淘金币"},
+            ]
+            control.count = 1
+            controls[key] = control
+        return controls[key]
+
+    d = MagicMock(side_effect=select)
+    d.app_current.return_value = dict(package=task.TB, activity="TBMainActivity")
+    header = [dict(text="淘金币双11狂享20亿", cx=500, cy=210),
+              dict(text="赚能量", cx=1154, cy=1177)]
+    scans = iter([header, page()])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.enter(d, datetime.now(timezone.utc) + timedelta(minutes=1)) == page()
+    controls[(("text", "取消"),)].click.assert_called_once()
+    controls[((selector_kind, "领淘金币"),)].click.assert_called_once()
+    controls[(("text", "去授权"),)].click.assert_not_called()
+    d.click.assert_called_once_with(1154, 1177)
+
+
+def test_revised_event_without_old_heading_opens_only_earn_energy(monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    from tools import taobao_energy as task
+
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    nodes = [dict(text="升级赛车拿钱", cx=636, cy=1109),
+             dict(text="去赚能量", cx=1144, cy=1187)]
+    scans = iter([nodes, page()])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.enter(d, datetime.now(timezone.utc) + timedelta(minutes=1)) == page()
+    d.click.assert_called_once_with(1144, 1187)
+
+
 def test_manual_launch_deadline_is_relative_to_current_start():
     from tools.taobao_energy import run_deadline
     from datetime import datetime, timedelta

@@ -2,7 +2,7 @@
 import argparse
 import json
 import re
-import shutil
+import sys
 from pathlib import Path
 
 
@@ -11,14 +11,10 @@ TARGET_ID = "taobao-double11-energy"
 
 
 def register(butler_dir):
-    uv = shutil.which("uv")
-    if not uv:
-        raise RuntimeError("未找到 uv，请先安装后重新注册")
     registry = butler_dir / "tools" / "managed_process" / "registry.yaml"
     source = registry.read_text(encoding="utf-8")
-    command = [uv, "--quiet", "run", "--with", "uiautomator2",
-               "--with", "requests", "--with", "python-dotenv", "python", "-u",
-               (SCRIPT_DIR / "tools" / "taobao_energy.py").as_posix(),
+    command = [sys.executable, "-u",
+               (SCRIPT_DIR / "tools" / "run_taobao_energy.py").as_posix(),
                "run", "--repeat", "30"]
     entry = (
         f"  - id: {TARGET_ID}\n"
