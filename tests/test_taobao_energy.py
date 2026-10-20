@@ -318,17 +318,6 @@ def test_five_second_label_does_not_shorten_fifteen_second_task():
     assert browse_seconds(nodes, "你关注的商品都可抵", 25) == 17
 
 
-def test_search_uses_discovery_not_history_or_keyboard():
-    from tools.taobao_energy import search_topic
-    nodes = [dict(text="历史记录", cx=328, cy=525),
-             dict(text="搜索发现", cx=146, cy=792),
-             dict(text="牙刷", cx=328, cy=950),
-             dict(text="ABC", cx=328, cy=2062)]
-    assert search_topic(nodes, 1264, 2780, 0)["text"] == "牙刷"
-    with pytest.raises(RuntimeError, match="推荐词"):
-        search_topic(nodes[:1], 1264, 2780, 0)
-
-
 def test_search_returns_through_keyboard_and_search_page(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta

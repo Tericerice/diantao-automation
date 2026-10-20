@@ -27,6 +27,7 @@ BROWSE = ("好物随心逛", "好物沉浸看", "去省钱卡领红包", "去芭
           "搜一搜你心仪的宝贝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
           "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝")
 QUIZ = "淘金币省钱等级考试"
+SEARCH_TERMS = ("固态硬盘", "牛肉干", "移动硬盘", "牙刷", "纸巾")
 # 仅访问已实测的页面，不操作目的应用内的消费、抽奖、授权或邀请。
 VISIT = {
     "领闪购红包下单直接省": TB,
@@ -444,20 +445,28 @@ def browse_seconds(nodes, title, fallback):
     return min(max(fallback, 5), 60)
 
 
-def search_topic(nodes, width, height, index):
-    discovery = [n for n in nodes if n["text"] == "搜索发现"]
-    if discovery:
-        top = max(n["cy"] for n in discovery)
-        topics = [n for n in nodes if top+50 < n["cy"] < height*.62
-                  and 2 <= len(n["text"]) <= 30
-                  and any(abs(n["cx"]-width*column) < width*.07 for column in (.26, .74))]
-    elif any("搜索有福利" in n["text"] for n in nodes):
-        topics = [n for n in nodes if n["text"] in ("牙刷", "牛肉", "u盘", "移动硬盘", "固态硬盘")]
-    else:
-        topics = []
-    if not topics:
-        raise RuntimeError("未识别到可点击的搜索推荐词")
-    return topics[index % len(topics)]
+def search_saved_term(d, deadline):
+    guard(deadline)
+    current = d.app_current()
+    if current["package"] != TB:
+        raise RuntimeError("搜索时已离开淘宝，已停止输入")
+    if "search" not in current.get("activity", "").lower():
+        nodes = scan(d)
+        if not any(n["text"] == "搜索发现" or "搜索有福利" in n["text"] for n in nodes):
+            raise RuntimeError("未确认搜索页面，已停止输入")
+    field = d(className="android.widget.EditText")
+    if not field.exists or field.count != 1:
+        raise RuntimeError("未唯一定位搜索输入框，已停止输入")
+    index = _session.get("search_index", 0)
+    keyword = SEARCH_TERMS[index % len(SEARCH_TERMS)]
+    LOG.info("[搜索] 输入常用词：%s", keyword)
+    field.click()
+    guard(deadline)
+    d.send_keys(keyword, clear=True)
+    guard(deadline)
+    d.press("enter")
+    _session["search_index"] = index + 1
+    time.sleep(3)
 
 
 def return_from_browse(d, deadline):
@@ -526,11 +535,7 @@ def browse(d, title, seconds, deadline, nodes):
         d.app_start(TB)
         raise RuntimeError("任务跳转到其他应用，请先分类: " + current)
     if "搜一搜" in title:
-        search_nodes = scan(d)
-        topic = search_topic(search_nodes, *d.window_size(), before or 0)
-        guard(deadline)
-        d.click(topic["cx"], topic["cy"])
-        time.sleep(3)
+        search_saved_term(d, deadline)
     w, h = d.window_size()
     for second in range(min(max(seconds, 5), 60)):
         guard(deadline)
