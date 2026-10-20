@@ -3,6 +3,7 @@
 流程：进点淘 → 打工赚元宝 → 得体力 → 扫描执行任务
 参照签到赢元宝.py 的整体逻辑和写法（OCR 扫描 + 循环执行）
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 import sys
 from task_recheck import report_task_found, report_round_finished
@@ -224,6 +225,10 @@ def exec_guess_price(btn_cx, btn_cy):
 
 def exec_browse(btn_cx, btn_cy, task_name=""):
     """执行浏览任务（使用OCR智能监控，避免多等extra_seconds）"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     # 处理"查看精选宝贝"特殊分支
     if "查看" in task_name and ("宝贝" in task_name or "精选" in task_name):
         print("  🎯 查看精选宝贝（点击3个商品）")

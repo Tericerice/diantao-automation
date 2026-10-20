@@ -2,6 +2,7 @@
 点淘鸭钻石任务 自动化脚本（OCR重构版）
 流程：进点淘 → 元宝中心 → 固定坐标进入点淘鸭家园 → 固定坐标打开任务列表 → OCR扫描执行白名单任务
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -279,6 +280,10 @@ def is_danger_page(device):
 
 def do_task(task_name, btn_cx, btn_cy):
     """执行单个任务（含点击前安全校验）"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     print(f"  🎯 {task_name} @({btn_cx},{btn_cy})")
 
     # ⚠️ 点击前安全校验：检查按钮坐标附近是否确实有白名单关键词

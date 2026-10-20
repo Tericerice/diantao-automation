@@ -6,8 +6,10 @@
 import ast
 import importlib.util
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
+from task_exclusions import is_blocked_boutique_task
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,6 +19,8 @@ BLOCKED_NAMES = (
     "查看3个精选宝贝 (0/3) + 150 160000 退款扣回",
     "看3个精选宝贝",
     "精选宝贝",
+    "查看 3 个精 选宝贝",
+    "查看3个精\u200b选宝贝",
 )
 ALLOWED_NAMES = (
     "查看3个特惠卖场宝贝",
@@ -91,3 +95,27 @@ def test_shake_whitelist_drops_boutique():
     whitelist = _literal_assignments("点淘鸭摇一摇.py")["TASK_WHITELIST"]
     assert "查看3个精选宝贝" not in whitelist
     assert "精选宝贝" not in whitelist
+
+
+@pytest.mark.parametrize("filename,function,kwargs", [
+    ("签到赢元宝.py", "exec_browse", dict(btn_cx=100, btn_cy=200)),
+    ("打工得体力.py", "exec_browse", dict(btn_cx=100, btn_cy=200)),
+    ("元宝中心小任务.py", "execute_task", dict(btn_cx=100, btn_cy=200)),
+    ("点淘鸭摇一摇.py", "do_task", dict(btn_cx=100, btn_cy=200)),
+    ("点淘鸭钻石任务.py", "do_task", dict(btn_cx=100, btn_cy=200)),
+    ("点淘购物赚钱.py", "do_task", dict(tp="click", sec=0)),
+    ("睡觉赚元宝.py", "do_bubble_task", dict(btn_cx=100, btn_cy=200)),
+])
+@pytest.mark.parametrize("name", [
+    "查看3个精选宝贝", "看3个精选宝贝(0/3)", "查看3个精 选宝贝",
+])
+def test_execution_entrypoints_never_touch_device_for_blocked_task(filename, function, kwargs, name):
+    # 仅加载执行函数，避免模块顶层的设备连接及导航。
+    tree = ast.parse((ROOT / filename).read_text(encoding="utf-8-sig"))
+    node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == function)
+    device = Mock()
+    namespace = {"d": device, "is_blocked_boutique_task": is_blocked_boutique_task}
+    exec(compile(ast.Module(body=[node], type_ignores=[]), filename, "exec"), namespace)
+    keyword = "name" if function == "do_bubble_task" else "task_name"
+    assert namespace[function](**kwargs, **{keyword: name}) is False
+    assert device.mock_calls == []

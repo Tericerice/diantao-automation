@@ -2,6 +2,7 @@
 睡觉赚元宝 自动化脚本
 流程：进点淘 → 睡觉赚元宝页面 → 扫描气泡任务 + 收集浮动气泡
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 import sys
 from task_recheck import report_task_found, report_round_finished
@@ -152,6 +153,10 @@ def return_to_sleep_page():
 
 def do_bubble_task(name, btn_cx, btn_cy):
     """执行气泡任务"""
+    if is_blocked_boutique_task(name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     print(f"  🎯 {name}")
 
     # 用户要求屏蔽“查看3个精选宝贝 / 精选宝贝”类任务，不点击、不记录。

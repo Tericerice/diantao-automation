@@ -5,6 +5,7 @@ OCR 通用扫描框架
 ========================================================
 """
 import time
+from task_exclusions import is_blocked_boutique_task
 from yuanbao_popup import handle_yuanbao_live_popups
 import re
 import random
@@ -250,6 +251,8 @@ BLACKLIST_KEYWORDS = [
 
 def is_blacklisted(text):
     if not text:
+        return True
+    if is_blocked_boutique_task(text):
         return True
     if '猜' in text and '猜价格' not in text and '猜价格游戏' not in text:
         return True

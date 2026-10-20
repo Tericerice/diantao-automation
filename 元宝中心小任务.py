@@ -5,6 +5,7 @@
    额外任务  @(124, y)
    任务名    @(224, y)    去完成 @(900, y)
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -195,6 +196,10 @@ def scan_extra_area_tasks(blocks):
 
 def execute_task(task_name, btn_cx, btn_cy):
     """执行单个任务"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     print(f"  🎯 执行: 【{task_name}】")
     task_type = match_task_type(task_name)
 
