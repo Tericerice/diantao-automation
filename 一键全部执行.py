@@ -1,7 +1,7 @@
-"""一键执行全流程：连通性、一键下滑、日常任务与淘金币双11赚能量。
+"""一键执行点淘全流程：连通性、一键下滑与日常任务。
 
 顺序：连通性 → 一键下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工
-      → 走路 → 元宝中心小任务 → 养优惠 → 淘金币双11赚能量。
+      → 走路 → 元宝中心小任务 → 养优惠。
 本脚本独立运行，不修改或依赖 一键顺序执行.py / 一键任务执行.py 的执行结果。
 """
 
@@ -17,11 +17,10 @@ from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-ENERGY_SCRIPT = "tools/taobao_energy.py"
 
 
 class Step(NamedTuple):
-    """一个执行步骤：脚本、超时、附加参数、启动方式与复核轮数。
+    """一个执行步骤：脚本、超时、附加参数与复核轮数。
 
     timeout 为 None 表示不设置超时，一直等到脚本自行结束或用户按 Ctrl+C 停止。
     """
@@ -29,7 +28,6 @@ class Step(NamedTuple):
     filename: str
     timeout: int | None
     args: tuple = ()
-    uv: bool = False
     rechecks: int = 0
 
 
@@ -53,18 +51,12 @@ REMAINING_TASKS = (
     Step("养优惠.py", None, rechecks=5),
 )
 
-# 赚能量复用固定环境；内部每轮最多30项、默认复核5次，外层只启动一次。
-ENERGY_TASK = Step(ENERGY_SCRIPT, None, ("run", "--repeat", "30"), uv=True)
-
-ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
+ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS
 
 
 def build_command(step):
-    """能量任务经独立环境启动器运行，普通任务使用当前解释器。"""
+    """点淘任务使用当前解释器。"""
     script = str(SCRIPT_DIR / step.filename)
-    if step.uv:
-        return [sys.executable, "-u",
-                str(SCRIPT_DIR / "tools" / "run_taobao_energy.py"), *step.args]
     return [sys.executable, "-u", script, *step.args]
 
 
