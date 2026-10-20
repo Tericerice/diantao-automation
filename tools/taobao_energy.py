@@ -191,10 +191,14 @@ class RewardNotConfirmed(RuntimeError):
         self.nodes = nodes
 
 
-def verify_gain(d, nodes, before, before_energy, deadline):
+def verify_gain(d, nodes, before, before_energy, deadline, *, recover_visit=False):
     # 回到列表后，金币动画可能暂时遮住累计次数；只重读，不重复做任务。
     for attempt in range(3):
         guard(deadline)
+        if recover_visit and (
+                d.app_current()["package"] != TB
+                or not any("做任务赚能量" in n["text"] for n in nodes)):
+            nodes = return_from_visit(d, deadline)
         after, balance = task_progress(nodes), energy_balance(nodes)
         if any("做任务赚能量" in n["text"] for n in nodes) and (
                 (after is not None and before is not None and after > before) or (
@@ -213,6 +217,67 @@ def verify_gain(d, nodes, before, before_energy, deadline):
             time.sleep(3)
             nodes = scan(d)
     raise RewardNotConfirmed(nodes)
+
+
+def return_from_visit(d, deadline):
+    """跳转后有限重试回淘宝；不在目标应用内按返回或处理登录。"""
+    restart_needed = False
+    for attempt in range(3):
+        guard(deadline)
+        if d.app_current()["package"] != TB or restart_needed:
+            LOG.info("[返回] 切回淘宝（%s/3）", attempt + 1)
+            if attempt or restart_needed:
+                d.app_start(TB, stop=True, use_monkey=True)
+            else:
+                d.app_start(TB, use_monkey=True)
+            restart_needed = False
+            time.sleep(3)
+        if d.app_current()["package"] != TB:
+            continue
+        nodes = scan(d)
+        if d.app_current()["package"] != TB:
+            # OCR期间也可能发生延迟跳转，不能使用已失效的列表。
+            continue
+        if any("做任务赚能量" in n["text"] for n in nodes):
+            # 延迟的 Android 跳转可能在识别结束后才发生，确认稳定后再交还执行权。
+            time.sleep(2)
+            guard(deadline)
+            if d.app_current()["package"] != TB:
+                continue
+            LOG.info("[返回] 已确认淘宝能量任务列表，继续任务")
+            return nodes
+        current = d.app_current()
+        home = any(name in current.get("activity", "") for name in ("Welcome", "TBMainActivity"))
+        event = any("淘金币双11" in n["text"] for n in nodes) or (
+            any(n["text"] == "升级赛车拿钱" for n in nodes)
+            and any(n["text"] == "去赚能量" for n in nodes)
+        )
+        if home or event:
+            try:
+                nodes = enter(d, deadline)
+            except RuntimeError as error:
+                guard(deadline)
+                if d.app_current()["package"] != TB or any(
+                    text in str(error) for text in (
+                        "请先回到淘宝首页", "未唯一识别赚能量按钮", "仍未确认任务列表",
+                    )
+                ):
+                    LOG.info("[返回] 活动入口未确认，重新打开淘宝后复查")
+                    restart_needed = True
+                    continue
+                raise
+            time.sleep(2)
+            guard(deadline)
+            if d.app_current()["package"] == TB:
+                LOG.info("[返回] 已重新进入淘宝能量任务列表，继续任务")
+                return nodes
+        else:
+            guard(deadline)
+            if d.app_current()["package"] != TB:
+                continue
+            d.press("back")
+            time.sleep(2)
+    raise RuntimeError("已尝试3次返回淘宝，仍未确认能量任务列表，已停止")
 
 
 def visit(d, title, deadline, nodes):
@@ -241,46 +306,31 @@ def visit(d, title, deadline, nodes):
                 once = [n for n in dialog if n["text"] == "仅本次允许"]
                 opening = [n for n in dialog if n["text"] == "打开"]
                 if not any("淘宝" in n["text"] and "想要打开" in n["text"] for n in dialog):
-                    raise RuntimeError("遇到未知应用授权，停止")
+                    LOG.info("[跳过] 未确认应用授权提示，直接返回淘宝")
+                    break
                 buttons = once or opening
                 if len(buttons) != 1:
-                    raise RuntimeError("未识别一次性打开按钮，停止")
+                    LOG.info("[跳过] 未唯一识别一次性打开按钮，直接返回淘宝")
+                    break
                 guard(deadline)
                 d.click(buttons[0]["cx"], buttons[0]["cy"])
             elif current in ("com.android.chrome", "com.heytap.market", "com.android.packageinstaller"):
                 LOG.info("[跳过] %s：进入下载/安装页，直接返回", title)
                 break
             elif current not in (TB, package):
-                raise RuntimeError("访问任务跳转到未知应用: " + current)
+                LOG.info("[跳过] 跳转到未确认页面，直接返回淘宝")
+                break
     if not installed:
         LOG.info("[跳过] %s：未安装应用，返回并继续，不下载", title)
-    guard(deadline)
-    if d.app_current()["package"] == TB:
-        d.press("back")
-    else:
-        d.app_start(TB)
-    time.sleep(4)
-    nodes = scan(d)
-    if installed and package != TB and d.app_current()["package"] == package:
-        # 冷启动的延迟跳转可能抢回前台，再明确启动淘宝首页。
-        guard(deadline)
-        d.app_start(TB, use_monkey=True)
-        time.sleep(3)
-        nodes = scan(d)
-    if not any("做任务赚能量" in n["text"] for n in nodes):
-        if d.app_current()["package"] == TB and "BrowserActivity" in d.app_current()["activity"]:
-            guard(deadline)
-            d.press("back")
-            time.sleep(3)
-        nodes = enter(d, deadline)
+    nodes = return_from_visit(d, deadline)
     try:
-        return verify_gain(d, nodes, before, balance, deadline)
+        return verify_gain(d, nodes, before, balance, deadline, recover_visit=True)
     except RewardNotConfirmed as error:
         guard(deadline)
         nodes = error.nodes
         if (d.app_current()["package"] != TB
                 or not any("做任务赚能量" in n["text"] for n in nodes)):
-            raise
+            nodes = return_from_visit(d, deadline)
         LOG.info("[未到账] %s：本轮不再重复尝试", title)
         return nodes
 

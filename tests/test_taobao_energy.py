@@ -121,9 +121,9 @@ def test_missing_app_visits_landing_then_returns_without_downloading(monkeypatch
     task.visit(d, "去百度App领现金", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
     d.click.assert_called_once_with(1102, 1492)
     if current == task.TB:
-        d.press.assert_called_once_with("back")
+        d.press.assert_not_called()
     else:
-        d.app_start.assert_called_once_with(task.TB)
+        d.app_start.assert_called_once_with(task.TB, use_monkey=True)
     d.app_install.assert_not_called()
 
 
@@ -343,16 +343,17 @@ def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
     d = MagicMock()
     d.window_size.return_value = (1264, 2780)
     d.adb_device.shell.return_value = "package:installed"
-    d.app_current.side_effect = [dict(package="com.kuaishou.nebula"),
-                                dict(package="com.kuaishou.nebula"),
-                                dict(package=task.TB)]
+    d.app_current.return_value = dict(package="com.kuaishou.nebula")
+    d.app_start.side_effect = lambda *args, **kwargs: setattr(
+        d.app_current, "return_value", dict(package=task.TB)
+    )
     waits = []
     monkeypatch.setattr(task.time, "sleep", waits.append)
     monkeypatch.setattr(task, "scan", lambda _: ready)
     monkeypatch.setattr(task, "_session", {})
     task.visit(d, "去快手打卡领手机", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
-    assert waits == [1, 4]
-    d.app_start.assert_called_once_with(task.TB)
+    assert waits == [1, 3, 2]
+    d.app_start.assert_called_once_with(task.TB, use_monkey=True)
 
 
 def test_unknown_quiz_is_not_answered(monkeypatch):
