@@ -5,13 +5,15 @@
 """
 import sys
 import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from PIL import Image
+from cloud_ocr import ocr_server_url
 import io
 import requests
 
-OCR_SERVER_URL = "http://175.178.17.23:8888/predict_ocr"
+OCR_SERVER_URL = ocr_server_url()
 
 def cloud_ocr(img_pil):
     """上传 PIL 图片到云端 OCR，返回文本块列表"""

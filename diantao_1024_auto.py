@@ -15,11 +15,12 @@ import io
 import subprocess
 import numpy as np
 import cv2
+from cloud_ocr import ocr_server_url
 
 # ============================================================
 # 云端 PaddleOCR 配置
 # ============================================================
-OCR_SERVER_URL = "http://175.178.17.23:8888/predict_ocr"
+OCR_SERVER_URL = ocr_server_url()
 
 try:
     import requests as _requests

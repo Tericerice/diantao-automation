@@ -18,7 +18,7 @@ def load_cloud_ocr():
     namespace = {
         "_io": io, "Image": Image, "np": np, "cv2": cv2,
         "time": types.SimpleNamespace(time=Mock(return_value=0), sleep=Mock()),
-        "OCR_SERVER_URL": "http://175.178.17.23:8888/predict_ocr",
+        "OCR_SERVER_URL": "http://ocr.example.invalid/predict_ocr",
     }
     exec(compile(ast.Module(body=[function], type_ignores=[]), "utils.py", "exec"), namespace)
     return namespace["_cloud_ocr"], namespace
@@ -38,7 +38,7 @@ class CloudOcrBackendTests(unittest.TestCase):
             ],
         }
 
-    def test_uses_tencent_endpoint_and_original_image_coordinates(self):
+    def test_uses_configured_endpoint_and_original_image_coordinates(self):
         with patch.object(requests, "post", return_value=self.response) as post, patch("subprocess.run") as agent:
             blocks = self.ocr(self.image)
         self.assertEqual(blocks, [{"text": "元宝中心", "cx": 1100, "cy": 2500, "conf": 0.98}])
@@ -56,6 +56,12 @@ class CloudOcrBackendTests(unittest.TestCase):
             self.assertEqual(len(self.ocr(self.image, retries=1)), 1)
         self.assertEqual(post.call_count, 2)
         self.namespace["time"].sleep.assert_called_once_with(2.0)
+
+    def test_missing_configuration_does_not_send_screenshots(self):
+        self.namespace["OCR_SERVER_URL"] = ""
+        with patch.object(requests, "post") as post:
+            self.assertEqual(self.ocr(self.image), [])
+        post.assert_not_called()
 
     def test_service_error_returns_empty_without_agent_fallback(self):
         self.response.json.return_value = {"code": 500, "msg": "inference failed"}

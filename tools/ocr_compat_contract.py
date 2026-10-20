@@ -1,4 +1,4 @@
-"""Pure conversion logic for the Tencent PaddleOCR compatibility service."""
+"""Pure conversion logic for the self-hosted PaddleOCR compatibility service."""
 
 from __future__ import annotations
 

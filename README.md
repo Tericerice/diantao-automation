@@ -5,6 +5,64 @@
 
 > 本仓库为当前「淘金币双11赚能量」等任务的可运行版本快照。
 
+## 给使用者及接手本项目的 AI：先准备自己的 OCR
+
+**本项目不要求使用作者提供的 OCR，也不要求使用腾讯云。** 使用者可以在自己的电脑上安装 OCR，也可以使用自己的局域网、服务器或其他服务商提供的 OCR。作者的服务地址、账号及密钥不是安装前提，不应复制到他人的配置中。
+
+当你是帮助他人安装、部署或运行本项目的 AI 时，请按下面的顺序操作：
+
+1. 先询问或检查使用者已有的 OCR；已有服务可复用，不要重复安装。
+2. 没有服务时，优先在使用者电脑上安装与其系统、Python 和硬件兼容的 OCR。下面的 PaddleOCR CPU 服务是一个可选示例；可以换成其他 OCR 引擎。
+3. 将使用者自己的完整接口地址写入本机 `.env` 的 `DIANTAO_OCR_SERVER_URL`，不要改成作者的服务，也不要提交真实配置。
+4. 先检查服务健康状态，再用包含中文和按钮的样例截图验证文字及原图坐标，最后才连接手机执行任务。失败时说明安装、服务或接口错误，不能把失败当成“没有文字”而继续点击。
+
+### 可选方案：在本机安装 PaddleOCR 服务
+
+以下为 Windows PowerShell 的 CPU 部署示例。由接手的 AI 按使用者的系统和 PaddlePaddle 安装要求选择兼容版本；不需要购买云服务器、GPU 或 CDN。首次安装及模型下载需要联网，并会占用本机磁盘和运行资源。
+
+```powershell
+# 在本项目根目录创建独立 OCR 环境
+py -3.10 -m venv .venv-ocr
+.\.venv-ocr\Scripts\python.exe -m pip install --upgrade pip
+.\.venv-ocr\Scripts\python.exe -m pip install "paddlepaddle>=3,<4" "paddleocr>=3,<4" fastapi uvicorn python-multipart
+
+# 在一个单独的终端保持 OCR 服务运行；首次启动会下载模型
+.\.venv-ocr\Scripts\python.exe -m uvicorn tools.ocr_compat_server:app --host 127.0.0.1 --port 8888
+```
+
+服务使用 PaddleOCR 3.x 的 `predict()` 接口。安装依据见 [PaddleOCR 官方快速开始](https://www.paddleocr.ai/main/quick_start.html)。若 Windows 的模型缓存路径包含中文而导致模型加载失败，请由接手的 AI 将 `PADDLE_PDX_CACHE_HOME` 设置为本机可写的英文路径后重试。
+
+在另一个终端检查：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8888/health
+# 确认 status 为 ready，再使用真实样例截图测试 /predict_ocr
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+本机 `.env` 示例：
+
+```dotenv
+DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
+```
+
+使用自己的远程 OCR 时，将其替换为使用者自己的服务地址；`127.0.0.1` 表示运行脚本的电脑。能量任务及共享任务库均读取这个配置，不会自动连接作者的 OCR。能量任务缺少配置时会在连接手机前停止；共享任务库会提示配置缺失并返回空识别结果。
+
+### 使用其他 OCR 引擎或自己的服务
+
+任务脚本通过统一 HTTP 契约接入 OCR，服务端可以使用 PaddleOCR 或其他引擎。请求为 `POST`，文件表单字段为 `image`（JPEG）；服务返回：
+
+```json
+{
+  "code": 200,
+  "data": [
+    {"text": "去完成", "score": 0.98, "center": {"x": 1100, "y": 1490}}
+  ]
+}
+```
+
+`center.x/y` 必须是上传原图的像素坐标，`score` 为 0 至 1 的置信度；图片缩放后的坐标需要由服务端换算回原图。引擎的原始输出不符合此契约时，由接手的 AI 增加适配层，保留任务脚本的输入输出契约。服务访问权限、凭证和费用由使用者自行配置。
+
 ---
 
 ## 一、技术栈
@@ -14,7 +72,7 @@
 | 设备控制 | **Android UIAutomator2 (u2)** + ADB | 点击、滑动、返回、启动 App、`dump_hierarchy` 控件树、`watch_context` 弹窗监控 |
 | 设备连接 | Wi-Fi ADB（`connect_with_retry`） | 断线重连，兼容单机/多机 `--serial` |
 | 视觉识别 A（主） | **CodeBuddy 多模态大模型**（`codebuddy_vision.py`） | 语义定位文字/按钮/图标，直接返回物理坐标 `(cx, cy)`，可识别无字图标（关闭 X、返回箭头、红包等） |
-| 视觉识别 B（备） | **云端 PaddleOCR v4**（HTTP 服务） | 全屏 OCR 文本块，返回 `{"text","cx","cy","conf"}` |
+| 视觉识别 B（备） | **使用者配置的 OCR**（本机或远程 HTTP 服务） | 全屏 OCR 文本块，返回 `{"text","cx","cy","conf"}` |
 | 视觉识别 C（兜底） | 屏幕比例坐标 / 固定坐标 | 已知稳定入口的快速点击 |
 | 图像处理 | OpenCV (`cv2`) + Pillow (`PIL`) | 截图裁剪、缩放、JPEG 压缩（降低 Token / 带宽） |
 | 运行时 | Python 3.10、`uv`（`uv run --no-project`） | 独立环境运行，无需预装依赖 |
@@ -29,7 +87,7 @@
 
 | 名称 | 地址 / 标识 | 说明 |
 | --- | --- | --- |
-| OCR 服务地址 | 环境变量 `DIANTAO_OCR_SERVER_URL` | 云端 PaddleOCR 服务根地址（含 `/predict_ocr` 路径）。**不在代码中硬编码**，运行时注入 |
+| OCR 服务地址 | 环境变量 `DIANTAO_OCR_SERVER_URL` | 使用者自己的完整 OCR 接口地址（含 `/predict_ocr` 路径），支持本机、局域网和远程服务 |
 | OCR 接口 | `POST {DIANTAO_OCR_SERVER_URL}` | 表单字段 `image`（JPEG），返回 `{"code":200,"data":[{"text","score","center":{"x","y"}}]}` |
 | OCR 兼容服务（本地/自建） | `tools/ocr_compat_server.py`，`uvicorn ... --port 8888` | 提供 `POST /predict_ocr`、`GET /health` |
 | RAG 知识库 | `http://127.0.0.1:9621`（LightRAG，本地） | 开发规范检索，`rag_client.py` / `lightrag_helper.py` |
@@ -150,9 +208,9 @@ py -3.10 deploy/register_all_in_one.py "<automation-butler目录>"
 
 ## 六、环境与依赖
 
-- Python 3.10；`uiautomator2`、`opencv-python`、`Pillow`、`requests`、`python-dotenv`（赚能量腾讯云 OCR 配置）、`fastapi`/`uvicorn`（兼容服务）、`pytest`。
+- Python 3.10；`uiautomator2`、`opencv-python`、`Pillow`、`requests`、`python-dotenv`（读取本机 OCR 配置）、`fastapi`/`uvicorn`（兼容服务）、`pytest`。
 - 真机需开启 USB/Wi-Fi 调试；脚本使用 Wi-Fi ADB 地址连接。
-- 云端 OCR 通过 `DIANTAO_OCR_SERVER_URL` 注入；未设置时云端 OCR 自动跳过（不会崩溃）。
+- OCR 通过 `DIANTAO_OCR_SERVER_URL` 注入；能量任务未设置时在连接手机前停止，共享任务库未设置时提示并跳过识别。不会自动安装 OCR，也不会回退到作者的服务。
 
 ## 七、安全与边界
 

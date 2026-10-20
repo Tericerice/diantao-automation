@@ -18,7 +18,7 @@ def main():
     w, h = d.window_size()
     print(f"📱 设备已连接  分辨率: {w} x {h}")
     print(f"\n=== 正在截屏并上传云端 OCR（PaddleOCRv4）===")
-    print(f"   服务器: http://175.178.17.23:8888/predict_ocr\n")
+    print("   使用 DIANTAO_OCR_SERVER_URL 配置的OCR服务（本机或远程）")
 
     blocks = get_ocr_text_blocks(d)
 

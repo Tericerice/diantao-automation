@@ -115,7 +115,7 @@ def scan(d):
             x1, y1, x2, y2 = bounds
             nodes.append(dict(text=text, cx=(x1+x2)//2, cy=(y1+y2)//2))
     if not any("做任务赚能量" in n["text"] for n in nodes):
-        source = "U2+腾讯云OCR" if nodes else "腾讯云OCR"
+        source = "U2+配置的OCR服务" if nodes else "配置的OCR服务"
         for node in recognize(shot):
             if not any(n["text"] == node["text"] and abs(n["cx"]-node["cx"]) < 30
                                       and abs(n["cy"]-node["cy"]) < 30 for n in nodes):
@@ -620,7 +620,7 @@ def main():
         serial = devices[0].serial
     LOG.info("[连接] 正在连接手机")
     d = connect_with_retry(serial)
-    LOG.info("[连接] 手机已连接 | U2 控制，腾讯云 PaddleOCR 识别")
+    LOG.info("[连接] 手机已连接 | U2 控制，使用配置的 OCR 服务识别")
     if args.action == "enter":
         enter(d, deadline, restart=True)
         return

@@ -50,14 +50,20 @@ except Exception as _cb_err:
     print(f"⚠️ [CodeBuddy] 初始化失败，将启用云端 OCR 后备: {_cb_err}")
     HAS_CODEBUDDY_VISION = False
 
-OCR_SERVER_URL = "http://175.178.17.23:8888/predict_ocr"
+from dotenv import load_dotenv
 
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+OCR_SERVER_URL = os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip()
 
 def _cloud_ocr(img, retries=1, log_low_confidence=False):
     """
-    直接调用腾讯云上的 PaddleOCR 服务，返回原图中心坐标。
+    调用用户配置的本机或远程 OCR 服务，返回原图中心坐标。
     返回: [{"text": str, "cx": int, "cy": int, "conf": float}]
     """
+    if not OCR_SERVER_URL:
+        print("  ⚠️ [OCR服务] 请先在 .env 中配置 DIANTAO_OCR_SERVER_URL；可使用本机OCR服务")
+        return []
+
     # 兼容各类图片输入格式
     if isinstance(img, np.ndarray):
         if len(img.shape) == 3 and img.shape[2] == 3:
@@ -72,7 +78,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
         try:
             pil_img = Image.open(str(img))
         except Exception as e:
-            print(f"  ⚠️ [腾讯云 OCR] 不支持的图像类型: {type(img)}, {e}")
+            print(f"  ⚠️ [OCR服务] 不支持的图像类型: {type(img)}, {e}")
             return []
 
     buf = _io.BytesIO()
@@ -93,14 +99,14 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
             data = resp.json()
             if data.get("code") != 200:
                 raise ValueError(data.get("msg", "unknown"))
-            print(f"  🖼️ [腾讯云 OCR] 耗时 {time.time()-t0:.2f}s")
+            print(f"  🖼️ [OCR服务] 耗时 {time.time()-t0:.2f}s")
         except Exception as e:
             if attempt < retries:
                 wait = 2.0 * (attempt + 1)
-                print(f"  ⚠️ [腾讯云 OCR] 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
+                print(f"  ⚠️ [OCR服务] 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
                 time.sleep(wait)
                 continue
-            print(f"  ⚠️ [腾讯云 OCR] 请求失败（已重试 {retries} 次）: {e}")
+            print(f"  ⚠️ [OCR服务] 请求失败（已重试 {retries} 次）: {e}")
             return []
 
         blocks = []
@@ -110,7 +116,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
             center = item.get("center", {})
             if not text or score < 0.4:
                 if log_low_confidence and text:
-                    print(f"  🔎 [腾讯云 OCR] 跳过低置信度文字：{text!r} conf={score:.3f}")
+                    print(f"  🔎 [OCR服务] 跳过低置信度文字：{text!r} conf={score:.3f}")
                 continue
             blocks.append({
                 "text": text,

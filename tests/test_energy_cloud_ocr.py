@@ -46,7 +46,7 @@ def test_bad_service_reply_stops_task(endpoint, monkeypatch, payload):
 
 def test_network_failure_is_concise_without_local_fallback(endpoint, monkeypatch):
     monkeypatch.setattr(cloud_ocr.requests, "post", Mock(side_effect=requests.Timeout("private endpoint")))
-    with pytest.raises(RuntimeError, match="腾讯云 OCR 请求失败") as raised:
+    with pytest.raises(RuntimeError, match="OCR 服务请求失败") as raised:
         cloud_ocr.recognize(Image.new("RGB", (20, 20)))
     assert "private endpoint" not in str(raised.value)
 
@@ -56,7 +56,7 @@ def test_missing_config_stops_before_phone_connection(monkeypatch):
     monkeypatch.setattr(task.sys, "argv", ["taobao_energy.py", "scan"])
     connect = Mock()
     monkeypatch.setattr(task, "connect_with_retry", connect)
-    with pytest.raises(RuntimeError, match="未配置腾讯云 OCR"):
+    with pytest.raises(RuntimeError, match="未配置 OCR 服务"):
         task.main()
     connect.assert_not_called()
     monkeypatch.setattr(task, "_raw_scan", False)
@@ -72,7 +72,7 @@ def test_activity_webview_uses_cloud_and_records_backend(tmp_path, monkeypatch):
     assert task.scan(device) == [dict(text="做任务赚能量", cx=500, cy=800)]
     recognize.assert_called_once_with(device.screenshot.return_value)
     device.dump_hierarchy.assert_not_called()
-    assert '"source": "腾讯云OCR"' in (tmp_path / "current.json").read_text(encoding="utf-8")
+    assert '"source": "配置的OCR服务"' in (tmp_path / "current.json").read_text(encoding="utf-8")
 
 
 def test_native_task_text_avoids_unnecessary_cloud_upload(tmp_path, monkeypatch):
