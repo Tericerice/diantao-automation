@@ -184,9 +184,16 @@ def task_kind(title):
     return "skip"
 
 
+class RewardNotConfirmed(RuntimeError):
+    def __init__(self, nodes):
+        super().__init__("未确认任务奖励增加")
+        self.nodes = nodes
+
+
 def verify_gain(d, nodes, before, before_energy, deadline):
     # 回到列表后，金币动画可能暂时遮住累计次数；只重读，不重复做任务。
     for attempt in range(3):
+        guard(deadline)
         after, balance = task_progress(nodes), energy_balance(nodes)
         if any("做任务赚能量" in n["text"] for n in nodes) and (
                 (after is not None and before is not None and after > before) or (
@@ -195,6 +202,8 @@ def verify_gain(d, nodes, before, before_energy, deadline):
             gain = f"+{balance-before_energy}" if balance is not None and before_energy is not None else "待核对"
             LOG.info("[到账] 能量 %s | 余额 %s | 累计 %s/50", gain, balance, after)
             return nodes
+        LOG.info("[核对] %s/3 | 累计 %s→%s | 能量 %s→%s",
+                 attempt + 1, before, after, before_energy, balance)
         if attempt < 2:
             if task_progress(nodes) is None and any("做任务赚能量" in n["text"] for n in nodes):
                 w, h = d.window_size()
@@ -202,7 +211,7 @@ def verify_gain(d, nodes, before, before_energy, deadline):
                 d.swipe(w*.5, h*.4, w*.5, h*.9, duration=.5)
             time.sleep(3)
             nodes = scan(d)
-    raise RuntimeError("未确认任务奖励增加，保留现场")
+    raise RewardNotConfirmed(nodes)
 
 
 def visit(d, title, deadline, nodes):
@@ -265,9 +274,11 @@ def visit(d, title, deadline, nodes):
         nodes = enter(d, deadline)
     try:
         return verify_gain(d, nodes, before, balance, deadline)
-    except RuntimeError:
-        nodes = scan(d)
-        if not any("做任务赚能量" in n["text"] for n in nodes):
+    except RewardNotConfirmed as error:
+        guard(deadline)
+        nodes = error.nodes
+        if (d.app_current()["package"] != TB
+                or not any("做任务赚能量" in n["text"] for n in nodes)):
             raise
         LOG.info("[未到账] %s：本轮不再重复尝试", title)
         return nodes
@@ -554,16 +565,25 @@ def run_round(d, nodes, deadline, repeat, seconds):
         found = True
         tier = {"taobao": "淘宝", "alipay": "支付宝", "external": "其他应用"}[task_kind(selected)]
         LOG.info("[任务] %s/%s | %s | %s", index+1, min(max(repeat, 1), 30), tier, selected)
-        if selected in VISIT:
-            LOG.info("[跳转] 确认打开目标应用后立即返回核对奖励")
+        try:
+            if selected in VISIT:
+                LOG.info("[跳转] 确认打开目标应用后立即返回核对奖励")
+                attempted.add(selected)
+                nodes = visit(d, selected, deadline, nodes)
+            elif selected == QUIZ:
+                attempted.add(selected)
+                nodes = quiz(d, deadline, nodes)
+            else:
+                LOG.info("[浏览] 按任务要求浏览约 %s 秒", browse_seconds(nodes, selected, seconds))
+                nodes = browse(d, selected, seconds, deadline, nodes)
+        except RewardNotConfirmed as error:
+            guard(deadline)
+            nodes = error.nodes
+            if (d.app_current()["package"] != TB
+                    or not any("做任务赚能量" in n["text"] for n in nodes)):
+                raise
             attempted.add(selected)
-            nodes = visit(d, selected, deadline, nodes)
-        elif selected == QUIZ:
-            attempted.add(selected)
-            nodes = quiz(d, deadline, nodes)
-        else:
-            LOG.info("[浏览] 按任务要求浏览约 %s 秒", browse_seconds(nodes, selected, seconds))
-            nodes = browse(d, selected, seconds, deadline, nodes)
+            LOG.info("[未到账] %s：已核对3次，本轮跳过并继续其他任务", selected)
     return found
 
 

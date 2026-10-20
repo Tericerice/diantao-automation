@@ -113,6 +113,9 @@ def test_missing_app_visits_landing_then_returns_without_downloading(monkeypatch
     d.window_size.return_value = (1264, 2780)
     d.adb_device.shell.return_value = ""
     d.app_current.return_value = dict(package=current)
+    d.app_start.side_effect = lambda *args, **kwargs: setattr(
+        d.app_current, "return_value", dict(package=task.TB)
+    )
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "scan", lambda _: nodes)
     task.visit(d, "去百度App领现金", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
