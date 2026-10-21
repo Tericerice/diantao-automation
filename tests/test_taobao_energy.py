@@ -1,6 +1,6 @@
 import pytest
 
-from tools.taobao_energy import allowed_browse, energy_balance, task_button, task_progress, task_kind
+from tools.taobao_energy import allowed_browse, task_row_progress, task_button, task_progress, task_kind
 
 
 def page(title="好物随心逛(0/10)"):
@@ -51,16 +51,15 @@ def test_dynamic_free_topic_is_allowed_but_spending_is_not():
     assert not allowed_browse("未知任务")
 
 
-def test_energy_balance_ignores_prices_and_car_level():
-    nodes = [dict(text="￥0.72", cx=200, cy=370),
-             dict(text="11500>", cx=212, cy=343),
-             dict(text="200", cx=122, cy=461)]
-    assert energy_balance(nodes) == 11500
+def test_row_progress_matches_exact_task_not_similar_title():
+    nodes = page("好物随心逛加倍(3/10)") + [dict(text="好物随心逛(1/10)", cx=400, cy=900)]
+    assert task_row_progress(nodes, "好物随心逛") == (1, 10)
+    assert task_row_progress(page("好物随心逛（2/10)"), "好物随心逛") == (2, 10)
+    assert task_row_progress(page("好物随心逛"), "好物随心逛") is None
 
 
-def test_energy_balance_accepts_ocr_merged_header():
-    assert energy_balance([dict(text="69400已累计升级已得", cx=347, cy=329)]) == 69400
-    assert energy_balance([dict(text="0.72", cx=347, cy=368)]) is None
+def test_ambiguous_task_progress_is_not_used():
+    assert task_row_progress(page() + page(), "好物随心逛") is None
 
 
 @pytest.mark.parametrize("title,kind", [
@@ -93,13 +92,14 @@ def test_free_flash_visit_does_not_allow_purchase_tasks():
         task_button(page("下单购买商品"), "下单购买商品", 1264)
 
 
-def test_animation_is_reread_and_capped_rewards_use_balance(monkeypatch):
+def test_animation_is_reread_and_capped_total_uses_task_progress(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
-    ready = page() + [dict(text="50/50", cx=120, cy=846), dict(text="33300", cx=210, cy=343)]
+    ready = page("好物随心逛(1/10)") + [dict(text="50/50", cx=120, cy=846)]
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "scan", lambda _: ready)
-    assert task.verify_gain(object(), [], 50, 32900, datetime.now(timezone.utc)+timedelta(minutes=1)) == ready
+    assert task.verify_gain(object(), [], 50, (0, 10), datetime.now(timezone.utc)+timedelta(minutes=1),
+                            title="好物随心逛") == ready
 
 
 @pytest.mark.parametrize("current", ["com.taobao.taobao", "com.android.launcher", "com.heytap.quicksearchbox"])
@@ -274,7 +274,9 @@ def test_console_is_concise_and_error_details_stay_in_file(tmp_path, monkeypatch
         output = capsys.readouterr().out
         assert "[任务] 1/30 | 支付宝" in output
         assert "[停止] 当前不是赚能量任务列表" in output
-        assert "完成 1 项，能量 +400，余额 33300" in output
+        assert "完成 1 项，耗时" in output
+        assert "余额" not in output
+        assert "能量 +" not in output
         assert "Traceback" not in output
         assert "OCR详情" not in output
         detail = path.read_text(encoding="utf-8")
@@ -300,13 +302,13 @@ def test_only_verified_photo_browse_is_allowed():
     assert task_kind("拍立淘上传照片") == "skip"
 
 
-def test_balance_verifies_after_cumulative_banner_disappears(monkeypatch):
+def test_task_row_verifies_after_cumulative_banner_disappears(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
-    ready = page() + [dict(text="69400", cx=210, cy=343)]
+    ready = page("好物随心逛(1/10)")
     monkeypatch.setattr(task, "_session", {})
-    assert task.verify_gain(object(), ready, None, 69000,
-                            datetime.now(timezone.utc)+timedelta(minutes=1)) == ready
+    assert task.verify_gain(object(), ready, None, (0, 10),
+                            datetime.now(timezone.utc)+timedelta(minutes=1), title="好物随心逛") == ready
     assert task._session["completed"] == 1
 
 
@@ -339,7 +341,7 @@ def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
     nodes = page("去快手打卡领手机(0/1)") + [dict(text="50/50", cx=120, cy=846),
                                              dict(text="63000", cx=210, cy=343)]
     ready = nodes + []
-    ready[-1] = dict(text="63600", cx=210, cy=343)
+    ready[1] = dict(text="去快手打卡领手机(1/1)", cx=430, cy=1460)
     d = MagicMock()
     d.window_size.return_value = (1264, 2780)
     d.adb_device.shell.return_value = "package:installed"
@@ -378,7 +380,7 @@ def test_known_quiz_submits_verified_answer_and_checks_reward(monkeypatch):
     nodes = page(task.QUIZ+"(0/1)") + [dict(text="53800", cx=210, cy=343)]
     question = [dict(text="1.进入比赛期后，想继续追赶对手，哪项操作最有效？", cx=600, cy=745),
                 dict(text="A 及时邀请好友助力", cx=314, cy=1018)]
-    ready = page() + [dict(text="54800", cx=210, cy=343)]
+    ready = page(task.QUIZ+"(1/1)")
     scans = iter([question, question+[dict(text="我选好了", cx=630, cy=2659)],
                   [dict(text="回答正确", cx=500, cy=1000)], ready])
     d = MagicMock()

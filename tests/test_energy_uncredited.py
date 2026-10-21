@@ -16,14 +16,14 @@ def page():
             dict(text="16/50", cx=118, cy=845)]
 
 
-def test_unchanged_balance_is_bounded_and_never_counted_as_success(monkeypatch):
+def test_unchanged_progress_is_bounded_and_never_counted_as_success(monkeypatch):
     nodes = page()
     scan = Mock(return_value=nodes)
     monkeypatch.setattr(task, "scan", scan)
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "_session", {"completed": 0})
     with pytest.raises(task.RewardNotConfirmed) as error:
-        task.verify_gain(Mock(), nodes, 16, 75700, deadline())
+        task.verify_gain(Mock(), nodes, 16, None, deadline())
     assert error.value.nodes == nodes
     assert scan.call_count == 2
     assert task._session["completed"] == 0
@@ -71,6 +71,6 @@ def test_reward_check_respects_deadline_before_reading(monkeypatch):
     scan = Mock()
     monkeypatch.setattr(task, "scan", scan)
     with pytest.raises(RuntimeError, match="时限"):
-        task.verify_gain(Mock(), page(), 16, 75700,
+        task.verify_gain(Mock(), page(), 16, None,
                          datetime.now(timezone.utc) - timedelta(seconds=1))
     scan.assert_not_called()

@@ -124,10 +124,10 @@ def test_delayed_redirect_during_reward_check_returns_and_confirms_gain(phone, m
         if reads == 1:
             phone.app_current.return_value["package"] = "com.eg.android.AlipayGphone"
             return [dict(text="支付宝·芭芭农场")]
-        return page(92200)
+        return [dict(n, text="49/50") if n["text"] == "48/50" else n for n in page(92200)]
     monkeypatch.setattr(task, "scan", scan)
-    result = task.verify_gain(phone, page(), 48, 91400, deadline(), recover_visit=True)
-    assert task.energy_balance(result) == 92200
+    result = task.verify_gain(phone, page(), 48, None, deadline(), recover_visit=True)
+    assert task.task_progress(result) == 49
     assert task._session["completed"] == 1
     phone.app_start.assert_called_once_with(task.TB, use_monkey=True)
 

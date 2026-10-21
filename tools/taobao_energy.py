@@ -76,9 +76,7 @@ def setup_logging(directory=None):
 def log_summary():
     if "start" not in _session:
         return
-    balance, initial = _session.get("balance"), _session.get("initial")
-    gain = f"，能量 +{balance-initial}，余额 {balance}" if balance is not None and initial is not None else ""
-    LOG.info("[汇总] 本次确认完成 %s 项%s，耗时 %s 秒", _session["completed"], gain,
+    LOG.info("[汇总] 本次确认完成 %s 项，耗时 %s 秒", _session["completed"],
              round(time.monotonic()-_session["start"]))
 
 
@@ -128,11 +126,6 @@ def scan(d):
     LOG.debug("屏幕识别 %s", json.dumps(result, ensure_ascii=False))
     if _raw_scan:
         print(json.dumps(result, ensure_ascii=False), flush=True)
-    if any("做任务赚能量" in n["text"] for n in nodes):
-        balance = energy_balance(nodes)
-        if balance is not None:
-            _session.setdefault("initial", balance)
-            _session["balance"] = balance
     return nodes
 
 
@@ -162,12 +155,14 @@ def task_progress(nodes):
     return None
 
 
-def energy_balance(nodes):
-    for n in nodes:
-        match = re.match(r"^(\d+)(?:>|已累计|$)", n["text"])
-        if n["cx"] < 400 and 300 < n["cy"] < 390 and match:
-            return int(match[1])
-    return None
+def task_row_progress(nodes, title):
+    if title is None:
+        return None
+    rows = [n for n in nodes if re.split(r"[(（]", n["text"])[0].strip() == title]
+    if len(rows) != 1:
+        return None
+    match = re.search(r"[(（](\d+)\s*/\s*(\d+)[)）]", rows[0]["text"])
+    return (int(match[1]), int(match[2])) if match else None
 
 
 def allowed_browse(title):
@@ -191,26 +186,28 @@ class RewardNotConfirmed(RuntimeError):
         self.nodes = nodes
 
 
-def verify_gain(d, nodes, before, before_energy, deadline, *, recover_visit=False):
-    # 回到列表后，金币动画可能暂时遮住累计次数；只重读，不重复做任务。
+def verify_gain(d, nodes, before, before_task, deadline, *, title=None, recover_visit=False):
+    # 只核对累计次数或当前任务次数；能量余额不参与执行与完成判断。
     for attempt in range(3):
         guard(deadline)
         if recover_visit and (
                 d.app_current()["package"] != TB
                 or not any("做任务赚能量" in n["text"] for n in nodes)):
             nodes = return_from_visit(d, deadline)
-        after, balance = task_progress(nodes), energy_balance(nodes)
-        if any("做任务赚能量" in n["text"] for n in nodes) and (
-                (after is not None and before is not None and after > before) or (
-                balance is not None and before_energy is not None and balance > before_energy)):
+        after = task_progress(nodes)
+        after_task = task_row_progress(nodes, title)
+        cumulative_changed = after is not None and before is not None and after > before
+        task_changed = (after_task is not None and before_task is not None
+                        and after_task[1] == before_task[1] and after_task[0] > before_task[0])
+        if any("做任务赚能量" in n["text"] for n in nodes) and (cumulative_changed or task_changed):
             _session["completed"] = _session.get("completed", 0) + 1
-            gain = f"+{balance-before_energy}" if balance is not None and before_energy is not None else "待核对"
-            LOG.info("[到账] 能量 %s | 余额 %s | 累计 %s/50", gain, balance, after)
+            LOG.info("[完成] %s | 累计 %s/50 | 任务次数 %s→%s",
+                     title or "当前任务", after if after is not None else "未读取", before_task, after_task)
             return nodes
-        LOG.info("[核对] %s/3 | 累计 %s→%s | 能量 %s→%s",
-                 attempt + 1, before, after, before_energy, balance)
+        LOG.info("[核对] %s/3 | 累计 %s→%s | 任务次数 %s→%s",
+                 attempt + 1, before, after, before_task, after_task)
         if attempt < 2:
-            if task_progress(nodes) is None and any("做任务赚能量" in n["text"] for n in nodes):
+            if after is None and any("做任务赚能量" in n["text"] for n in nodes):
                 w, h = d.window_size()
                 guard(deadline)
                 d.swipe(w*.5, h*.4, w*.5, h*.9, duration=.5)
@@ -281,9 +278,8 @@ def return_from_visit(d, deadline):
 
 
 def visit(d, title, deadline, nodes):
-    before, balance = task_progress(nodes), energy_balance(nodes)
-    if balance is None:
-        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
+    before = task_progress(nodes)
+    before_task = task_row_progress(nodes, title)
     package = VISIT[title]
     installed = package == TB or bool(d.adb_device.shell(["pm", "path", package]).strip())
     button = task_button(nodes, title, d.window_size()[0])
@@ -324,7 +320,7 @@ def visit(d, title, deadline, nodes):
         LOG.info("[跳过] %s：未安装应用，返回并继续，不下载", title)
     nodes = return_from_visit(d, deadline)
     try:
-        return verify_gain(d, nodes, before, balance, deadline, recover_visit=True)
+        return verify_gain(d, nodes, before, before_task, deadline, title=title, recover_visit=True)
     except RewardNotConfirmed as error:
         guard(deadline)
         nodes = error.nodes
@@ -538,9 +534,8 @@ def return_from_browse(d, deadline):
 
 
 def quiz(d, deadline, nodes):
-    before, balance = task_progress(nodes), energy_balance(nodes)
-    if balance is None:
-        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
+    before = task_progress(nodes)
+    before_task = task_row_progress(nodes, QUIZ)
     button = task_button(nodes, QUIZ, d.window_size()[0])
     guard(deadline)
     d.click(button["cx"], button["cy"])
@@ -564,16 +559,14 @@ def quiz(d, deadline, nodes):
     nodes = scan(d)
     if not any("回答正确" in n["text"] or "已成功领取奖励" in n["text"] for n in nodes):
         raise RuntimeError("未确认考试结果，保留现场")
-    return verify_gain(d, return_from_browse(d, deadline), before, balance, deadline)
+    return verify_gain(d, return_from_browse(d, deadline), before, before_task, deadline, title=QUIZ)
 
 
 def browse(d, title, seconds, deadline, nodes):
     if d.app_current()["package"] != TB:
         raise RuntimeError("浏览任务必须从淘宝开始")
     before = task_progress(nodes)
-    before_energy = energy_balance(nodes)
-    if before_energy is None:
-        raise RuntimeError("请将任务列表滚到顶部，确保能量可见")
+    before_task = task_row_progress(nodes, title)
     seconds = browse_seconds(nodes, title, seconds)
     button = task_button(nodes, title, d.window_size()[0])
     guard(deadline)
@@ -594,7 +587,7 @@ def browse(d, title, seconds, deadline, nodes):
         time.sleep(1)
     d.screenshot().save(OUT / "browse.png")
     after_nodes = return_from_browse(d, deadline)
-    return verify_gain(d, after_nodes, before, before_energy, deadline)
+    return verify_gain(d, after_nodes, before, before_task, deadline, title=title)
 
 
 def run_round(d, nodes, deadline, repeat, seconds):
@@ -686,7 +679,7 @@ def main():
             if check:
                 LOG.info("[复核] 重新进入淘宝检查剩余任务 %s/%s", check, rechecks)
             nodes = enter(d, deadline, restart=True) if check or args.action == "run" else scan(d)
-            LOG.info("[进度] 累计 %s/50 | 当前能量 %s", task_progress(nodes), energy_balance(nodes))
+            LOG.info("[进度] 累计 %s/50", task_progress(nodes))
             found = run_round(d, nodes, deadline, args.repeat, args.seconds)
             if check and not found:
                 LOG.info("[结束] 重新进入复核后无剩余白名单任务，已保留任务列表")
