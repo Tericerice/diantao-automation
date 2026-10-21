@@ -31,7 +31,7 @@ except ImportError:
 # ============================================================
 # ADB 截图（复用 utils.py 的 ADB_PATH 习惯）
 # ============================================================
-ADB_PATH = "adb"   # 若 adb 不在 PATH，改成完整路径如 r"D:\Android\Sdk\platform-tools\adb.exe"
+ADB_PATH = "adb"   # 若 adb 不在 PATH，填写使用者自己的 adb.exe 完整路径
 
 
 def adb_screenshot(adb_path=ADB_PATH, remote="/sdcard/cal_screen.png"):

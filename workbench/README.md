@@ -14,13 +14,15 @@
 
 1. 下载完整仓库并解压，安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
 2. 安装 Google 官方 [Android SDK Platform-Tools](https://developer.android.com/tools/releases/platform-tools)。
-   将其目录加入 `PATH`，或在根目录 `.env` 中填写 `DIANTAO_ADB_PATH`。
-3. 把根目录 `.env.example` 复制为 `.env`，填写自己可用的 `DIANTAO_OCR_SERVER_URL`。
+   将其目录加入 `PATH`，或在本机配置中填写 `DIANTAO_ADB_PATH`。
+3. 双击根目录 `配置本机.cmd`，在 `%LOCALAPPDATA%\DianTao\config.env` 中
+   填写自己可用的 `DIANTAO_OCR_SERVER_URL`。首次可导入旧 `.env`，不会覆盖已有配置。
    地址应包含 `/predict_ocr` 路径；接口契约见 [`cloud_ocr.py`](../cloud_ocr.py)。
 4. 双击根目录 **`启动工作台.cmd`**。首次启动会建立专用环境并下载依赖，需要联网；后续直接复用。
 
 OCR 服务地址、ADB 路径和配对信息不随仓库分发。没有配置 OCR 服务时，仍可打开工作台和扫码连接，
 但启动任务会提示先完成配置。本工作台不安装本地 OCR 大模型，也不要求独立显卡。
+配置修改后重新打开工作台。以后换新版解压目录仍复用外部配置，不需要重新填写。
 
 ## 手机扫码
 

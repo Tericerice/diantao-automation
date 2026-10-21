@@ -25,3 +25,4 @@ ocr_debug/
 .venv-ocr/
 workbench/.venv/
 .runtime/workbench/
+dist/
