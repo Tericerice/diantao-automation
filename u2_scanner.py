@@ -5,6 +5,7 @@ OCR 通用扫描框架
 ========================================================
 """
 import time
+from task_exclusions import is_blocked_boutique_task
 from yuanbao_popup import handle_yuanbao_live_popups
 import re
 import random
@@ -244,10 +245,14 @@ BLACKLIST_KEYWORDS = [
     "全场3元3件", "好货限时直降",
     "头条极速版", "趣头条",
     "查看并完成", "玩小游戏",
+    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
+    "精选宝贝",
 ]
 
 def is_blacklisted(text):
     if not text:
+        return True
+    if is_blocked_boutique_task(text):
         return True
     if '猜' in text and '猜价格' not in text and '猜价格游戏' not in text:
         return True

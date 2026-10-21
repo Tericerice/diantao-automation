@@ -2,6 +2,7 @@
 点淘 - 点淘购物赚钱 自动化脚本
 流程：进点淘 → 元宝中心 → 固定坐标934,1723 → 查看更多 → U2扫描"去完成"/"去浏览"
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -153,6 +154,10 @@ def detect_entered_media_type(task_type, task_name):
 
 def do_task(tp, sec, task_name=""):
     """执行任务（已点击进入，根据类型执行）"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     time.sleep(3)
     check_can_open(d)
 

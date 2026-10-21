@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from PIL import Image
-from utils import connect_device, TB_APP, get_ocr_text_blocks, OCR_SERVER_URL
+from cloud_ocr import ocr_server_url
+from utils import connect_device, TB_APP, get_ocr_text_blocks
 
 ADB_PATH = os.environ.get("ADB_PATH", "adb")
 d = connect_device()
@@ -37,7 +38,7 @@ def adb_ocr_analysis(img):
     buf.seek(0)
     files = {"image": ("screenshot.jpg", buf, "image/jpeg")}
     try:
-        resp = _requests.post(OCR_SERVER_URL, files=files, timeout=60)
+        resp = _requests.post(ocr_server_url(), files=files, timeout=60)
         data = resp.json()
         lines = data.get("data", [])
         lines.sort(key=lambda x: x.get("center", {}).get("y", 0))
@@ -142,7 +143,7 @@ try:
         u2_img.save(buf, format="JPEG", quality=70)
         buf.seek(0)
         files = {"image": ("screenshot.jpg", buf, "image/jpeg")}
-        resp = _requests.post(OCR_SERVER_URL, files=files, timeout=60)
+        resp = _requests.post(ocr_server_url(), files=files, timeout=60)
         data = resp.json()
         lines = data.get("data", [])
         lines.sort(key=lambda x: x.get("center", {}).get("y", 0))

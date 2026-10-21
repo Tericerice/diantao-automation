@@ -2,12 +2,14 @@
 分析已保存的 u2 截图 (temp_u2_screencap.png) 内容
 """
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import io
-import os
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from PIL import Image
+from cloud_ocr import ocr_server_url
 import requests
 
 img = Image.open("temp_u2_screencap.png")
@@ -18,10 +20,7 @@ img.save(buf, format="JPEG", quality=70)
 buf.seek(0)
 
 files = {"image": ("screenshot.jpg", buf, "image/jpeg")}
-OCR_SERVER_URL = os.getenv("DIANTAO_OCR_SERVER_URL", "")
-if not OCR_SERVER_URL:
-    raise SystemExit("请先设置环境变量 DIANTAO_OCR_SERVER_URL 指向 PaddleOCR 服务地址")
-resp = requests.post(OCR_SERVER_URL, files=files, timeout=60)
+resp = requests.post(ocr_server_url(), files=files, timeout=60)
 data = resp.json()
 ocr_lines = data.get("data", [])
 print(f"🔍 OCR 识别到 {len(ocr_lines)} 个文本块:\n")

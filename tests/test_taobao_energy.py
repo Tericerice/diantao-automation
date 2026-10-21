@@ -113,14 +113,17 @@ def test_missing_app_visits_landing_then_returns_without_downloading(monkeypatch
     d.window_size.return_value = (1264, 2780)
     d.adb_device.shell.return_value = ""
     d.app_current.return_value = dict(package=current)
+    d.app_start.side_effect = lambda *args, **kwargs: setattr(
+        d.app_current, "return_value", dict(package=task.TB)
+    )
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "scan", lambda _: nodes)
     task.visit(d, "去百度App领现金", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
     d.click.assert_called_once_with(1102, 1492)
     if current == task.TB:
-        d.press.assert_called_once_with("back")
+        d.press.assert_not_called()
     else:
-        d.app_start.assert_called_once_with(task.TB)
+        d.app_start.assert_called_once_with(task.TB, use_monkey=True)
     d.app_install.assert_not_called()
 
 
@@ -171,6 +174,66 @@ def test_enter_rejects_ambiguous_earn_button_variants(monkeypatch):
     with pytest.raises(RuntimeError, match="未唯一"):
         task.enter(d, datetime.now(timezone.utc)+timedelta(minutes=1))
     d.click.assert_not_called()
+
+
+@pytest.mark.parametrize("selector_kind", ["text", "description"])
+def test_home_entry_closes_known_logistics_prompt_and_supports_both_labels(
+    monkeypatch, selector_kind
+):
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    from tools import taobao_energy as task
+
+    controls = {}
+    dismissed = False
+
+    def select(**query):
+        nonlocal dismissed
+        key = tuple(query.items())
+        if key not in controls:
+            control = MagicMock()
+            control.count = 1
+            if query == {"text": "取消"}:
+                def close():
+                    nonlocal dismissed
+                    dismissed = True
+                control.click.side_effect = close
+            controls[key] = control
+        controls[key].exists = query == {selector_kind: "领淘金币"} or (
+            not dismissed and query in [
+                {"text": "开启快递物流提醒"}, {"text": "去授权"}, {"text": "取消"},
+            ]
+        )
+        return controls[key]
+
+    d = MagicMock(side_effect=select)
+    d.app_current.return_value = dict(package=task.TB, activity="TBMainActivity")
+    header = [dict(text="淘金币双11狂享20亿", cx=500, cy=210),
+              dict(text="赚能量", cx=1154, cy=1177)]
+    scans = iter([header, page()])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.enter(d, datetime.now(timezone.utc) + timedelta(minutes=1)) == page()
+    controls[(("text", "取消"),)].click.assert_called_once()
+    controls[((selector_kind, "领淘金币"),)].click.assert_called_once()
+    select(text="去授权").click.assert_not_called()
+    d.click.assert_called_once_with(1154, 1177)
+
+
+def test_revised_event_without_old_heading_opens_only_earn_energy(monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    from tools import taobao_energy as task
+
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    nodes = [dict(text="升级赛车拿钱", cx=636, cy=1109),
+             dict(text="去赚能量", cx=1144, cy=1187)]
+    scans = iter([nodes, page()])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.enter(d, datetime.now(timezone.utc) + timedelta(minutes=1)) == page()
+    d.click.assert_called_once_with(1144, 1187)
 
 
 def test_manual_launch_deadline_is_relative_to_current_start():
@@ -255,17 +318,6 @@ def test_five_second_label_does_not_shorten_fifteen_second_task():
     assert browse_seconds(nodes, "你关注的商品都可抵", 25) == 17
 
 
-def test_search_uses_discovery_not_history_or_keyboard():
-    from tools.taobao_energy import search_topic
-    nodes = [dict(text="历史记录", cx=328, cy=525),
-             dict(text="搜索发现", cx=146, cy=792),
-             dict(text="牙刷", cx=328, cy=950),
-             dict(text="ABC", cx=328, cy=2062)]
-    assert search_topic(nodes, 1264, 2780, 0)["text"] == "牙刷"
-    with pytest.raises(RuntimeError, match="推荐词"):
-        search_topic(nodes[:1], 1264, 2780, 0)
-
-
 def test_search_returns_through_keyboard_and_search_page(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
@@ -291,16 +343,17 @@ def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
     d = MagicMock()
     d.window_size.return_value = (1264, 2780)
     d.adb_device.shell.return_value = "package:installed"
-    d.app_current.side_effect = [dict(package="com.kuaishou.nebula"),
-                                dict(package="com.kuaishou.nebula"),
-                                dict(package=task.TB)]
+    d.app_current.return_value = dict(package="com.kuaishou.nebula")
+    d.app_start.side_effect = lambda *args, **kwargs: setattr(
+        d.app_current, "return_value", dict(package=task.TB)
+    )
     waits = []
     monkeypatch.setattr(task.time, "sleep", waits.append)
     monkeypatch.setattr(task, "scan", lambda _: ready)
     monkeypatch.setattr(task, "_session", {})
     task.visit(d, "去快手打卡领手机", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
-    assert waits == [1, 4]
-    d.app_start.assert_called_once_with(task.TB)
+    assert waits == [1, 3, 2]
+    d.app_start.assert_called_once_with(task.TB, use_monkey=True)
 
 
 def test_unknown_quiz_is_not_answered(monkeypatch):

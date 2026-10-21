@@ -1,3 +1,7 @@
 @echo off
 cd /d "%~dp0"
-rtk proxy uv --quiet run --with uiautomator2 --with requests --with python-dotenv python -u tools\taobao_energy.py %*
+if exist ".venv-energy\Scripts\python.exe" (
+    rtk proxy ".venv-energy\Scripts\python.exe" -u tools\run_taobao_energy.py %*
+) else (
+    rtk proxy uv run --no-project python -u tools\run_taobao_energy.py %*
+)

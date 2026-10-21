@@ -28,3 +28,5 @@ ocr_debug/
 workbench/.venv/
 screenshots/
 .pytest_cache/
+.venv-energy/
+.venv-ocr/

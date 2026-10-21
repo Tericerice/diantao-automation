@@ -2,6 +2,7 @@
 签到赢元宝 自动化脚本
 流程：进点淘 → 元宝中心 → 下滑找今日签到 → 去看看 → 自动执行任务
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -33,6 +34,8 @@ BLACKLIST_KEYWORDS = [
     "消消乐", "农场小游戏", "斗地主", "开心消消乐",
     "猜谜", "猜一猜",
     "查看并完成", "玩小游戏",
+    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
+    "精选宝贝",
 ]
 
 # 去完成按钮关键词
@@ -372,6 +375,10 @@ def exec_guess_price(btn_cx, btn_cy, task_name=""):
 
 def exec_browse(btn_cx, btn_cy, task_name="", use_ocr=True):
     """执行精选推荐浏览任务"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     if "查看" in task_name and ("宝贝" in task_name or "精选" in task_name):
         print("  🎯 查看精选宝贝（点击3个商品）")
         d.click(btn_cx, btn_cy)

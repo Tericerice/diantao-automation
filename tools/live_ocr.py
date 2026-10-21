@@ -11,14 +11,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 from u2_scanner import connect_device
-from utils import get_ocr_text_blocks, OCR_SERVER_URL
+from utils import get_ocr_text_blocks
 
 def main():
     d = connect_device()
     w, h = d.window_size()
     print(f"📱 设备已连接  分辨率: {w} x {h}")
     print(f"\n=== 正在截屏并上传云端 OCR（PaddleOCRv4）===")
-    print(f"   服务器: {OCR_SERVER_URL or '(未配置 DIANTAO_OCR_SERVER_URL)'}\n")
+    print("   使用 DIANTAO_OCR_SERVER_URL 配置的OCR服务（本机或远程）")
 
     blocks = get_ocr_text_blocks(d)
 

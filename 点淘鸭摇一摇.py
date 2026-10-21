@@ -2,6 +2,7 @@
 点淘鸭摇一摇 自动化脚本
 流程：导航 → 右滑 → 点击去摇一摇 → OCR扫描赚次数 → 循环做直播/浏览
 """
+from task_exclusions import is_blocked_boutique_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -43,8 +44,7 @@ TASK_WHITELIST = [
     "看黄8点档直播90秒",
     "看8点档直播90秒",
     "浏览精选推荐",
-    "查看3个精选宝贝",
-    "精选宝贝",
+    # “查看3个精选宝贝 / 精选宝贝”已按用户要求屏蔽，不再列入白名单。
 ]
 
 # 各任务时长
@@ -251,6 +251,10 @@ def _task_duration(task_name: str | None) -> int:
 
 def do_task(task_name, btn_cx, btn_cy):
     """执行单个白名单任务"""
+    if is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+        return False
+
     print(f"  🎯 {task_name}")
 
     d.click(btn_cx, btn_cy)

@@ -1,4 +1,4 @@
-"""HTTP compatibility service for the Tencent Cloud PaddleOCR CLI."""
+"""本机或自建 PaddleOCR 的 HTTP 兼容服务，不依赖云厂商。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, gettempdir
 from typing import AsyncIterator, Iterable, Protocol, cast
 
 import anyio
@@ -19,7 +19,7 @@ from tools.ocr_compat_contract import JsonValue, OcrBlock, normalize_paddle_resu
 
 LOGGER = logging.getLogger("ocr_compat_server")
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024
-TEMP_FILE_DIRECTORY = "/tmp"
+TEMP_FILE_DIRECTORY = gettempdir()
 
 
 class OcrInputError(Exception):
@@ -62,7 +62,6 @@ class HealthResponse(BaseModel):
 
 
 def _load_engine() -> PaddleEngineLike:
-    os.environ.setdefault("PADDLE_PDX_CACHE_HOME", "/opt/paddleocr/cache")
     os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "BOS")
     os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
     os.environ.setdefault("OMP_NUM_THREADS", "1")

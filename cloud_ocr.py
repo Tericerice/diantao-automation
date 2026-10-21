@@ -1,4 +1,4 @@
-"""调用部署在腾讯云服务器上的 PaddleOCR，保持原图坐标。"""
+"""调用用户配置的本机或远程 OCR HTTP 服务，保持原图坐标。"""
 import io
 import os
 from pathlib import Path
@@ -12,7 +12,7 @@ load_dotenv(Path(__file__).with_name(".env"))
 def ocr_server_url():
     value = os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip()
     if not value:
-        raise RuntimeError("未配置腾讯云 OCR：请在 .env 或环境变量中设置 DIANTAO_OCR_SERVER_URL")
+        raise RuntimeError("未配置 OCR 服务：请自行部署或选用 OCR，并在 .env 或环境变量中设置 DIANTAO_OCR_SERVER_URL")
     return value
 
 
@@ -31,9 +31,9 @@ def recognize(image):
         response.raise_for_status()
         result = response.json()
     except (requests.RequestException, ValueError) as error:
-        raise RuntimeError("腾讯云 OCR 请求失败，请检查服务和网络；已停止本次任务") from error
+        raise RuntimeError("OCR 服务请求失败，请检查配置的服务和网络；已停止本次任务") from error
     if not isinstance(result, dict) or result.get("code") != 200 or not isinstance(result.get("data"), list):
-        raise RuntimeError("腾讯云 OCR 返回异常，已停止本次任务")
+        raise RuntimeError("OCR 服务返回异常，请检查接口契约；已停止本次任务")
     nodes = []
     for block in result["data"]:
         text = block.get("text", "").strip()

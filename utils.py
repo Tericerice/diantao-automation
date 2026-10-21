@@ -50,17 +50,18 @@ except Exception as _cb_err:
     print(f"⚠️ [CodeBuddy] 初始化失败，将启用云端 OCR 后备: {_cb_err}")
     HAS_CODEBUDDY_VISION = False
 
-# 云端 PaddleOCR 服务地址，通过环境变量注入，避免把内部地址硬编码进仓库
-OCR_SERVER_URL = os.getenv("DIANTAO_OCR_SERVER_URL", "")
+from dotenv import load_dotenv
 
+load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+OCR_SERVER_URL = os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip()
 
 def _cloud_ocr(img, retries=1, log_low_confidence=False):
     """
-    直接调用腾讯云上的 PaddleOCR 服务，返回原图中心坐标。
+    调用用户配置的本机或远程 OCR 服务，返回原图中心坐标。
     返回: [{"text": str, "cx": int, "cy": int, "conf": float}]
     """
     if not OCR_SERVER_URL:
-        print("  ⚠️ [云端 OCR] 未配置环境变量 DIANTAO_OCR_SERVER_URL，跳过云端 OCR")
+        print("  ⚠️ [OCR服务] 请先在 .env 中配置 DIANTAO_OCR_SERVER_URL；可使用本机OCR服务")
         return []
 
     # 兼容各类图片输入格式
@@ -77,7 +78,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
         try:
             pil_img = Image.open(str(img))
         except Exception as e:
-            print(f"  ⚠️ [腾讯云 OCR] 不支持的图像类型: {type(img)}, {e}")
+            print(f"  ⚠️ [OCR服务] 不支持的图像类型: {type(img)}, {e}")
             return []
 
     buf = _io.BytesIO()
@@ -98,14 +99,14 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
             data = resp.json()
             if data.get("code") != 200:
                 raise ValueError(data.get("msg", "unknown"))
-            print(f"  🖼️ [腾讯云 OCR] 耗时 {time.time()-t0:.2f}s")
+            print(f"  🖼️ [OCR服务] 耗时 {time.time()-t0:.2f}s")
         except Exception as e:
             if attempt < retries:
                 wait = 2.0 * (attempt + 1)
-                print(f"  ⚠️ [腾讯云 OCR] 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
+                print(f"  ⚠️ [OCR服务] 请求失败（第 {attempt + 1} 次）: {e}，{wait}s 后重试...")
                 time.sleep(wait)
                 continue
-            print(f"  ⚠️ [腾讯云 OCR] 请求失败（已重试 {retries} 次）: {e}")
+            print(f"  ⚠️ [OCR服务] 请求失败（已重试 {retries} 次）: {e}")
             return []
 
         blocks = []
@@ -115,7 +116,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
             center = item.get("center", {})
             if not text or score < 0.4:
                 if log_low_confidence and text:
-                    print(f"  🔎 [腾讯云 OCR] 跳过低置信度文字：{text!r} conf={score:.3f}")
+                    print(f"  🔎 [OCR服务] 跳过低置信度文字：{text!r} conf={score:.3f}")
                 continue
             blocks.append({
                 "text": text,
@@ -128,7 +129,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
     return []
 
 
-def get_ocr_text_blocks(device, retries=2, height_ratio=1.0, log_low_confidence=False):
+def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
     """
     全屏 OCR（云端 PaddleOCRv4），返回文本块列表 [{"text", "cx", "cy", "conf"}]
     参数:
@@ -164,7 +165,7 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0, log_low_confidence=
             img = img.crop((0, 0, img.width, int(img.height * height_ratio)))
 
         # OCR
-        blocks = _cloud_ocr(img, retries=0, log_low_confidence=log_low_confidence)
+        blocks = _cloud_ocr(img, retries=0)
         if blocks:
             return blocks
 
@@ -180,7 +181,7 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0, log_low_confidence=
 # 🔧 ADB screencap（绕过 u2 覆盖层关闭问题）
 # ========================================================
 
-ADB_PATH = os.environ.get("DIANTAO_ADB_PATH", "").strip() or "adb"
+ADB_PATH = r"D:\Android\Sdk\platform-tools\adb.exe"
 
 def _get_adb_serial(device):
     """从 u2 device 对象提取 ADB serial（优先用 Wi-Fi ADB 地址）"""
@@ -1017,6 +1018,9 @@ BLACKLIST_KEYWORDS = [
     "消消乐", "农场小游戏", "斗地主", "开心消消乐",
     "大众点评", "拍立淘", "头条极速版", "趣头条",
     "全场3元3件", "好货限时直降", "查看并完成", "玩小游戏",
+    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
+    # 不包含“查看3个特惠卖场宝贝”，该任务保持原有执行逻辑。
+    "精选宝贝",
 ]
 # 注意：含"猜"但不含"猜价格/猜价格游戏"的 → 黑名单
 
@@ -1261,4 +1265,68 @@ def check_rag_service() -> bool:
     except Exception as e:
         print(f"  ⚠️ LightRAG 服务未启动: {e}")
         print(f"  💡 启动命令: cd /d D:\\WORKBUDDY && python -m lightrag-hku --env-file C:\\... ")
+        return False
+
+
+def find_ocr_text_block(device, keywords, *, settle_seconds=0, attempts=1,
+                        exact=False, log=False):
+    """OCR 查找文字块；不读取 UIAutomator 控件树。"""
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
+    if not keywords:
+        return None
+
+    normalized_keywords = [re.sub(r"\s+", "", keyword).casefold() for keyword in keywords]
+    for attempt in range(max(1, int(attempts))):
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
+        blocks = get_ocr_text_blocks(device, retries=0, log_low_confidence=log)
+        if log:
+            print(f"  🔎 OCR 第{attempt + 1}/{max(1, int(attempts))}次识别：{len(blocks)}个文本块")
+            for index, block in enumerate(blocks[:40], 1):
+                print(
+                    f"    OCR[{index:02d}] {block.get('text', '')!r} "
+                    f"conf={block.get('conf', 0):.3f} "
+                    f"center=({block.get('cx', 0)},{block.get('cy', 0)})"
+                )
+        for keyword in normalized_keywords:
+            for block in blocks:
+                text = re.sub(r"\s+", "", str(block.get("text", ""))).casefold()
+                matched = text == keyword if exact else keyword in text
+                if matched:
+                    return block
+    return None
+
+
+def has_ocr_text(device, keywords, *, settle_seconds=0, attempts=1, exact=False, log=False):
+    """OCR 判断当前画面是否包含任一目标文字。"""
+    return find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    ) is not None
+
+
+def click_ocr_text(device, keywords, *, settle_seconds=2.5, attempts=2,
+                   exact=False, log=True):
+    """通过 OCR 文本块坐标点击；找不到时返回 False，不使用 U2 或盲坐标兜底。"""
+    block = find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    )
+    if not block:
+        print(f"  ⚠️ OCR 未找到目标文字：{keywords}")
+        return False
+
+    try:
+        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
+        width, height = device.window_size()
+        if not (0 < cx < width and 0 < cy < height):
+            print(f"  ⚠️ OCR 坐标越界，拒绝点击：({cx},{cy}) / ({width},{height})")
+            return False
+        device.click(cx, cy)
+        print(f"  ✅ OCR 点击【{block.get('text', '')}】@({cx},{cy})")
+        return True
+    except Exception as exc:
+        print(f"  ⚠️ OCR 点击失败：{exc}")
         return False

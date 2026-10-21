@@ -15,12 +15,12 @@ import io
 import subprocess
 import numpy as np
 import cv2
+from cloud_ocr import ocr_server_url
 
 # ============================================================
 # 云端 PaddleOCR 配置
 # ============================================================
-# 云端 PaddleOCR 服务地址，通过环境变量注入，避免把内部地址硬编码进仓库
-OCR_SERVER_URL = os.getenv("DIANTAO_OCR_SERVER_URL", "")
+OCR_SERVER_URL = ocr_server_url()
 
 try:
     import requests as _requests
@@ -188,10 +188,6 @@ class BoardRecognizer:
         限制上传尺寸: 最大宽高 800px, 超过则等比缩小后上传,
         返回的坐标自动映射回原始坐标系.
         """
-        if not OCR_SERVER_URL:
-            print("  [OCR跳过] 未配置环境变量 DIANTAO_OCR_SERVER_URL")
-            return []
-
         h, w = board_img_bgr.shape[:2]
         MAX_UPLOAD_SIZE = 800
         MIN_UPLOAD_SIZE = 50
