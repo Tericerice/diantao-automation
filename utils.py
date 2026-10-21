@@ -50,9 +50,9 @@ except Exception as _cb_err:
     print(f"⚠️ [CodeBuddy] 初始化失败，将启用云端 OCR 后备: {_cb_err}")
     HAS_CODEBUDDY_VISION = False
 
-from dotenv import load_dotenv
+from local_config import load_config
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_config()
 OCR_SERVER_URL = os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip()
 
 def _cloud_ocr(img, retries=1, log_low_confidence=False):
@@ -61,7 +61,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
     返回: [{"text": str, "cx": int, "cy": int, "conf": float}]
     """
     if not OCR_SERVER_URL:
-        print("  ⚠️ [OCR服务] 请先在 .env 中配置 DIANTAO_OCR_SERVER_URL；可使用本机OCR服务")
+        print("  ⚠️ [OCR服务] 请运行配置本机.cmd 设置 DIANTAO_OCR_SERVER_URL；可使用本机OCR服务")
         return []
 
     # 兼容各类图片输入格式
@@ -181,7 +181,7 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
 # 🔧 ADB screencap（绕过 u2 覆盖层关闭问题）
 # ========================================================
 
-ADB_PATH = r"D:\Android\Sdk\platform-tools\adb.exe"
+ADB_PATH = os.environ.get("DIANTAO_ADB_PATH", "").strip() or "adb"
 
 def _get_adb_serial(device):
     """从 u2 device 对象提取 ADB serial（优先用 Wi-Fi ADB 地址）"""

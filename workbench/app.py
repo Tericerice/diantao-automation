@@ -14,15 +14,16 @@ import sys
 import threading
 import time
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(ROOT / ".env")
 sys.path.insert(0, str(ROOT))
 
+from local_config import load_config
 from workbench.phone import router as phone_router
+
+load_config()
 
 TASKS = {
     "taobao-double11-energy": {
@@ -152,7 +153,7 @@ def require_task(task_id):
 def start_task(task_id: str):
     task = require_task(task_id)
     if not os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip():
-        raise HTTPException(400, "请先把 .env.example 复制为 .env，填写 DIANTAO_OCR_SERVER_URL 后重新打开工作台")
+        raise HTTPException(400, "请运行配置本机.cmd，填写自己的 DIANTAO_OCR_SERVER_URL 后重新打开工作台")
     with TASK_LOCK:
         if any(status(key)["status"] == "running" for key in TASKS):
             raise HTTPException(409, "已有任务控制手机，请等待完成或先停止，再启动另一项")

@@ -1,18 +1,17 @@
 """调用用户配置的本机或远程 OCR HTTP 服务，保持原图坐标。"""
 import io
 import os
-from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
+from local_config import load_config
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_config()
 
 
 def ocr_server_url():
     value = os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip()
     if not value:
-        raise RuntimeError("未配置 OCR 服务：请自行部署或选用 OCR，并在 .env 或环境变量中设置 DIANTAO_OCR_SERVER_URL")
+        raise RuntimeError("未配置 OCR 服务：请运行配置本机.cmd，设置自己的 DIANTAO_OCR_SERVER_URL")
     return value
 
 
