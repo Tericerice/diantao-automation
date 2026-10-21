@@ -1266,3 +1266,67 @@ def check_rag_service() -> bool:
         print(f"  ⚠️ LightRAG 服务未启动: {e}")
         print(f"  💡 启动命令: cd /d D:\\WORKBUDDY && python -m lightrag-hku --env-file C:\\... ")
         return False
+
+
+def find_ocr_text_block(device, keywords, *, settle_seconds=0, attempts=1,
+                        exact=False, log=False):
+    """OCR 查找文字块；不读取 UIAutomator 控件树。"""
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
+    if not keywords:
+        return None
+
+    normalized_keywords = [re.sub(r"\s+", "", keyword).casefold() for keyword in keywords]
+    for attempt in range(max(1, int(attempts))):
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
+        blocks = get_ocr_text_blocks(device, retries=0, log_low_confidence=log)
+        if log:
+            print(f"  🔎 OCR 第{attempt + 1}/{max(1, int(attempts))}次识别：{len(blocks)}个文本块")
+            for index, block in enumerate(blocks[:40], 1):
+                print(
+                    f"    OCR[{index:02d}] {block.get('text', '')!r} "
+                    f"conf={block.get('conf', 0):.3f} "
+                    f"center=({block.get('cx', 0)},{block.get('cy', 0)})"
+                )
+        for keyword in normalized_keywords:
+            for block in blocks:
+                text = re.sub(r"\s+", "", str(block.get("text", ""))).casefold()
+                matched = text == keyword if exact else keyword in text
+                if matched:
+                    return block
+    return None
+
+
+def has_ocr_text(device, keywords, *, settle_seconds=0, attempts=1, exact=False, log=False):
+    """OCR 判断当前画面是否包含任一目标文字。"""
+    return find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    ) is not None
+
+
+def click_ocr_text(device, keywords, *, settle_seconds=2.5, attempts=2,
+                   exact=False, log=True):
+    """通过 OCR 文本块坐标点击；找不到时返回 False，不使用 U2 或盲坐标兜底。"""
+    block = find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    )
+    if not block:
+        print(f"  ⚠️ OCR 未找到目标文字：{keywords}")
+        return False
+
+    try:
+        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
+        width, height = device.window_size()
+        if not (0 < cx < width and 0 < cy < height):
+            print(f"  ⚠️ OCR 坐标越界，拒绝点击：({cx},{cy}) / ({width},{height})")
+            return False
+        device.click(cx, cy)
+        print(f"  ✅ OCR 点击【{block.get('text', '')}】@({cx},{cy})")
+        return True
+    except Exception as exc:
+        print(f"  ⚠️ OCR 点击失败：{exc}")
+        return False
