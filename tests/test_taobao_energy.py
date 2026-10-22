@@ -71,7 +71,7 @@ def test_ambiguous_task_progress_is_not_used():
     ("逛一逛支付宝农场", "alipay"),
     ("搜一搜你喜欢的宝贝", "taobao"),
     ("拍立淘逛感兴趣的宝贝", "taobao"),
-    ("淘金币省钱等级考试", "taobao"),
+    ("淘金币省钱等级考试", "skip"),
     ("去组队可加快升级", "taobao"),
     ("你关注的商品都可抵", "taobao"),
     ("逛一逛领购物红包", "external"),
@@ -358,7 +358,7 @@ def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
     d.app_start.assert_called_once_with(task.TB, use_monkey=True)
 
 
-def test_unknown_quiz_is_not_answered(monkeypatch):
+def test_quiz_is_skipped_before_entering_question_page(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
     from unittest.mock import MagicMock
@@ -368,15 +368,15 @@ def test_unknown_quiz_is_not_answered(monkeypatch):
     d.app_current.return_value = dict(package=task.TB)
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "scan", lambda _: [dict(text="另一道题", cx=500, cy=700)])
-    with pytest.raises(RuntimeError, match="未验证的考试"):
+    with pytest.raises(RuntimeError, match="跳过"):
         task.quiz(d, datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
-    d.click.assert_called_once_with(1102, 1492)
+    d.click.assert_not_called()
 
 
-def test_known_quiz_submits_verified_answer_and_checks_reward(monkeypatch):
+def test_known_quiz_is_also_skipped_without_submitting(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
-    from unittest.mock import MagicMock, call
+    from unittest.mock import MagicMock
     nodes = page(task.QUIZ+"(0/1)") + [dict(text="53800", cx=210, cy=343)]
     question = [dict(text="1.进入比赛期后，想继续追赶对手，哪项操作最有效？", cx=600, cy=745),
                 dict(text="A 及时邀请好友助力", cx=314, cy=1018)]
@@ -389,5 +389,6 @@ def test_known_quiz_submits_verified_answer_and_checks_reward(monkeypatch):
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "scan", lambda _: next(scans))
     monkeypatch.setattr(task, "_session", {})
-    assert task.quiz(d, datetime.now(timezone.utc)+timedelta(minutes=1), nodes) == ready
-    assert d.click.call_args_list == [call(1102, 1492), call(314, 1018), call(630, 2659)]
+    with pytest.raises(RuntimeError, match="跳过"):
+        task.quiz(d, datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
+    d.click.assert_not_called()

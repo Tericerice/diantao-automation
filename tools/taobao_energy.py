@@ -22,7 +22,7 @@ from device_connection import connect_with_retry
 from cloud_ocr import recognize, ocr_server_url
 
 TB = "com.taobao.taobao"
-SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约")
+SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约", "答题", "考试")
 BROWSE = ("好物随心逛", "好物沉浸看", "去省钱卡领红包", "去芭芭农场领水果", "去签到领红包",
           "搜一搜你心仪的宝贝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
           "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝")
@@ -174,7 +174,7 @@ def allowed_browse(title):
 
 
 def task_kind(title):
-    if allowed_browse(title) or title == QUIZ:
+    if allowed_browse(title):
         return "taobao"
     if title in VISIT:
         if VISIT[title] == TB:
