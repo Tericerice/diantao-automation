@@ -50,6 +50,8 @@ OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
 LOG = logging.getLogger("taobao_energy")
 _raw_scan = False
 _session = {}
+_vision_recognize = None
+_vision_source = "配置的OCR服务"
 
 
 def setup_logging(directory=None):
@@ -114,8 +116,8 @@ def scan(d):
             x1, y1, x2, y2 = bounds
             nodes.append(dict(text=text, cx=(x1+x2)//2, cy=(y1+y2)//2))
     if not any("做任务赚能量" in n["text"] for n in nodes):
-        source = "U2+配置的OCR服务" if nodes else "配置的OCR服务"
-        for node in recognize(shot):
+        source = "U2+" + _vision_source if nodes else _vision_source
+        for node in (_vision_recognize or recognize)(shot):
             if not any(n["text"] == node["text"] and abs(n["cx"]-node["cx"]) < 30
                                       and abs(n["cy"]-node["cy"]) < 30 for n in nodes):
                 nodes.append(node)
@@ -150,8 +152,9 @@ def task_button(nodes, title, width):
 
 def task_progress(nodes):
     for n in nodes:
-        if n["cx"] < 250 and re.fullmatch(r"\d+/50", n["text"]):
-            return int(n["text"].split("/")[0])
+        match = re.fullmatch(r"(?:当前进度\s*)?(\d+)\s*/\s*50", n["text"].strip())
+        if n["cx"] < 250 and match:
+            return int(match[1])
     return None
 
 
@@ -636,11 +639,14 @@ def run_round(d, nodes, deadline, repeat, seconds):
 
 
 def main():
-    global _raw_scan
+    global _raw_scan, _vision_recognize, _vision_source
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["run", "enter", "scan", "auto", "browse", "tap", "back", "swipe", "text"])
     parser.add_argument("values", nargs="*")
     parser.add_argument("--serial")
+    parser.add_argument("--vision", choices=["ocr", "workbuddy"],
+                        default=os.environ.get("TAOBAO_VISION_BACKEND", "ocr"),
+                        help="页面识别后端；workbuddy 只返回文字与坐标，不决定动作")
     parser.add_argument("--seconds", type=int, default=25)
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--rechecks", type=int, help="重新进入复核次数（0至5）；run默认5，auto默认0")
@@ -658,7 +664,14 @@ def main():
         path = setup_logging()
         LOG.info("[开始] 淘金币赚能量 | 本次截止 %s", deadline.strftime("%m-%d %H:%M"))
         LOG.info("[日志] 详细记录：%s", path)
-    ocr_server_url()
+    _vision_recognize = None
+    _vision_source = "配置的OCR服务"
+    if args.vision == "workbuddy":
+        from workbuddy_vision import WorkBuddyVision
+        _vision_recognize = WorkBuddyVision().recognize
+        _vision_source = "WorkBuddy视觉"
+    else:
+        ocr_server_url()
     guard(deadline)
     serial = args.serial
     if not serial:
@@ -668,7 +681,7 @@ def main():
         serial = devices[0].serial
     LOG.info("[连接] 正在连接手机")
     d = connect_with_retry(serial)
-    LOG.info("[连接] 手机已连接 | U2 控制，使用配置的 OCR 服务识别")
+    LOG.info("[连接] 手机已连接 | U2 控制，%s 识别", _vision_source)
     if args.action == "enter":
         enter(d, deadline, restart=True)
         return
