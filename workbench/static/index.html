@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="dark">
-<title>大管家 · 任务工作台</title>
+<title>点淘 · 自动化大管家</title>
 <script>
 function applyTheme(value, remember) {
   var theme = ['green', 'black', 'white'].includes(value) ? value : 'green';
@@ -272,8 +272,8 @@ catch (error) { applyTheme('green', false); }
 </header>
 <main class="workspace">
   <section class="page-heading" aria-labelledby="page-title">
-    <div><div class="eyebrow">MY WORKSPACE</div><h1 id="page-title">任务工作台</h1><p>连接手机，选择任务，进度尽在这里。</p></div>
-    <div class="metrics"><div class="metric"><strong id="stat-total">—</strong><span>可用任务</span></div><div class="metric running"><strong id="stat-running">—</strong><span>正在运行</span></div></div>
+    <div><div class="eyebrow">MY WORKSPACE</div><h1 id="page-title">点淘自动化大管家</h1><p>全项目任务统一管理 · 同一时间执行一项任务</p></div>
+    <div class="metrics"><div class="metric"><strong id="stat-total">—</strong><span>任务入口</span></div><div class="metric running"><strong id="stat-running">—</strong><span>正在运行</span></div></div>
   </section>
   <section class="connection" aria-label="手机连接">
     <div class="connection-icon"><svg><use href="#i-phone"/></svg></div>
@@ -343,13 +343,15 @@ function toast(message, type) {
 function taskName(id) { var task = apps.find(function(a) { return a.id === id; }); return task ? task.name : id; }
 function taskState(task) {
   var running = task.status === 'running';
+  if (task.available === false) return '<span class="task-state">脚本缺失</span>';
   return '<span class="task-state' + (running ? ' running' : '') + '"><i class="dot' + (running ? ' online' : '') + '"></i>' + (running ? '运行中' : '待执行') + '</span>';
 }
 function taskActions(task, featured) {
   var running = task.status === 'running', busy = pending.has(task.id);
+  var blocked = !running && (task.available === false || apps.some(function(a) { return a.status === 'running'; }));
   return '<div class="task-actions"><button class="icon-btn" data-action="logs" data-id="' + escapeHtml(task.id) + '" title="查看日志" aria-label="查看' + escapeHtml(task.name) + '的日志">' + icon('log') + '</button>' +
     '<button class="btn ' + (running ? 'btn-danger' : 'btn-primary') + '" data-action="' + (running ? 'stop' : 'start') + '" data-id="' + escapeHtml(task.id) + '"' +
-    (busy ? ' disabled aria-busy="true"' : '') + '>' + (featured ? icon(running ? 'stop' : 'play') : '') +
+    (busy || blocked ? ' disabled' : '') + (busy ? ' aria-busy="true"' : '') + '>' + (featured ? icon(running ? 'stop' : 'play') : '') +
     (busy ? '处理中…' : running ? '停止' : featured ? '开始执行' : '启动') + '</button></div>';
 }
 function renderTasks() {
@@ -369,17 +371,17 @@ function renderTasks() {
     return (taskFilter !== 'running' || a.status === 'running') &&
       (a.name + ' ' + (a.description || '')).toLocaleLowerCase().includes(search);
   });
-  var featured = null;
+  var featured = visible.find(function(a) { return a.id === 'diantao-all-in-one'; });
   $('featured-task').innerHTML = featured ?
     '<article class="featured"><div class="featured-label">' + icon('spark') + '常用流程</div><h3>' + escapeHtml(featured.name) + '</h3><p>' +
-    escapeHtml(featured.description || '按顺序执行日常任务，完成后继续双十一能量任务。') +
+    escapeHtml(featured.description || '按原有顺序串行执行点淘日常任务。') +
     '</p><div class="featured-bottom">' + taskState(featured) + taskActions(featured, true) + '</div></article>' : '';
   var individual = visible.filter(function(a) { return a !== featured; });
   $('individual-label').hidden = !individual.length;
   $('script-list').innerHTML = individual.map(function(task) {
     return '<article role="listitem" class="task-row' + (logFilter === task.id ? ' selected' : '') + '">' +
       '<div class="task-icon">' + icon('code') + '</div><div class="task-copy"><h3 class="task-name">' + escapeHtml(task.name) +
-      '</h3><p class="task-description">' + escapeHtml(task.description || '独立 Python 任务') + '</p><div class="task-meta">' +
+      '</h3><p class="task-description">' + escapeHtml(task.unavailable_reason || task.description || '独立 Python 任务') + '</p><div class="task-meta">' +
       taskState(task) + (task.pid ? '<span class="muted mono" style="font-size:9px">PID ' + escapeHtml(task.pid) + '</span>' : '') +
       '</div></div>' + taskActions(task, false) + '</article>';
   }).join('');
@@ -404,7 +406,7 @@ async function refreshTasks() {
     var data = await request('/api/apps');
     if (!Array.isArray(data.apps)) throw new Error('任务列表返回异常');
     // Statistics, controls and log streams all share the same Python task list.
-    apps = data.apps.filter(function(a) { return a.category === 'script' && ['taobao-double11-energy', 'diantao-coupon'].includes(a.id); });
+    apps = data.apps.filter(function(a) { return a.category === 'script'; });
     renderTasks(); syncStreams();
     $('load-error').hidden = true;
     $('service-dot').classList.add('online');

@@ -8,7 +8,7 @@ import urllib.request
 desktop = importlib.import_module("workbench.app")
 
 
-def test_desktop_launches_one_window_with_two_tasks_and_persistent_theme(monkeypatch):
+def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monkeypatch):
     windows, settings = [], []
 
     def create_window(title, *, url, **options):
@@ -26,8 +26,8 @@ def test_desktop_launches_one_window_with_two_tasks_and_persistent_theme(monkeyp
     ))
     desktop.desktop()
     assert len(windows) == 1
-    assert windows[0][0] == "大管家 · 两项任务工作台"
+    assert windows[0][0] == "点淘 · 自动化大管家"
     assert {task["id"] for task in windows[0][1]["apps"]} == set(desktop.TASKS)
-    assert len(windows[0][1]["apps"]) == 2
+    assert len(windows[0][1]["apps"]) > 20
     assert 'id="connect-phone"' in windows[0][2]
     assert settings[0]["private_mode"] is False

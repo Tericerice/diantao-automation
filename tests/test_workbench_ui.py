@@ -149,6 +149,34 @@ def test_start_stream_filter_stop_and_history(workbench):
     playwright.expect(page.locator("#log-empty")).to_be_visible()
 
 
+def test_full_catalog_featured_flow_and_unavailable_tasks(workbench):
+    page, state = workbench
+    state["apps"].extend([
+        {"id": "diantao-all-in-one", "name": "点淘一键全部执行",
+         "category": "script", "status": "stopped", "available": True,
+         "description": "连通性 → 下滑 → 日常任务 → 养优惠"},
+        {"id": "diantao-signin", "name": "签到赢元宝", "category": "script",
+         "status": "stopped", "available": True},
+        {"id": "missing", "name": "外部618活动", "category": "script",
+         "status": "stopped", "available": False, "unavailable_reason": "缺少脚本：外部活动"},
+    ])
+    page.locator("#refresh-tasks").click()
+    playwright.expect(page.locator("#stat-total")).to_have_text("5")
+    playwright.expect(page.locator("#featured-task")).to_contain_text("点淘一键全部执行")
+    playwright.expect(page.locator('[data-action="start"][data-id="missing"]')).to_be_disabled()
+    playwright.expect(page.locator("#script-list")).to_contain_text("缺少脚本：外部活动")
+    page.locator('#featured-task [data-action="start"]').click()
+    playwright.expect(page.locator("#stat-running")).to_have_text("1")
+    assert state["actions"] == [("start", "diantao-all-in-one")]
+    playwright.expect(page.locator('[data-action="start"][data-id="diantao-signin"]')).to_be_disabled()
+    page.get_by_role("button", name="停止运行中任务").click()
+    playwright.expect(page.locator("#stat-running")).to_have_text("0")
+    page.get_by_role("searchbox").fill("签到")
+    playwright.expect(page.locator("#script-list")).to_contain_text("签到赢元宝")
+    page.locator('[data-action="start"][data-id="diantao-signin"]').click()
+    assert state["actions"][-1] == ("start", "diantao-signin")
+
+
 def test_qr_pairing_connects_and_returns_focus(workbench):
     page, state = workbench
     page.get_by_role("button", name="扫码连接手机", exact=True).click()

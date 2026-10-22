@@ -28,19 +28,65 @@ def client(monkeypatch):
         yield connection
 
 
-def test_publication_contains_exactly_two_scripts_and_one_qr_entry(client):
+def test_dashboard_contains_all_business_tasks_and_one_qr_entry(client):
+    from task_catalog import TASK_FILES
+
     tasks = client.get("/api/apps").json()["apps"]
-    assert [(t["id"], t["name"]) for t in tasks] == [
-        ("taobao-double11-energy", "淘金币双11能量"),
-        ("diantao-coupon", "点淘养优惠"),
-    ]
-    assert all((desktop.ROOT / t["script"]).is_file() for t in desktop.TASKS.values())
+    assert len(tasks) == len(desktop.TASKS)
+    assert TASK_FILES <= {t["script"] for t in desktop.TASKS.values()}
+    assert {"diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
+            "diantao-saved-tasks", "taobao-double11-energy", "taobao-double11-workbuddy",
+            "diantao-coupon"} <= {t["id"] for t in tasks}
+    assert all((desktop.ROOT / t["script"]).is_file()
+               for t in desktop.TASKS.values() if not t["script"].startswith("../"))
+    assert all("command" not in t and "script" not in t for t in tasks)
     html = client.get("/").text
     assert html.count('id="connect-phone"') == 1
     assert 'data-tab="web"' not in html
     assert 'data-tab="ai"' not in html
     assert client.get("/api/health").json()["running_count"] == 0
     assert client.post("/api/start/unknown").status_code == 404
+
+
+def test_missing_external_task_remains_visible_and_cannot_spawn(client, monkeypatch, tmp_path):
+    tasks = deepcopy(desktop.TASKS)
+    tasks["taobao-618-external"]["script"] = str(tmp_path / "missing.py")
+    monkeypatch.setattr(desktop, "TASKS", tasks)
+    task = next(t for t in client.get("/api/apps").json()["apps"]
+                if t["id"] == "taobao-618-external")
+    assert task["available"] is False
+    assert "缺少脚本" in task["unavailable_reason"]
+    assert client.post("/api/start/taobao-618-external").status_code == 400
+    assert not desktop.PROCESSES
+
+
+@pytest.mark.parametrize("task_id", [
+    "diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
+    "diantao-saved-tasks", "diantao-signin", "taobao-double11-workbuddy",
+])
+def test_migrated_entry_spawns_its_script_and_arguments(client, monkeypatch, task_id):
+    from io import StringIO
+    from types import SimpleNamespace
+
+    task = desktop.TASKS[task_id]
+    process = SimpleNamespace(pid=123, stdout=StringIO(""), poll=lambda: None)
+    with patch.object(desktop.subprocess, "Popen", return_value=process) as spawn, \
+            patch.object(desktop, "threading", SimpleNamespace(
+                Thread=lambda **kwargs: SimpleNamespace(start=lambda: None)
+            )):
+        assert client.post("/api/start/" + task_id).status_code == 200
+    command = spawn.call_args.args[0]
+    assert command[1:] == ["-u", str(desktop.ROOT / task["script"]), *task["args"]]
+    assert spawn.call_args.kwargs["cwd"] == desktop.ROOT
+    assert spawn.call_args.kwargs["env"]["DIANTAO_OCR_SERVER_URL"]
+    desktop.PROCESSES.clear()
+
+
+def test_workbuddy_does_not_require_cloud_ocr(client, monkeypatch, tmp_path):
+    prepare_dummy(monkeypatch, tmp_path, "print('WorkBuddy entry ready')\n")
+    monkeypatch.delenv("DIANTAO_OCR_SERVER_URL")
+    assert client.post("/api/start/taobao-double11-workbuddy").status_code == 200
+    desktop.PROCESSES["taobao-double11-workbuddy"].wait(timeout=5)
 
 
 def prepare_dummy(monkeypatch, tmp_path, source):

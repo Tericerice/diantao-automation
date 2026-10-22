@@ -22,23 +22,10 @@ sys.path.insert(0, str(ROOT))
 
 from local_config import load_config
 from workbench.phone import router as phone_router
+from workbench.tasks import TASKS
 
 load_config()
 
-TASKS = {
-    "taobao-double11-energy": {
-        "name": "淘金币双11能量",
-        "script": "tools/taobao_energy.py",
-        "args": ["run", "--repeat", "30"],
-        "description": "双11能量活动：浏览任务、返回复查；不购买、不兑换、不发送邀请。",
-    },
-    "diantao-coupon": {
-        "name": "点淘养优惠",
-        "script": "养优惠.py",
-        "args": [],
-        "description": "点淘首页养优惠：浏览、视频、直播与搜索任务，按进度复查。",
-    },
-}
 PROCESSES: dict[str, subprocess.Popen] = {}
 STARTED: dict[str, float] = {}
 LOGS: dict[str, deque] = {}
@@ -120,7 +107,7 @@ async def lifespan(_app):
     await asyncio.to_thread(cleanup)
 
 
-app = FastAPI(title="大管家 · 两项任务工作台", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="点淘 · 自动化大管家", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.include_router(phone_router)
 
 
@@ -138,9 +125,17 @@ def health():
 def get_apps():
     return {"apps": [
         {"id": key, "category": "script", "name": task["name"],
-         "description": task["description"], **status(key)}
+         "description": task["description"], **availability(task), **status(key)}
         for key, task in TASKS.items()
     ]}
+
+
+def availability(task):
+    present = (ROOT / task["script"]).is_file()
+    return {
+        "available": present,
+        "unavailable_reason": "" if present else "缺少脚本：" + task["script"],
+    }
 
 
 def require_task(task_id):
@@ -152,7 +147,10 @@ def require_task(task_id):
 @app.post("/api/start/{task_id}")
 def start_task(task_id: str):
     task = require_task(task_id)
-    if not os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip():
+    available = availability(task)
+    if not available["available"]:
+        raise HTTPException(400, available["unavailable_reason"])
+    if task.get("requires_ocr", True) and not os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip():
         raise HTTPException(400, "请运行配置本机.cmd，填写自己的 DIANTAO_OCR_SERVER_URL 后重新打开工作台")
     with TASK_LOCK:
         if any(status(key)["status"] == "running" for key in TASKS):
@@ -261,7 +259,7 @@ def desktop():
     else:
         raise RuntimeError("工作台启动失败，请查看本地运行环境")
     atexit.register(cleanup)
-    webview.create_window("大管家 · 两项任务工作台", url=url, width=1280, height=820,
+    webview.create_window("点淘 · 自动化大管家", url=url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))
     try:
         webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"))
