@@ -44,6 +44,35 @@ class DagongAccelerationRoutingTest(unittest.TestCase):
         self.assertEqual(self.call("find_browse_task", blocks),
                          ("浏览精选推荐30秒", 300, 650))
 
+    def test_sliding_browse_countdown_is_never_selected(self):
+        for text in ("滑动浏览30秒", "滑动浏览11秒", "元滑动浏览30秒￥+0.1元",
+                     "滑动 浏览 45 秒", "滑动浏览4"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.call("find_browse_task", [
+                    {"text": text, "cx": 900, "cy": 1200}
+                ]))
+
+    def test_sliding_browse_without_seconds_is_ignored_by_fallbacks(self):
+        blocks = [
+            {"text": "滑动浏览", "cx": 300, "cy": 1200},
+            {"text": "30", "cx": 500, "cy": 1200},
+            {"text": "秒", "cx": 560, "cy": 1200},
+        ]
+        self.assertIsNone(self.call("find_browse_task", blocks))
+
+    def test_sliding_countdown_does_not_hide_real_browse_task(self):
+        blocks = [
+            {"text": "滑动浏览11秒", "cx": 900, "cy": 1200},
+            {"text": "浏览精选推荐30秒", "cx": 300, "cy": 650},
+        ]
+        self.assertEqual(self.call("find_browse_task", blocks),
+                         ("浏览精选推荐30秒", 300, 650))
+
+    def test_direct_sliding_task_does_not_click_or_browse(self):
+        self.assertFalse(self.call("exec_browse", 300, 400, "滑动浏览11秒"))
+        self.device.click.assert_not_called()
+        self.browse.assert_not_called()
+
     def test_direct_search_task_does_not_click_or_browse(self):
         self.assertFalse(self.call("exec_browse", 300, 400, "搜索后浏览30秒"))
         self.device.click.assert_not_called()

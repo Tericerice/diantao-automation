@@ -38,6 +38,30 @@ def has_search_browse_nearby(blocks, block):
     return is_search_browse_task("".join(b["text"] for b in row))
 
 
+def is_sliding_browse_task(text):
+    """「滑动浏览XX秒」是页面内的通用浏览倒计时/浮层，不是打工加速的目标任务。"""
+    compact = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", text or "")
+    return re.search(r"滑动浏览\d+", compact) is not None
+
+
+def has_sliding_browse_nearby(blocks, block):
+    """排除「滑动浏览XX秒」；兼容 OCR 把该行拆成多个文字块。
+
+    含「精选/推荐」的任务块不做同行拼接判断，避免浮层文字误伤真正的
+    「浏览精选推荐XX秒」任务。
+    """
+    if is_sliding_browse_task(block["text"]):
+        return True
+    compact = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", block["text"] or "")
+    if "浏览" not in compact or "精选" in compact or "推荐" in compact:
+        return False
+    row = [b for b in blocks
+           if abs(b["cy"] - block["cy"]) <= 60
+           and abs(b["cx"] - block["cx"]) <= 500]
+    row.sort(key=lambda b: b["cx"])
+    return is_sliding_browse_task("".join(b["text"] for b in row))
+
+
 def find_browse_task(blocks):
     """在当前屏幕 OCR 文本块中找"浏览精选推荐"字样的文本，直接返回其坐标
     
@@ -50,6 +74,8 @@ def find_browse_task(blocks):
 
     # 搜索任务优先排除，不能被下面的精选推荐或秒数兜底重新选中。
     blocks = [b for b in blocks if not has_search_browse_nearby(blocks, b)]
+    # 「滑动浏览XX秒」是页面浮层/通用浏览倒计时，同样不能被任何兜底选中。
+    blocks = [b for b in blocks if not has_sliding_browse_nearby(blocks, b)]
 
     # 找包含"浏览精选推荐"或"精选推荐"的文字块
     for b in blocks:
@@ -94,6 +120,9 @@ def exec_browse(cx, cy, task_name="", blocks=None):
     """点击任务文字（或附近的去完成按钮），进入后执行浏览"""
     if is_search_browse_task(task_name):
         print(f"  ⊘ 搜索后浏览任务不按普通浏览执行: 【{task_name}】")
+        return False
+    if is_sliding_browse_task(task_name):
+        print(f"  ⊘ 滑动浏览倒计时浮层不按任务执行: 【{task_name}】")
         return False
     click_cx, click_cy = cx, cy
 
