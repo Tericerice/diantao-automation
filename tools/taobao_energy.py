@@ -25,7 +25,8 @@ TB = "com.taobao.taobao"
 SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约", "答题", "考试")
 BROWSE = ("好物随心逛", "好物沉浸看", "去省钱卡领红包", "去芭芭农场领水果", "去签到领红包",
           "搜一搜你心仪的宝贝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
-          "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝")
+          "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝",
+          "来闪购逛逛领红包", "去惊喜好物逛一逛")
 QUIZ = "淘金币省钱等级考试"
 SEARCH_TERMS = ("固态硬盘", "牛肉干", "移动硬盘", "牙刷", "纸巾")
 # 仅访问已实测的页面，不操作目的应用内的消费、抽奖、授权或邀请。
@@ -42,6 +43,8 @@ VISIT = {
     "逛一逛支付宝农场": "com.eg.android.AlipayGphone",
     "逛一逛支付宝金豆夺宝": "com.eg.android.AlipayGphone",
     "去支付宝抽1000元红包": "com.eg.android.AlipayGphone",
+    "去抽最高1万淘金币": "com.eg.android.AlipayGphone",
+    "去芝麻信用涨分攒进度": "com.eg.android.AlipayGphone",
     "去百度App领现金": "com.baidu.searchbox",
     "去百度极速版领现金": "com.baidu.searchbox.lite",
     "逛一逛领购物红包": "com.tmall.wireless",
@@ -169,8 +172,14 @@ def task_row_progress(nodes, title):
 
 
 def allowed_browse(title):
-    return title == "拍立淘逛感兴趣的宝贝" or (
-        not any(s in title for s in SKIP) and (title in BROWSE or title.startswith("看看#")))
+    if title == "拍立淘逛感兴趣的宝贝":
+        return True
+    if any(s in title for s in SKIP):
+        return False
+    if title in VISIT:
+        return False
+    return (title in BROWSE or title.startswith("看看#") or "逛逛" in title
+            or "逛一逛" in title or "随心逛" in title or "沉浸看" in title)
 
 
 def task_kind(title):
@@ -202,7 +211,18 @@ def verify_gain(d, nodes, before, before_task, deadline, *, title=None, recover_
         cumulative_changed = after is not None and before is not None and after > before
         task_changed = (after_task is not None and before_task is not None
                         and after_task[1] == before_task[1] and after_task[0] > before_task[0])
-        if any("做任务赚能量" in n["text"] for n in nodes) and (cumulative_changed or task_changed):
+        done_button = False
+        disappeared = False
+        if title and any("做任务赚能量" in n["text"] for n in nodes):
+            rows = [n for n in nodes if re.split(r"[(（]", n["text"])[0].strip() == title]
+            if len(rows) == 1:
+                w = d.window_size()[0] if hasattr(d, "window_size") else 1264
+                if any(n["text"] in ("已完成", "已领取") and n["cx"] > w * .7
+                       and abs(n["cy"] - rows[0]["cy"]) < w * .075 for n in nodes):
+                    done_button = True
+            elif len(rows) == 0 and before_task is not None and before_task[1] == 1:
+                disappeared = True
+        if any("做任务赚能量" in n["text"] for n in nodes) and (cumulative_changed or task_changed or done_button or disappeared):
             _session["completed"] = _session.get("completed", 0) + 1
             LOG.info("[完成] %s | 累计 %s/50 | 任务次数 %s→%s",
                      title or "当前任务", after if after is not None else "未读取", before_task, after_task)
@@ -297,6 +317,8 @@ def visit(d, title, deadline, nodes):
             if not installed:
                 break
             if current == package and (package != TB or second >= 3):
+                if package in ("com.eg.android.AlipayGphone", "com.baidu.searchbox"):
+                    time.sleep(6)
                 break
             if current == "com.oplus.securitypermission":
                 dialog = scan(d)
@@ -528,6 +550,11 @@ def return_from_browse(d, deadline):
         nodes = scan(d)
         if any("做任务赚能量" in n["text"] for n in nodes):
             return nodes
+        if any("淘金币双11" in n["text"] for n in nodes) or (
+            any(n["text"] == "升级赛车拿钱" for n in nodes)
+            and any(n["text"] == "去赚能量" for n in nodes)
+        ):
+            return enter(d, deadline)
         activity = d.app_current()["activity"].lower()
         if not ("search" in activity or any(
                 label in n["text"] for n in nodes
