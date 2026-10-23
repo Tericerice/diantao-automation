@@ -1,6 +1,6 @@
 """
 点淘 - 点淘购物赚钱 自动化脚本
-流程：进点淘 → 元宝中心 → 固定坐标934,1723 → 查看更多 → U2扫描"去完成"/"去浏览"
+流程：进点淘 → OCR识别元宝中心 → 购物入口 → 立即签到/快速领 → OCR扫描任务列表
 """
 from task_exclusions import is_blocked_boutique_task
 import time
@@ -13,9 +13,10 @@ import random
 import uiautomator2 as u2
 from u2_scanner import (
     connect_device, DT_APP, click_three_selected_items, handle_guess_price_game, is_search_low_price_task,
-    click_u2_control, execute_video_task,
+    execute_video_task,
 )
 from utils import (
+    click_ocr_text,
     get_ocr_text_blocks,
     check_can_open, log_task_completed, show_today_summary,
     browse_task, any_match, is_blacklisted, back_to_task, show_dev_guide,
@@ -49,45 +50,128 @@ def enter_shopping_tasks():
     time.sleep(2.5)
 
 
+def _find_ocr_block(blocks, keyword):
+    """在 OCR 文本块中查找包含指定文字的第一个控件。"""
+    normalized_keyword = re.sub(r"\s+", "", keyword)
+    return next(
+        (
+            block
+            for block in blocks
+            if normalized_keyword in re.sub(
+                r"\s+", "", str(block.get("text", ""))
+            )
+        ),
+        None,
+    )
+
+
+def _shopping_task_list_open(blocks):
+    """确认任务列表浮层已经打开，而不是首页露出零散任务卡片。"""
+    texts = [re.sub(r"\s+", "", str(block.get("text", ""))) for block in blocks]
+    return any("做任务领元宝" in text for text in texts)
+
+
+def _shopping_task_list_ready(blocks):
+    """确认当前页面包含任务列表或至少一个可执行任务。"""
+    texts = [re.sub(r"\s+", "", str(block.get("text", ""))) for block in blocks]
+    return _shopping_task_list_open(blocks) or any(
+        any(keyword in text for keyword in TASK_BTN_KW) for text in texts
+    )
+
+
+def _scan_shopping_page(attempts=3):
+    """扫描购物页；OCR 偶发空结果时等待后重试。"""
+    for attempt in range(1, attempts + 1):
+        blocks = get_ocr_text_blocks(d, retries=0)
+        if blocks:
+            return blocks
+        if attempt < attempts:
+            print(f"  ⚠️ 购物页 OCR 为空（第 {attempt}/{attempts} 次），重试...")
+            time.sleep(1.5)
+    return []
+
+
+def unlock_shopping_task_list():
+    """
+    打开购物任务列表。
+
+    页面可能先停留在【签到领】：存在【立即签到】时先签到，再重新扫描并
+    点击【快速领】；随后展开【查看更多】，最后返回任务列表的 OCR 结果。
+    """
+    blocks = _scan_shopping_page()
+    if not blocks:
+        print("  ⚠️ 购物任务页 OCR 无结果，无法检查立即签到/快速领")
+        return []
+    if _shopping_task_list_open(blocks):
+        print("  ✅ OCR 确认购物任务列表已打开")
+        return blocks
+
+    sign_block = _find_ocr_block(blocks, "立即签到")
+    if sign_block:
+        sign_x, sign_y = int(sign_block["cx"]), int(sign_block["cy"])
+        print(f"  🎯 发现【立即签到】，先签到 @({sign_x},{sign_y})")
+        d.click(sign_x, sign_y)
+        time.sleep(2)
+        blocks = _scan_shopping_page()
+        if not blocks:
+            print("  ⚠️ 签到后 OCR 无结果，无法继续查找【快速领】")
+            return []
+    else:
+        print("  ℹ️ 当前页面没有【立即签到】，继续检查【快速领】")
+
+    quick_block = _find_ocr_block(blocks, "快速领")
+    if quick_block:
+        quick_x, quick_y = int(quick_block["cx"]), int(quick_block["cy"])
+        print(f"  🎯 点击【快速领】进入任务列表 @({quick_x},{quick_y})")
+        d.click(quick_x, quick_y)
+        time.sleep(2)
+        blocks = _scan_shopping_page()
+        if not blocks:
+            print("  ⚠️ 点击【快速领】后 OCR 无结果")
+            return []
+    else:
+        print("  ℹ️ 当前页面没有【快速领】，继续检查任务列表入口")
+
+    more_block = None
+    if not _shopping_task_list_ready(blocks):
+        more_block = _find_ocr_block(blocks, "查看更多")
+    if more_block is not None:
+        more_x, more_y = int(more_block["cx"]), int(more_block["cy"])
+        print(f"  🔽 点击【查看更多】展开完整任务列表 @({more_x},{more_y})")
+        d.click(more_x, more_y)
+        time.sleep(2)
+        blocks = _scan_shopping_page()
+        if not blocks:
+            print("  ⚠️ 展开任务列表后 OCR 无结果")
+            return []
+
+    return blocks
+
+
 def navigate():
-    """进点淘 → 元宝中心 → 固定点击购物入口 → 查看更多"""
+    """进点淘 → 元宝中心 → 购物入口 → 立即签到 → 快速领 → 任务列表"""
     print("🔄 导航中...")
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
 
-    btn = d(textContains="元宝中心")
-    if btn.exists(timeout=5):
-        click_u2_control(d, btn, "元宝中心")
-    else:
-        for b in get_ocr_text_blocks(d):
-            if "元宝中心" in b["text"]:
-                d.click(b["cx"], b["cy"])
-                print(f"  ✅ OCR点击元宝中心 @({b['cx']},{b['cy']})")
-                break
-        else:
-            d.click(int(screen_width * 0.3), int(screen_height * 0.96))
-            time.sleep(3)
-            click_u2_control(d, d(textContains="元宝中心"), "元宝中心")
+    if not click_ocr_text(
+        d, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    ):
+        return False
     time.sleep(3)
-
     if not handle_yuanbao_live_popups(d):
         return False
 
     enter_shopping_tasks()
     time.sleep(3)
 
-    # 点击"查看更多"展开完整任务列表
-    for b in get_ocr_text_blocks(d):
-        if "查看更多" in b.get("text", ""):
-            d.click(b["cx"], b["cy"])
-            print(f"  ✅ 点击查看更多 @({b['cx']},{b['cy']})")
-            time.sleep(2)
-            break
-    else:
-        print("  ⚠️ 未找到购物任务列表入口，停止导航")
+    blocks = unlock_shopping_task_list()
+    if not blocks:
+        print("  ⚠️ 无法读取购物任务页，停止导航")
         return False
-    if not any("做任务领元宝" in b.get("text", "") for b in get_ocr_text_blocks(d)):
-        print("  ⚠️ 未确认购物任务列表，停止导航")
+    if not _shopping_task_list_ready(blocks):
+        print("  ⚠️ 未确认进入购物任务列表，停止导航")
         return False
     print("  ✅ 导航完成")
     return True
@@ -395,7 +479,8 @@ def main():
 
     show_dev_guide()  # 启动时显示开发规范摘要
 
-    if navigate() is False:
+    if not navigate():
+        print("⚠️ OCR 导航未完成，停止购物赚钱任务")
         return
     total = 0
 
@@ -403,14 +488,14 @@ def main():
     while total < MAX_TASKS:
         time.sleep(SCAN_INTERVAL)
 
-        # ── 快速检测是否有按钮 ──
-        has = any(d(textContains=t).exists(timeout=0.5) for t in ["去完成", "去浏览"])
+        # ── OCR 检测是否仍有任务按钮 ──
+        bs = get_ocr_text_blocks(d, retries=0)
+        has = any(any(t in b.get("text", "") for t in ["去完成", "去浏览"]) for b in bs)
         if not has:
-            print(f"  🎉 已做{total}个，U2未检测到按钮（可能全部完成）")
+            print(f"  🎉 已做{total}个，OCR未检测到按钮（可能全部完成）")
             break
 
         clicked = False
-        bs = get_ocr_text_blocks(d)
         if bs:
             print(f"  📋 OCR扫描 {len(bs)} 个文本块，查找去完成/去浏览...")
         else:
