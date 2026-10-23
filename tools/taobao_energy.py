@@ -404,6 +404,44 @@ DISMISS = ("我知道了", "知道了", "暂不", "暂不开启", "暂不更新"
 PROMPTS = ("开启快递物流提醒", "开启消息通知", "开启通知", "开启推送通知", "发现新版本")
 
 
+def find_popup_close(d, nodes, deadline):
+    """Find X only on the recognizable recommendation overlay."""
+    if not any(n["text"] in ("为你推荐好价商品", "去抢频道额外优惠") for n in nodes):
+        return None
+    w, h = d.window_size()
+    # The thin X is often missing from full-screen OCR. Read only the lower strip.
+    bottom = d.screenshot().crop((0, round(h * .73), w, h))
+    blocks = (_vision_recognize or recognize)(bottom)
+    candidates = [n for n in blocks if n["text"].strip().upper() in ("X", "×", "✕", "✖")
+                  and w * .38 < n["cx"] < w * .62]
+    if len(candidates) != 1:
+        raise RuntimeError("商品推荐弹窗的X未唯一定位，已停止")
+    guard(deadline)
+    return candidates[0]["cx"], candidates[0]["cy"] + round(h * .73)
+
+
+def find_home_banner_close(d, nodes, deadline):
+    """Dismiss a visible home coupon banner only when its X is in the same row."""
+    if not any(n["text"].startswith("6张共") and "消费券" in n["text"] for n in nodes):
+        return None
+    w, h = d.window_size()
+    coupons = [n for n in nodes if n["text"].startswith("6张共") and "消费券" in n["text"]
+               and n["cy"] > h * .7]
+    if len(coupons) != 1:
+        return None
+    y = coupons[0]["cy"]
+    offset = max(0, round(y - 200))
+    strip = d.screenshot().crop((0, offset, w, min(h, round(y + 100))))
+    blocks = (_vision_recognize or recognize)(strip.crop((0, 150, w, 270)))
+    row_offset = offset + 150
+    candidates = [n for n in blocks if n["text"].strip().upper() in ("X", "×", "✕", "✖")
+                  and n["cx"] > w * .85 and abs(n["cy"] + row_offset - y) < 80]
+    if len(candidates) != 1:
+        return None
+    guard(deadline)
+    return candidates[0]["cx"], candidates[0]["cy"] + row_offset
+
+
 def close_entry_popups(d, deadline, nodes=None):
     """仅在入口清理明确的拒绝/关闭控件；每次点击后重新读取，最多关闭3层。"""
     pattern = "^(" + "|".join(DISMISS) + ")$"
@@ -411,6 +449,16 @@ def close_entry_popups(d, deadline, nodes=None):
         guard(deadline)
         if d.app_current()["package"] != TB:
             raise RuntimeError("入口弹窗处理时已离开淘宝，已停止")
+        if nodes is not None:
+            overlay_close = find_popup_close(d, nodes, deadline)
+            if overlay_close is None:
+                overlay_close = find_home_banner_close(d, nodes, deadline)
+            if overlay_close:
+                LOG.info("[弹窗] 关闭商品推荐弹窗（%s/3）", attempt + 1)
+                d.click(*overlay_close)
+                time.sleep(1)
+                nodes = scan(d)
+                continue
         control = None
         if nodes is None:
             if any(d(text=text).exists for text in PROMPTS):
