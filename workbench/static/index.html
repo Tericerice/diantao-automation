@@ -68,12 +68,10 @@ catch (error) { applyTheme('green', false); }
   }
   .brand, .topbar-right, .panel-title, .task-actions { display: flex; align-items: center; gap: 12px; }
   .brand-mark {
-    width: 36px; height: 36px; display: grid; place-items: center;
-    border: 1px solid #10b98155; border-radius: 10px 10px 10px 3px;
-    background: linear-gradient(145deg, #10b98126, #0596690a 72%);
-    box-shadow: inset 0 1px 0 #ffffff0d; color: var(--success);
+    width: 36px; height: 36px; display: block;
+    border-radius: 10px; filter: drop-shadow(0 3px 8px #0006);
   }
-  .brand-mark svg { width: 23px; height: 23px; fill: currentColor; stroke: none; }
+  .brand-mark img { display: block; width: 100%; height: 100%; }
   .brand-name { font-size: 16px; font-weight: 650; letter-spacing: 1px; }
   .brand-divider { height: 16px; width: 1px; background: #374151; margin: 0 3px; }
   .brand-label { font-size: 12px; color: var(--text-secondary); }
@@ -198,10 +196,10 @@ catch (error) { applyTheme('green', false); }
   .monochrome body { background-image: none; }
   .monochrome .topbar, .monochrome .panel, .monochrome .log-panel .panel-heading,
   .monochrome .connection, .monochrome .featured { background: var(--surface-secondary); }
-  .monochrome .brand-mark, .monochrome .connection-icon, .monochrome .badge,
-  .monochrome .badge.ready, .monochrome .panel-count, .monochrome .filter.active,
+  .monochrome .connection-icon, .monochrome .badge, .monochrome .badge.ready,
+  .monochrome .panel-count, .monochrome .filter.active,
   .monochrome .task-row.selected, .monochrome .task-icon { background: var(--surface-elevated); }
-  .monochrome .brand-mark, .monochrome .connection, .monochrome .badge.ready,
+  .monochrome .connection, .monochrome .badge.ready,
   .monochrome .featured, .monochrome .filter.active, .monochrome .task-row.selected,
   .monochrome .dialog { border-color: var(--border-strong); }
   .monochrome .brand-divider { background: var(--border-default); }
@@ -247,7 +245,6 @@ catch (error) { applyTheme('green', false); }
 <body>
 <svg width="0" height="0" aria-hidden="true" style="position:absolute">
   <defs>
-    <symbol id="i-butler-t" viewBox="0 0 32 32"><path d="M4 5h24l-4 7h-4.5v13.5L17 27h-2l-2.5-1.5V12H8L4 5Z"/></symbol>
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4M11 19h2"/></symbol>
     <symbol id="i-qr" viewBox="0 0 24 24"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 14h3v3H7zM14 14h3v3h-3z"/></symbol>
     <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-14-2 18"/></symbol>
@@ -263,7 +260,7 @@ catch (error) { applyTheme('green', false); }
 </svg>
 <div id="toast-container" class="toasts" role="status" aria-live="polite"></div>
 <header class="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true"><svg class="icon" focusable="false"><use href="#i-butler-t"/></svg></span><span class="brand-name">大管家</span><span class="brand-divider"></span><span class="brand-label">日常自动化工作台</span></div>
+  <div class="brand"><span class="brand-mark" aria-hidden="true"><img src="/static/butler-logo.png" alt=""></span><span class="brand-name">大管家</span><span class="brand-divider"></span><span class="brand-label">日常自动化工作台</span></div>
   <div class="topbar-right">
     <div class="theme-switch" role="group" aria-label="界面配色">
       <button class="theme-option" data-theme-option="green" aria-label="墨绿配色" aria-pressed="true">墨绿</button>

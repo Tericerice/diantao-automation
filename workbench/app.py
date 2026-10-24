@@ -13,9 +13,10 @@ import subprocess
 import sys
 import threading
 import time
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -35,6 +36,7 @@ RUNTIME = ROOT / ".runtime" / "workbench"
 LOG_LOCK = threading.Lock()
 TASK_LOCK = threading.Lock()
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+APP_USER_MODEL_ID = "DianTao.AutomationButler"
 
 
 def append_log(task_id: str, text: str):
@@ -114,6 +116,16 @@ app.include_router(phone_router)
 @app.get("/")
 def index():
     return HTMLResponse((ROOT / "workbench" / "static" / "index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/static/{name}", include_in_schema=False)
+def static_asset(name: str):
+    if urlsplit(name).path != name or name != Path(name).name:
+        raise HTTPException(404, "未找到静态资源")
+    path = ROOT / "workbench" / "static" / name
+    if not path.is_file():
+        raise HTTPException(404, "未找到静态资源")
+    return FileResponse(path)
 
 
 @app.get("/api/health")
@@ -235,6 +247,16 @@ def desktop():
     import webview
     import urllib.request
 
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                APP_USER_MODEL_ID
+            )
+        except (AttributeError, OSError):
+            pass
+
     listener = socket.socket()
     if sys.platform == "win32":
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -259,10 +281,13 @@ def desktop():
     else:
         raise RuntimeError("工作台启动失败，请查看本地运行环境")
     atexit.register(cleanup)
+    icon_name = "butler-logo.ico" if sys.platform == "win32" else "butler-logo.png"
+    icon = ROOT / "workbench" / "static" / icon_name
     webview.create_window("点淘 · 自动化大管家", url=url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))
     try:
-        webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"))
+        webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"),
+                      icon=str(icon) if icon.is_file() else None)
     finally:
         cleanup()
         server.should_exit = True

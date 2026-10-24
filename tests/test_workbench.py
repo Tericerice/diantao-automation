@@ -48,6 +48,17 @@ def test_dashboard_contains_all_business_tasks_and_one_qr_entry(client):
     assert client.post("/api/start/unknown").status_code == 404
 
 
+def test_dashboard_brand_assets_are_served(client):
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "/static/butler-logo.png" in page.text
+    icon = client.get("/static/butler-logo.png")
+    assert icon.status_code == 200
+    assert icon.headers["content-type"] == "image/png"
+    assert icon.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert client.get("/static/../app.py").status_code == 404
+
+
 def test_missing_external_task_remains_visible_and_cannot_spawn(client, monkeypatch, tmp_path):
     tasks = deepcopy(desktop.TASKS)
     tasks["taobao-618-external"]["script"] = str(tmp_path / "missing.py")
