@@ -15,9 +15,8 @@ def test_selects_same_row_even_after_task_reorders():
 
 
 @pytest.mark.parametrize("title", ["好物随心逛(10/10)", "好物随心逛（10/10)"])
-def test_finished_task_is_not_reopened(title):
-    with pytest.raises(RuntimeError, match="已经完成"):
-        task_button(page(title), "好物随心逛", 1264)
+def test_progress_text_does_not_hide_live_action_button(title):
+    assert task_button(page(title), "好物随心逛", 1264)["cy"] == 1492
 
 
 @pytest.mark.parametrize("title", ["天猫积分换能量", "玩趣味小游戏", "升级赛车拿钱", "拍立淘"])
@@ -92,14 +91,15 @@ def test_free_flash_visit_does_not_allow_purchase_tasks():
         task_button(page("下单购买商品"), "下单购买商品", 1264)
 
 
-def test_animation_is_reread_and_capped_total_uses_task_progress(monkeypatch):
+def test_pending_action_is_allowed_when_cumulative_progress_is_capped(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
     ready = page("好物随心逛(1/10)") + [dict(text="50/50", cx=120, cy=846)]
-    monkeypatch.setattr(task.time, "sleep", lambda _: None)
-    monkeypatch.setattr(task, "scan", lambda _: ready)
-    assert task.verify_gain(object(), [], 50, (0, 10), datetime.now(timezone.utc)+timedelta(minutes=1),
-                            title="好物随心逛") == ready
+    phone = type("Phone", (), {"window_size": lambda self: (1264, 2780)})()
+    assert task.next_task(
+        phone, ready, set(),
+        datetime.now(timezone.utc) + timedelta(minutes=1),
+    )[0] == "好物随心逛"
 
 
 @pytest.mark.parametrize("current", ["com.taobao.taobao", "com.android.launcher", "com.heytap.quicksearchbox"])
@@ -127,24 +127,66 @@ def test_missing_app_visits_landing_then_returns_without_downloading(monkeypatch
     d.app_install.assert_not_called()
 
 
-def test_taobao_on_lower_page_precedes_alipay_on_first_page(monkeypatch):
+def test_visible_task_selection_never_scrolls(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
     from unittest.mock import MagicMock
-    top = page("去蚂蚁森林收能量(0/1)") + [dict(text="50/50", cx=120, cy=846)]
-    lower = page("看淘宝视频领红包(0/1)") + [dict(text="注：以上奖励均为最高奖励", cx=600, cy=2650)]
-    scans = iter([lower, top, lower])
+    nodes = page("去蚂蚁森林收能量(0/1)") + [dict(text="50/50", cx=120, cy=846)]
     d = MagicMock()
     d.window_size.return_value = (1264, 2780)
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
-    monkeypatch.setattr(task, "scan", lambda _: next(scans))
-    title, nodes = task.next_task(d, top, set(), datetime.now(timezone.utc)+timedelta(minutes=1))
-    assert title == "看淘宝视频领红包"
-    assert task.task_progress(nodes) == 50
+    scan = MagicMock()
+    monkeypatch.setattr(task, "scan", scan)
+    title, selected = task.next_task(
+        d, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1)
+    )
+    assert title == "去蚂蚁森林收能量"
+    assert selected is nodes
     d.click.assert_not_called()
+    d.swipe.assert_not_called()
+    scan.assert_not_called()
 
 
-@pytest.mark.parametrize("label", ["赚能量", "賺能量"])
+def test_visible_taobao_task_precedes_visible_alipay_task():
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = [
+        dict(text="做任务赚能量", cx=630, cy=590),
+        dict(text="去蚂蚁森林收能量(0/1)", cx=430, cy=1460),
+        dict(text="去完成", cx=1102, cy=1492),
+        dict(text="看淘宝视频领红包(0/1)", cx=430, cy=1700),
+        dict(text="去完成", cx=1102, cy=1732),
+    ]
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    title, selected = task.next_task(
+        d, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1)
+    )
+    assert title == "看淘宝视频领红包"
+    assert selected is nodes
+    d.swipe.assert_not_called()
+
+
+def test_no_visible_eligible_task_ends_without_scrolling():
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = page("天猫积分换能量(0/1)") + [
+        dict(text="淘金币省钱等级考试(0/1)", cx=430, cy=1800),
+        dict(text="去完成", cx=1102, cy=1832),
+    ]
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    title, selected = task.next_task(
+        d, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1)
+    )
+    assert title is None
+    assert selected is nodes
+    d.swipe.assert_not_called()
+
+
+@pytest.mark.parametrize("label", ["赚能量", "賺能量", "去赚能量", "去賺能量"])
 def test_enter_accepts_cloud_ocr_earn_button_variant(monkeypatch, label):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
@@ -236,6 +278,32 @@ def test_revised_event_without_old_heading_opens_only_earn_energy(monkeypatch):
     d.click.assert_called_once_with(1144, 1187)
 
 
+def test_restart_closes_home_coupon_popup_before_entering_event(monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    from tools import taobao_energy as task
+
+    popup = [dict(text="6张消费券共", cx=630, cy=1098),
+             dict(text="关闭按钮", cx=631, cy=2148)]
+    opened = page()
+    d = MagicMock()
+    d.app_current.return_value = dict(package=task.TB, activity="TBMainActivity")
+    entry = MagicMock()
+    entry.exists = True
+    d.side_effect = lambda **query: (
+        entry if query.get("text") == "领淘金币" else MagicMock(exists=False)
+    )
+    scans = iter([popup, opened])
+    monkeypatch.setattr(task, "scan", lambda _: next(scans))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.enter(
+        d, datetime.now(timezone.utc) + timedelta(minutes=1), restart=True
+    ) == opened
+    d.app_start.assert_called_once_with(task.TB, stop=True, use_monkey=True)
+    d.click.assert_called_once_with(631, 2148)
+    entry.click.assert_called_once()
+
+
 def test_manual_launch_deadline_is_relative_to_current_start():
     from tools.taobao_energy import run_deadline
     from datetime import datetime, timedelta
@@ -302,14 +370,19 @@ def test_only_verified_photo_browse_is_allowed():
     assert task_kind("拍立淘上传照片") == "skip"
 
 
-def test_task_row_verifies_after_cumulative_banner_disappears(monkeypatch):
+def test_pending_task_row_is_not_counted_as_finished(monkeypatch):
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
     ready = page("好物随心逛(1/10)")
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    monkeypatch.setattr(task, "scan", lambda _: ready)
     monkeypatch.setattr(task, "_session", {})
-    assert task.verify_gain(object(), ready, None, (0, 10),
+    assert task.verify_gain(d, ready, None, (0, 10),
                             datetime.now(timezone.utc)+timedelta(minutes=1), title="好物随心逛") == ready
-    assert task._session["completed"] == 1
+    assert task._session.get("completed", 0) == 0
 
 
 def test_five_second_label_does_not_shorten_fifteen_second_task():
@@ -354,7 +427,7 @@ def test_external_visit_returns_immediately_when_target_opens(monkeypatch):
     monkeypatch.setattr(task, "scan", lambda _: ready)
     monkeypatch.setattr(task, "_session", {})
     task.visit(d, "去快手打卡领手机", datetime.now(timezone.utc)+timedelta(minutes=1), nodes)
-    assert waits == [1, 3, 2]
+    assert waits == [1, 4, 2, 3, 3]
     d.app_start.assert_called_once_with(task.TB, use_monkey=True)
 
 
