@@ -74,3 +74,7 @@ TASKS["diantao-swipe-ai"] = entry(
 TASKS["diantao-connectivity"] = entry(
     "点淘连通性检查", "连通性脚本.py", "连接设备并进入点淘，沿用原连通性脚本。",
 )
+TASKS["diantao-work-guard"] = entry(
+    "打工任务", "打工任务.py",
+    "持续守护：领取到期元宝并完成奖励任务，厨师每两小时开工，左侧领体力按独立倒计时领取；手动停止。",
+)
