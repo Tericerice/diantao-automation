@@ -281,7 +281,7 @@ def desktop():
     else:
         raise RuntimeError("工作台启动失败，请查看本地运行环境")
     atexit.register(cleanup)
-    icon_name = "butler-logo.ico" if sys.platform == "win32" else "butler-logo.png"
+    icon_name = "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
     icon = ROOT / "workbench" / "static" / icon_name
     webview.create_window("Tearice · 自动化大管家", url=url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))

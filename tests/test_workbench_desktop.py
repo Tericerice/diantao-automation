@@ -32,7 +32,7 @@ def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monk
     assert 'id="connect-phone"' in windows[0][2]
     assert settings[0]["private_mode"] is False
     assert settings[0]["icon"].endswith(
-        "butler-logo.ico" if sys.platform == "win32" else "butler-logo.png"
+        "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
     )
     if sys.platform == "win32":
         assert desktop.APP_USER_MODEL_ID == "DianTao.AutomationButler"
