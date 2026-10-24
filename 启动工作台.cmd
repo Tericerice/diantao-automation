@@ -3,9 +3,15 @@ setlocal
 cd /d "%~dp0"
 where uv >nul 2>&1
 if errorlevel 1 (
-    echo Please install uv first: https://docs.astral.sh/uv/getting-started/installation/
-    pause
-    exit /b 1
+    echo uv was not found. Installing uv from https://astral.sh/uv/install.ps1 ...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    set "PATH=%LOCALAPPDATA%\Microsoft\WinGet\Links;%USERPROFILE%\.local\bin;%PATH%"
+    where uv >nul 2>&1
+    if errorlevel 1 (
+        echo uv installation failed.
+        pause
+        exit /b 1
+    )
 )
 if not exist "%~dp0workbench\.venv\pyvenv.cfg" (
     echo Preparing the workbench environment. First launch requires a download.

@@ -27,7 +27,8 @@
 3. 双击根目录 `配置本机.cmd`，在 `%LOCALAPPDATA%\DianTao\config.env` 中
    填写自己可用的 `DIANTAO_OCR_SERVER_URL`。首次可导入旧 `.env`，不会覆盖已有配置。
    地址应包含 `/predict_ocr` 路径；接口契约见 [`cloud_ocr.py`](../cloud_ocr.py)。
-4. 双击根目录 **`启动大管家.cmd`**。首次启动会建立专用环境并下载依赖，需要联网；后续直接复用。
+4. 双击根目录 **`启动大管家.cmd`**。缺少 `uv` 时会自动安装；首次启动还会建立专用环境并下载依赖，
+   需要联网，后续直接复用。
 
 OCR 服务地址、ADB 路径和配对信息不随仓库分发。没有配置 OCR 服务时，仍可打开工作台和扫码连接，
 但启动 OCR 任务会提示先完成配置。WorkBuddy 能量版不要求云 OCR 地址，需另行安装并登录 WorkBuddy，

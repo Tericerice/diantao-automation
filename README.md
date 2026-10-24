@@ -11,8 +11,8 @@
 ## 下载发布版与保留本机配置
 
 观众请从本仓库 **Releases** 下载 `diantao-workbench-v*.zip`，解压后先双击
-**`配置本机.cmd`**，再双击 **`启动工作台.cmd`**。这是源码运行包，首次使用仍需安装
-uv、ADB，并准备自己的 OCR；不是免安装 EXE。
+**`配置本机.cmd`**，再双击 **`启动大管家.cmd`**。首次启动会在缺少 `uv` 时安装它，
+仍需自行安装 ADB 并准备自己的 OCR；这是源码运行包，不是免安装 EXE。
 
 私有配置统一保存在 **`%LOCALAPPDATA%\DianTao\config.env`**，不放进发布包。
 “配置本机”首次运行会复制安装目录已有的 `.env`；没有旧配置时使用 `.env.example`，
@@ -30,9 +30,9 @@ uv、ADB，并准备自己的 OCR；不是免安装 EXE。
 ```powershell
 # 在已脱敏的公开发布分支操作；不要推送含私有配置的开发历史
 # 先完成相关测试，提交改动，确认工作区干净
-python tools/build_release.py v0.1.0
+python tools/build_release.py v0.2.0
 # 如开发配置存放在其他位置，可追加 --private-config <配置文件路径>
-gh release create v0.1.0 dist/diantao-workbench-v0.1.0.zip --target <已推送的公开提交号> --title "双任务工作台 v0.1.0" --notes-file <发布说明文件>
+gh release create v0.2.0 dist/diantao-workbench-v0.2.0.zip --target <已推送的公开提交号> --title "DianTao_Automation_Butler_v0.2.0" --notes-file <发布说明文件>
 ```
 
 打包器从当前 **Git 提交**生成 ZIP，拒绝未提交修改，排除本机 `.env`、虚拟环境、
@@ -218,7 +218,7 @@ DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
 
 | 文件 | 用途 |
 | --- | --- |
-| `启动工作台.cmd` | **GitHub 发布版双任务工作台**：淘金币双11能量、点淘养优惠；扫码连接、日志、墨绿/黑/白配色，详见 [`workbench/README.md`](workbench/README.md) |
+| `启动大管家.cmd` | **点淘 · 自动化大管家**：全项目任务、淘金币双11能量 OCR/WorkBuddy 版、扫码连接、日志和主题；详见 [`workbench/README.md`](workbench/README.md) |
 | `一键全部执行.py` | **点淘一键全流程**：连通性 → 下滑 → 日常任务 → 养优惠（独立入口，`--list` 查看顺序；全程不设超时，Ctrl+C 停止） |
 | `run_taobao_energy.cmd` | **淘金币双11赚能量**入口：`run / enter / scan / auto / browse` |
 | `tools/taobao_energy.py` | 赚能量核心：U2+OCR 扫描、三梯队（淘宝→支付宝→其他应用）、逐项浏览并复核 |
@@ -231,8 +231,8 @@ DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
 
 运行示例：
 ```powershell
-# 打开与 GitHub 发布版一致的双任务桌面窗口
-.\启动工作台.cmd
+# 打开与 GitHub 发布版一致的大管家桌面窗口
+.\启动大管家.cmd
 
 # 点淘一键全流程（连通性 → 下滑 → 日常任务 → 养优惠）
 py -3.10 一键全部执行.py
