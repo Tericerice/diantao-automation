@@ -50,6 +50,10 @@ VISIT = {
     "去百度极速版领现金": "com.baidu.searchbox.lite",
     "逛一逛领购物红包": "com.tmall.wireless",
 }
+# 淘宝内的“正在跳转”引导页：只点与目标应用同名的“打开X”，不点“下载X”。
+LANDING = {
+    "com.taobao.etao": "一淘",
+}
 OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
 LOG = logging.getLogger("taobao_energy")
 _raw_scan = False
@@ -175,6 +179,9 @@ def task_rows(nodes, width):
             and "浏览" not in node["text"]
             and "点击" not in node["text"]
         ]
+        # 图标文字（￥、支、闲鱼）与按钮同一水平线，按距离会盖过标题；标题带 n/m 进度。
+        titled = [node for node in candidates if re.search(r"[(（]\s*\d+\s*/\s*\d+", node["text"])]
+        candidates = titled or candidates
         if candidates:
             title = min(candidates, key=lambda node: (
                 abs(node["cy"] - button["cy"]),
@@ -355,6 +362,60 @@ def return_from_visit(d, deadline):
     raise RuntimeError("已尝试3次返回淘宝，仍未确认能量任务列表，已停止")
 
 
+def landing_open_button(nodes, package):
+    """在淘宝内的“正在跳转”引导页上定位目标应用自己的“打开X”。"""
+    label = LANDING.get(package)
+    if not label or not any("正在跳转" in n["text"] for n in nodes):
+        return None
+    if not any(n["text"] == label for n in nodes):
+        return None
+    buttons = [n for n in nodes if n["text"] == "打开" + label]
+    return buttons[0] if len(buttons) == 1 else None
+
+
+def allow_open_once(d, deadline):
+    """系统“淘宝想要打开X”确认框只点“仅本次允许”，不改成长期权限。"""
+    dialog = scan(d)
+    once = [n for n in dialog if n["text"] == "仅本次允许"]
+    if not any("淘宝" in n["text"] and "想要打开" in n["text"] for n in dialog):
+        return False
+    if len(once) != 1:
+        return False
+    guard(deadline)
+    d.click(once[0]["cx"], once[0]["cy"])
+    return True
+
+
+def open_landing_app(d, package, deadline, attempts=6, wait=4):
+    """引导页延迟出现，需轮询并在确认页面内容后点“打开X”；不点“下载X”。"""
+    for _ in range(attempts):
+        guard(deadline)
+        current = d.app_current()["package"]
+        if current == package:
+            return True
+        if current == "com.oplus.securitypermission":
+            allow_open_once(d, deadline)
+            continue
+        if current != TB:
+            return False
+        opening = landing_open_button(scan(d), package)
+        if opening is None:
+            time.sleep(wait)
+            continue
+        LOG.info("[跳转] 淘宝内引导页，点击打开%s", LANDING[package])
+        guard(deadline)
+        d.click(opening["cx"], opening["cy"])
+        for _ in range(20):
+            guard(deadline)
+            time.sleep(1)
+            current = d.app_current()["package"]
+            if current == package:
+                return True
+            if current == "com.oplus.securitypermission":
+                allow_open_once(d, deadline)
+    return False
+
+
 def visit(d, title, deadline, nodes):
     before = task_progress(nodes)
     before_task = task_row_progress(nodes, title)
@@ -364,7 +425,10 @@ def visit(d, title, deadline, nodes):
     guard(deadline)
     d.click(button["cx"], button["cy"])
     # 只等待跳转发生；进入目标应用后立即返回，不等待活动页面加载。
-    for second in range(30 if installed else 5):
+    landed = package == TB
+    if installed and package in LANDING:
+        landed = open_landing_app(d, package, deadline)
+    for second in range(0 if package in LANDING else (30 if installed else 5)):
         guard(deadline)
         time.sleep(1)
         if installed or second == 4:
@@ -372,6 +436,7 @@ def visit(d, title, deadline, nodes):
             if not installed:
                 break
             if current == package and (package != TB or second >= 3):
+                landed = True
                 if package in ("com.eg.android.AlipayGphone", "com.baidu.searchbox"):
                     time.sleep(6)
                 break
@@ -398,6 +463,8 @@ def visit(d, title, deadline, nodes):
                 break
     if not installed:
         LOG.info("[跳过] %s：未安装应用，返回并继续，不下载", title)
+    elif not landed and package in LANDING:
+        LOG.info("[跳过] %s：引导页未拉起目标应用，返回淘宝", title)
     guard(deadline)
     d.app_start(TB, use_monkey=True)
     time.sleep(4)

@@ -363,6 +363,80 @@ def test_visit_title_in_reward_description_is_not_a_second_task():
     assert task_button(nodes, "逛一逛蚂蚁庄园", 1264)["cy"] == 1492
 
 
+def test_row_title_ignores_icon_text_on_the_same_baseline():
+    # 实测 OCR: 图标文字(“闲鱼”)与“去完成”同一水平线，且比标题更靠右。
+    nodes = [
+        dict(text="做任务赚能量", cx=631, cy=590),
+        dict(text="去闲鱼签到省钱(0/1)", cx=468, cy=1225),
+        dict(text="闲鱼", cx=174, cy=1294),
+        dict(text="点击去逛+600", cx=390, cy=1294),
+        dict(text="去完成", cx=1102, cy=1258),
+        dict(text="去一淘签到领现金(0/1)", cx=495, cy=1914),
+        dict(text="去完成", cx=1102, cy=1950),
+    ]
+    from tools import taobao_energy as task
+    rows = task.task_rows(nodes, 1264)
+    assert [row["text"] for row, _ in rows] == ["去闲鱼签到省钱(0/1)", "去一淘签到领现金(0/1)"]
+    assert task.next_task(
+        type("Phone", (), {"window_size": lambda self: (1264, 2780)})(),
+        nodes, set(), __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc) + __import__("datetime").timedelta(minutes=1),
+    )[0] == "去闲鱼签到省钱"
+
+
+def test_etao_landing_page_opens_app_instead_of_download():
+    from tools import taobao_energy as task
+    nodes = [
+        dict(text="正在跳转", cx=284, cy=220),
+        dict(text="一淘", cx=636, cy=802),
+        dict(text="打开一淘", cx=632, cy=2049),
+        dict(text="下载一淘", cx=634, cy=2268),
+    ]
+    assert task.landing_open_button(nodes, "com.taobao.etao") == dict(
+        text="打开一淘", cx=632, cy=2049)
+    assert task.landing_open_button(nodes, "com.taobao.idlefish") is None
+    assert task.landing_open_button(nodes, "com.taobao.taobao") is None
+
+
+def test_landing_page_is_absent_without_redirect_marker():
+    from tools import taobao_energy as task
+    nodes = [dict(text="打开一淘", cx=632, cy=2049)]
+    assert task.landing_open_button(nodes, "com.taobao.etao") is None
+
+
+def test_etao_visit_clicks_open_etao_on_taobao_landing_page(monkeypatch):
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    title = "去一淘签到领现金"
+    nodes = [dict(text="做任务赚能量", cx=631, cy=590),
+             dict(text="去一淘签到领现金(0/1)", cx=495, cy=1914),
+             dict(text="去完成", cx=1102, cy=1950)]
+    landing = [dict(text="正在跳转", cx=284, cy=220),
+               dict(text="一淘", cx=636, cy=802),
+               dict(text="打开一淘", cx=632, cy=2049),
+               dict(text="下载一淘", cx=634, cy=2268)]
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+    d.adb_device.shell.return_value = "package:installed"
+    d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    clicks = []
+
+    def click(x, y):
+        clicks.append((x, y))
+        if (x, y) == (632, 2049):
+            d.app_current.return_value = dict(package="com.taobao.etao")
+    d.click.side_effect = click
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    monkeypatch.setattr(task, "scan", lambda _: landing)
+    monkeypatch.setattr(task, "return_from_visit", lambda *_: nodes)
+    monkeypatch.setattr(task, "_session", {})
+    task.visit(d, title, datetime.now(timezone.utc) + timedelta(minutes=2), nodes)
+    assert (632, 2049) in clicks
+    assert (634, 2268) not in clicks
+    assert clicks[0] == (1102, 1950)
+
+
 def test_only_verified_photo_browse_is_allowed():
     assert allowed_browse("拍立淘逛感兴趣的宝贝")
     assert task_button(page("拍立淘逛感兴趣的宝贝(0/5)"), "拍立淘逛感兴趣的宝贝", 1264)
