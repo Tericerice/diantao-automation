@@ -20,6 +20,7 @@ import uiautomator2 as u2
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from device_connection import connect_with_retry
 from cloud_ocr import recognize, ocr_server_url
+from task_recheck import RECHECK_ENV, report_round_finished, report_task_found, recheck_enabled
 
 TB = "com.taobao.taobao"
 SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约", "答题", "考试")
@@ -832,7 +833,11 @@ def main():
         enter(d, deadline, restart=True)
         return
     elif args.action in ("auto", "run"):
-        rechecks = args.rechecks if args.rechecks is not None else (5 if args.action == "run" else 0)
+        parent_rechecks = os.environ.get(RECHECK_ENV) == "1"
+        rechecks = 0 if parent_rechecks else (
+            args.rechecks if args.rechecks is not None else (5 if args.action == "run" else 0)
+        )
+        finished_reported = False
         for check in range(rechecks + 1):
             guard(deadline)
             if check:
@@ -846,9 +851,16 @@ def main():
                      len(pending), len(skipped), found)
             has_pending = has_pending_tasks(nodes, d.window_size()[0])
             LOG.info("[复核判定] 待办=%s | 轮次 %s/%s", has_pending, check, rechecks)
+            if recheck_enabled():
+                if found:
+                    report_task_found()
+                report_round_finished()
+                finished_reported = True
             if check and not found and not has_pending:
                 LOG.info("[结束] 复核未发现新任务，确认本轮任务已处理完")
                 return
+        if recheck_enabled() and not finished_reported:
+            report_round_finished()
         if has_pending:
             LOG.info("[结束] 已达到复核上限，仍有待办任务，已保留任务列表")
         else:

@@ -23,7 +23,7 @@ def register(butler_dir):
         "    lifecycle: managed_job\n"
         f'    command: ["${{PYTHON}}", {command_path}]\n'
         f"    working_directory: {working_dir}\n"
-        f"    description: {json.dumps('点淘全流程：连通性 → 下滑 → 日常任务 → 养优惠（各最多复核5轮）；不设超时，手动停止', ensure_ascii=False)}\n"
+        f"    description: {json.dumps('点淘全流程：连通性 → 下滑 → 日常任务 → 养优惠 → 淘金币双11赚能量（各最多复核5轮）；不设超时，手动停止', ensure_ascii=False)}\n"
         "    risk: device_automation\n"
         "    enabled: true\n"
         "    requires_human_approval: false\n\n"

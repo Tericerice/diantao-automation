@@ -4,6 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from tools import taobao_energy as task
+from task_recheck import TASK_FOUND, ROUND_FINISHED
 
 
 def deadline():
@@ -17,6 +18,7 @@ def node(text, x=500, y=600):
 def device():
     d = Mock()
     d.app_current.return_value = dict(package=task.TB, activity="TMSActivity")
+    d.window_size.return_value = (1264, 2780)
     return d
 
 
@@ -104,6 +106,31 @@ def prepare_main(monkeypatch, tmp_path, extra=(), action="run"):
     return d, entry
 
 
+def test_parent_recheck_runs_one_round_and_emits_markers(monkeypatch, tmp_path, capsys):
+    _, entry = prepare_main(monkeypatch, tmp_path)
+    monkeypatch.setenv(task.RECHECK_ENV, "1")
+    monkeypatch.setattr(
+        task, "run_round",
+        Mock(return_value=(True, [node("做任务赚能量"), node("好物随心逛"), node("去完成", 1102, 1460)])),
+    )
+    task.main()
+    assert entry.call_count == 1
+    output = capsys.readouterr().out.splitlines()
+    assert TASK_FOUND in output
+    assert ROUND_FINISHED in output
+
+
+def test_parent_recheck_reports_finished_without_tasks(monkeypatch, tmp_path, capsys):
+    _, entry = prepare_main(monkeypatch, tmp_path)
+    monkeypatch.setenv(task.RECHECK_ENV, "1")
+    monkeypatch.setattr(task, "run_round", Mock(return_value=(False, [node("做任务赚能量")])))
+    task.main()
+    assert entry.call_count == 1
+    output = capsys.readouterr().out.splitlines()
+    assert TASK_FOUND not in output
+    assert ROUND_FINISHED in output
+
+
 @pytest.mark.parametrize("results,expected", [
     ([False, False], 2), ([True, True, False], 3), ([True] * 6, 6),
 ])
@@ -158,8 +185,8 @@ def test_attempted_visits_are_reset_between_rounds(monkeypatch):
         return ("逛一逛蚂蚁庄园" if not attempted else None), nodes
     monkeypatch.setattr(task, "next_task", next_task)
     monkeypatch.setattr(task, "visit", lambda *args: opened)
-    assert task.run_round(d, opened, deadline(), 2, 25)
-    assert task.run_round(d, opened, deadline(), 2, 25)
+    assert task.run_round(d, opened, deadline(), 2, 25)[0]
+    assert task.run_round(d, opened, deadline(), 2, 25)[0]
     assert attempts == [set(), {"逛一逛蚂蚁庄园"}, set(), {"逛一逛蚂蚁庄园"}]
 
 

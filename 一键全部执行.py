@@ -1,7 +1,7 @@
-"""一键执行点淘全流程：连通性、一键下滑与日常任务。
+"""一键执行点淘全流程：连通性、一键下滑、日常任务与淘金币双11赚能量。
 
 顺序：连通性 → 一键下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工
-      → 走路 → 元宝中心小任务 → 养优惠。
+      → 走路 → 元宝中心小任务 → 养优惠 → 淘金币双11赚能量。
 本脚本独立运行，不修改或依赖 一键顺序执行.py / 一键任务执行.py 的执行结果。
 """
 
@@ -17,6 +17,7 @@ from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+ENERGY_SCRIPT = "tools/taobao_energy.py"
 
 
 class Step(NamedTuple):
@@ -51,7 +52,13 @@ REMAINING_TASKS = (
     Step("养优惠.py", None, rechecks=5),
 )
 
-ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS
+ENERGY_TASK = Step(
+    ENERGY_SCRIPT,
+    None,
+    args=("run", "--repeat", "30", "--rechecks", "0"),
+    rechecks=5,
+)
+ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
 
 
 def build_command(step):

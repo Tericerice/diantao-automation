@@ -70,6 +70,7 @@ def test_returning_to_open_task_list_preserves_the_running_app(monkeypatch):
 @pytest.mark.parametrize("action", ["run", "enter"])
 def test_manual_commands_request_a_fresh_start(monkeypatch, tmp_path, action):
     device = Mock()
+    device.window_size.return_value = (1264, 2780)
     enter = Mock(return_value=[dict(text="做任务赚能量", cx=500, cy=600)])
     monkeypatch.setattr(task.sys, "argv", ["taobao_energy.py", action, "--serial", "phone"])
     monkeypatch.setattr(task, "setup_logging", lambda: tmp_path / "session.log")
@@ -77,6 +78,7 @@ def test_manual_commands_request_a_fresh_start(monkeypatch, tmp_path, action):
     monkeypatch.setattr(task, "connect_with_retry", lambda _: device)
     monkeypatch.setattr(task, "enter", enter)
     monkeypatch.setattr(task, "next_task", lambda _, nodes, *args: (None, nodes))
+    monkeypatch.setattr(task, "close_entry_popups", lambda _d, _deadline, nodes: nodes)
 
     task.main()
     assert enter.call_args.args[0] is device
