@@ -7,6 +7,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from task_exclusions import is_blocked_boutique_task
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -98,6 +100,7 @@ def sleep_loop(**overrides):
         "find_bubble": Mock(return_value=None), "do_bubble_task": Mock(),
         "click_float_bubbles": Mock(return_value=0),
         "report_task_found": Mock(), "report_round_finished": Mock(),
+        "is_blocked_boutique_task": is_blocked_boutique_task,
     }
     ns.update(overrides)
     return load_functions("睡觉赚元宝.py", {"scan_and_collect", "is_sleep_page"}, ns)
@@ -158,12 +161,13 @@ def test_return_checks_actual_page_and_bounds_recovery(pages, navigated, expecte
     assert ns["d"].press.call_count == backs
 
 
-def test_live_return_failure_is_not_logged_as_success():
+@pytest.mark.parametrize("name", ["看福利直播30秒", "看直播30秒", "看直播60秒", "看直播120秒"])
+def test_live_return_failure_is_not_logged_as_success(name):
     ns = sleep_loop(return_to_sleep_page=Mock(return_value=False))
     ns.update(execute_live_task=Mock(), click_device_point=Mock(), log_task_completed=Mock())
     load_functions("睡觉赚元宝.py", {"do_bubble_task"}, ns)
-    assert ns["do_bubble_task"]("看福利直播30秒", 160, 860) is False
-    ns["execute_live_task"].assert_called_once()
+    assert ns["do_bubble_task"](name, 160, 860) is False
+    ns["execute_live_task"].assert_called_once_with(ns["d"], name, 160, 860)
     ns["log_task_completed"].assert_not_called()
 
 

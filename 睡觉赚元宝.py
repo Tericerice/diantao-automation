@@ -34,12 +34,12 @@ STALE_LIMIT = 3
 
 # 直播气泡白名单：主标题和时长均精确匹配，只忽略 OCR 空白/换行。
 LIVE_TASK_WHITELIST = {
-    "看李佳琦直播": 60,
-    "看香菇来了直播间": 60,
-    "看福利直播": 30,
-    "看烈儿宝贝直播间": 60,
-    "看蜜蜂惊喜社直播": 60,
-    "看直播": 60,
+    "看李佳琦直播": (60,),
+    "看香菇来了直播间": (60,),
+    "看福利直播": (30,),
+    "看烈儿宝贝直播间": (60,),
+    "看蜜蜂惊喜社直播": (60,),
+    "看直播": (30, 60, 120),
 }
 
 TASK_KW = [
@@ -91,9 +91,10 @@ def match_live_bubble(blocks):
                     and 0 < below.get("cy", 0) - cy <= 100 * scale):
                 candidates.append(text + re.sub(r"\s+", "", str(below.get("text", ""))))
         for name in candidates:
-            for title, seconds in LIVE_TASK_WHITELIST.items():
-                if re.fullmatch(re.escape(f"{title}{seconds}秒") + r"(?:[（(]\d+/\d+[）)])?", name):
-                    return {"name": name, "cx": cx, "cy": cy}
+            for title, durations in LIVE_TASK_WHITELIST.items():
+                for seconds in durations:
+                    if re.fullmatch(re.escape(f"{title}{seconds}秒") + r"(?:[（(]\d+/\d+[）)])?", name):
+                        return {"name": name, "cx": cx, "cy": cy}
     return None
 
 

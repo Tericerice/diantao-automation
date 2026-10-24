@@ -38,6 +38,27 @@ class SleepWhitelistTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self.match([block(name)])["name"], name)
 
+    def test_generic_live_durations_and_progress(self):
+        for seconds in (30, 60, 120):
+            for suffix in ("", "(0/1)", "（0/3）"):
+                name = f"看直播{seconds}秒{suffix}"
+                with self.subTest(name=name):
+                    self.assertEqual(self.match([block(name)])["name"], name)
+
+    def test_reported_ocr_frame_reaches_execution_with_original_duration(self):
+        self.namespace["screen_height"] = 2780
+        blocks = [
+            block("看直播120", x=622, y=538),
+            block("秒", x=620, y=577),
+            block("搜索并带走", x=328, y=597),
+            block("看直播30秒", x=916, y=598),
+            block("喜欢的宝贝", x=327, y=639),
+        ]
+        with patch.dict("sys.modules", {"utils": SimpleNamespace(get_ocr_text_blocks=None)}):
+            find = self.namespace["find_bubble"]
+            self.assertEqual(find(blocks), {"name": "看直播120秒", "cx": 622, "cy": 538})
+            self.assertEqual(find(blocks[2:]), {"name": "看直播30秒", "cx": 916, "cy": 598})
+
     def test_screenshot_tasks_reach_task_execution(self):
         blocks = [block("58", x=328, y=474), block("看烈儿宝贝", x=324, y=592),
                   block("直播间60秒", x=326, y=635), block("0/3", x=202, y=692),
@@ -61,7 +82,8 @@ class SleepWhitelistTest(unittest.TestCase):
 
     def test_no_fuzzy_or_unknown_live_match(self):
         for name in ("看李佳琪直播60秒", "看香菇来啦直播间60秒", "看其他直播间60秒",
-                     "看福利直播60秒", "看李佳琦直播60秒并下单", "看直播30秒",
+                     "看福利直播60秒", "看李佳琦直播60秒并下单", "看直播90秒",
+                     "看直播10秒", "看直播120秒并下单",
                      "看烈儿宝贝直播间30秒", "看直播60秒并下单"):
             with self.subTest(name=name):
                 self.assertIsNone(self.match([block(name)]))
