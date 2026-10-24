@@ -109,7 +109,7 @@ async def lifespan(_app):
     await asyncio.to_thread(cleanup)
 
 
-app = FastAPI(title="点淘 · 自动化大管家", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Tearice · 自动化大管家", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.include_router(phone_router)
 
 
@@ -283,7 +283,7 @@ def desktop():
     atexit.register(cleanup)
     icon_name = "butler-logo.ico" if sys.platform == "win32" else "butler-logo.png"
     icon = ROOT / "workbench" / "static" / icon_name
-    webview.create_window("点淘 · 自动化大管家", url=url, width=1280, height=820,
+    webview.create_window("Tearice · 自动化大管家", url=url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))
     try:
         webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"),
