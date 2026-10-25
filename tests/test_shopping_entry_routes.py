@@ -31,6 +31,7 @@ def load_shopping_navigation(namespace):
     tree = ast.parse((Path(__file__).resolve().parents[1] / filename).read_text(encoding="utf-8"))
     names = {
         "_find_ocr_block",
+        "_find_show_more_block",
         "_shopping_task_list_open",
         "_shopping_task_list_ready",
         "_scan_shopping_page",
@@ -88,3 +89,47 @@ def test_shopping_navigation_signs_in_before_opening_quick_claim_list():
         (720, 470),
         (500, 780),
     ]
+
+
+def load_task_area_helpers():
+    filename = "点淘购物赚钱.py"
+    tree = ast.parse((Path(__file__).resolve().parents[1] / filename).read_text(encoding="utf-8"))
+    names = {"_find_show_more_block", "_task_area_top", "_task_buttons"}
+    nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
+    namespace = {"re": __import__("re")}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), filename, "exec"), namespace)
+    return namespace
+
+
+def test_task_buttons_use_dynamic_anchor_instead_of_fixed_threshold():
+    # 双11 快速领面板标题在 782，看直播按钮在 838，旧版 852 阈值会把它全部过滤。
+    blocks = [
+        {"text": "做任务领元宝", "cx": 631, "cy": 782},
+        {"text": "看直播60秒(2/10)", "cx": 416, "cy": 976},
+        {"text": "去完成", "cx": 1078, "cy": 838},
+        {"text": "查看3个精选宝贝(3/3)", "cx": 468, "cy": 1212},
+        {"text": "已完成", "cx": 1078, "cy": 1258},
+    ]
+    namespace = load_task_area_helpers()
+    assert namespace["_task_area_top"](blocks) == 782
+    buttons = namespace["_task_buttons"](blocks)
+    assert [(b["cx"], b["cy"]) for b in buttons] == [(1078, 838)]
+
+
+def test_task_area_falls_back_to_tab_row_when_panel_title_absent():
+    # 面板尚未展开时没有标题，只能用标签行定位任务区域。
+    blocks = [
+        {"text": "快速领", "cx": 660, "cy": 642},
+        {"text": "去完成", "cx": 1078, "cy": 838},
+        {"text": "领取", "cx": 1102, "cy": 466},
+    ]
+    namespace = load_task_area_helpers()
+    assert namespace["_task_area_top"](blocks) == 642
+    assert [b["cy"] for b in namespace["_task_buttons"](blocks)] == [838]
+
+
+def test_show_more_matcher_ignores_media_page_text():
+    namespace = load_task_area_helpers()
+    assert namespace["_find_show_more_block"]([{"text": "查看更多视频", "cx": 1, "cy": 2}]) is None
+    block = {"text": "查看更多", "cx": 631, "cy": 1154}
+    assert namespace["_find_show_more_block"]([block]) is block

@@ -33,7 +33,6 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 SCAN_INTERVAL = 2                   # 扫描间隔(秒)
 MAX_TASKS = 100                      # 最大任务数
 MAX_BACK_ATTEMPTS = 6               # 返回最大尝试次数
-Y_THRESHOLD = 852                   # 只识别 Y>852 区域的任务（"做任务领元宝"标题以下）
 
 # OCR 无法判定落地页时的保守兜底：官方临时把“看视频”入口改成了直播页。
 # 正常路径仍然在点击后用实际页面 OCR 判定，不在点击前强制改类型。
@@ -77,6 +76,48 @@ def _shopping_task_list_ready(blocks):
     return _shopping_task_list_open(blocks) or any(
         any(keyword in text for keyword in TASK_BTN_KW) for text in texts
     )
+
+
+def _find_show_more_block(blocks):
+    """查找任务列表的【查看更多】展开按钮；排除“查看更多视频”等媒体页文字。"""
+    for block in blocks:
+        text = re.sub(r"\s+", "", str(block.get("text", "")))
+        if text in ("查看更多", "查看更多>", "查看更多›", "查看更多>"):
+            return block
+    return None
+
+
+def _task_area_top(blocks):
+    """返回任务列表区域的上边界 Y。
+
+    优先使用浮层标题【做任务领元宝】；列表尚未展开时退回到【快速领】等
+    标签所在行。以前硬编码的 852 只适用于旧版布局，双11 页面把内联任务
+    列表上移后会把按钮全部过滤掉，因此改为按当前画面锚点动态计算。
+    """
+    title_y = next(
+        (block["cy"] for block in blocks
+         if "做任务领元宝" in re.sub(r"\s+", "", str(block.get("text", "")))),
+        None,
+    )
+    if title_y is not None:
+        return int(title_y)
+    tab_y = max(
+        (block["cy"] for block in blocks
+         if any(kw in re.sub(r"\s+", "", str(block.get("text", "")))
+                for kw in ("快速领", "签到领", "下单返"))),
+        default=None,
+    )
+    return int(tab_y) if tab_y is not None else 0
+
+
+def _task_buttons(blocks):
+    """返回任务区域内可点击的【去完成】/【去浏览】按钮。"""
+    top = _task_area_top(blocks)
+    return [
+        block for block in blocks
+        if ("去完成" in block.get("text", "") or "去浏览" in block.get("text", ""))
+        and block["cy"] > top
+    ]
 
 
 def _scan_shopping_page(attempts=3):
@@ -132,9 +173,7 @@ def unlock_shopping_task_list():
     else:
         print("  ℹ️ 当前页面没有【快速领】，继续检查任务列表入口")
 
-    more_block = None
-    if not _shopping_task_list_ready(blocks):
-        more_block = _find_ocr_block(blocks, "查看更多")
+    more_block = _find_show_more_block(blocks)
     if more_block is not None:
         more_x, more_y = int(more_block["cx"]), int(more_block["cy"])
         print(f"  🔽 点击【查看更多】展开完整任务列表 @({more_x},{more_y})")
@@ -490,40 +529,48 @@ def main():
 
         # ── OCR 检测是否仍有任务按钮 ──
         bs = get_ocr_text_blocks(d, retries=0)
-        has = any(any(t in b.get("text", "") for t in ["去完成", "去浏览"]) for b in bs)
-        if not has:
-            print(f"  🎉 已做{total}个，OCR未检测到按钮（可能全部完成）")
+        if not bs:
+            print("  ⚠️ OCR未返回任何文本块")
             break
+
+        buttons = _task_buttons(bs)
+        if not buttons:
+            # 列表可能被折叠回【查看更多】：优先展开后重扫，再判定完成。
+            more_block = _find_show_more_block(bs)
+            if more_block is not None:
+                print(f"  🔽 任务列表折叠，重新展开 @({more_block['cx']},{more_block['cy']})")
+                d.click(more_block["cx"], more_block["cy"])
+                time.sleep(2)
+                bs = get_ocr_text_blocks(d, retries=0)
+                buttons = _task_buttons(bs)
+            if not buttons:
+                print(f"  🎉 已做{total}个，OCR未检测到可执行按钮（可能全部完成）")
+                break
+
+        print(f"  📋 OCR扫描 {len(bs)} 个文本块，查找去完成/去浏览...")
 
         clicked = False
-        if bs:
-            print(f"  📋 OCR扫描 {len(bs)} 个文本块，查找去完成/去浏览...")
-        else:
-            print(f"  ⚠️ OCR未返回任何文本块")
-            break
-
-        for b in bs:
+        for b in buttons:
             text = b.get("text", "")
-            if ("去完成" in text or "去浏览" in text) and b["cy"] > Y_THRESHOLD:
-                cx, cy = b["cx"], b["cy"]
-                tp, sec, task_name = detect_task_name_before_click(bs, b)
-                type_names = {"guess": "猜价格", "live": "直播", "video": "视频", "browse": "浏览", "click": "点3次"}
-                if tp == "skip":
-                    print(f"  ⏭️ 跳过黑名单任务: [{task_name}]")
-                    continue
-                # 点击前的最终安全闸门：即使后续分类逻辑发生变化，
-                # 已识别出的黑名单任务也不能进入任何任务页面。
-                if task_name and is_blacklisted(task_name):
-                    print(f"  ⏭️ 点击前拦截黑名单任务: [{task_name}]")
-                    continue
-                print(f"  📋 预判 → {type_names.get(tp, tp)} {sec}s (任务名: [{task_name}])")
+            cx, cy = b["cx"], b["cy"]
+            tp, sec, task_name = detect_task_name_before_click(bs, b)
+            type_names = {"guess": "猜价格", "live": "直播", "video": "视频", "browse": "浏览", "click": "点3次"}
+            if tp == "skip":
+                print(f"  ⏭️ 跳过黑名单任务: [{task_name}]")
+                continue
+            # 点击前的最终安全闸门：即使后续分类逻辑发生变化，
+            # 已识别出的黑名单任务也不能进入任何任务页面。
+            if task_name and is_blacklisted(task_name):
+                print(f"  ⏭️ 点击前拦截黑名单任务: [{task_name}]")
+                continue
+            print(f"  📋 预判 → {type_names.get(tp, tp)} {sec}s (任务名: [{task_name}])")
 
-                print(f"  🎯 OCR点击【{text}】@({cx},{cy})")
-                report_task_found()
-                d.click(cx, cy)
-                total += 1
-                clicked = True
-                break
+            print(f"  🎯 OCR点击【{text}】@({cx},{cy})")
+            report_task_found()
+            d.click(cx, cy)
+            total += 1
+            clicked = True
+            break
 
         if not clicked:
             print("  ⚠️ OCR未找到去完成/去浏览按钮")
@@ -543,12 +590,11 @@ def main():
                 enter_shopping_tasks()
                 time.sleep(3)
                 bs_new = get_ocr_text_blocks(d)
-                for nb in bs_new:
-                    if "查看更多" in nb.get("text", ""):
-                        d.click(nb["cx"], nb["cy"])
-                        print(f"  ✅ 重新点击查看更多 @({nb['cx']},{nb['cy']})")
-                        time.sleep(2)
-                        break
+                more_block = _find_show_more_block(bs_new)
+                if more_block is not None:
+                    d.click(more_block["cx"], more_block["cy"])
+                    print(f"  ✅ 重新点击查看更多 @({more_block['cx']},{more_block['cy']})")
+                    time.sleep(2)
 
         print(f"  ✅ 完成第 {total}/{MAX_TASKS} 个任务\n")
 
