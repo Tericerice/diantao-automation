@@ -144,7 +144,16 @@ class Phone:
     def scan(self):
         from utils import get_ocr_text_blocks
         try:
+            self.device.shell("input keyevent KEYCODE_WAKEUP")
+            time.sleep(1)
+            policy = str(self.device.shell("dumpsys window policy").output)
+            if (re.search(r"\bmIsShowing=true\b", policy)
+                    and re.search(r"\bsecure=true\b", policy)):
+                raise ScanUnavailable("手机已锁屏，请解锁后点击立即校准")
+            self.device.shell("wm dismiss-keyguard")
             blocks = get_ocr_text_blocks(self.device, retries=0)
+        except ScanUnavailable:
+            raise
         except Exception as exc:
             raise ScanUnavailable(f"OCR 暂不可用：{type(exc).__name__}") from exc
         if not blocks:

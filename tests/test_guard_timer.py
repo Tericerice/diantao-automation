@@ -188,3 +188,37 @@ def test_energy_bonus_popup_dismisses_only_confirmed_optional_reward():
     assert schedule.work_at == now + 6001
     assert schedule.energy_at == now + 301
     assert guard.inspect_page(blocks[1:], (1264, 2780)).kind == "unknown"
+
+
+def test_scan_prepares_screen_before_observation(monkeypatch):
+    guard = load_guard()
+    device = Mock()
+    device.window_size.return_value = (1264, 2780)
+    calls = []
+
+    def shell(command):
+        calls.append(command)
+        return SimpleNamespace(output="")
+
+    device.shell.side_effect = shell
+    monkeypatch.setattr(guard.time, "sleep", lambda _: None)
+    monkeypatch.setitem(sys.modules, "utils", SimpleNamespace(
+        get_ocr_text_blocks=lambda *a, **kw: calls.append("ocr") or [{"text": "test"}]))
+    phone = guard.Phone(device)
+    phone.scan()
+    assert calls == ["input keyevent KEYCODE_WAKEUP", "dumpsys window policy",
+                     "wm dismiss-keyguard", "ocr"]
+
+
+def test_secure_lockscreen_reports_required_user_action_without_ocr(monkeypatch):
+    guard = load_guard()
+    device = Mock()
+    device.window_size.return_value = (1264, 2780)
+    device.shell.return_value = SimpleNamespace(output="secure=true\nmIsShowing=true")
+    monkeypatch.setattr(guard.time, "sleep", lambda _: None)
+    ocr = Mock()
+    monkeypatch.setitem(sys.modules, "utils", SimpleNamespace(get_ocr_text_blocks=ocr))
+    with pytest.raises(guard.ScanUnavailable, match="请解锁"):
+        guard.Phone(device).scan()
+    ocr.assert_not_called()
+    assert device.shell.call_count == 2
