@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -21,6 +22,10 @@ class VisionError(RuntimeError):
     pass
 
 
+class InvalidJSONReply(VisionError):
+    pass
+
+
 def config_path():
     base = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "share"))
     return base / "taobao1111" / "workbuddy.json"
@@ -34,7 +39,7 @@ def _json_value(text):
     try:
         return json.loads(text)
     except (ValueError, TypeError):
-        raise VisionError("WorkBuddy did not return a single JSON value") from None
+        raise InvalidJSONReply("WorkBuddy did not return a single JSON value") from None
 
 
 def parse_reply(stdout, width, height):
@@ -150,18 +155,27 @@ class WorkBuddyVision:
         ]}}
         try:
             with tempfile.TemporaryDirectory(prefix="taobao-workbuddy-") as folder:
-                result = subprocess.run(
-                    command, cwd=folder, input=json.dumps(message) + "\n", capture_output=True,
-                    text=True, encoding="utf-8", errors="replace", timeout=self.timeout,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-                )
+                for attempt in range(2):
+                    result = subprocess.run(
+                        command, cwd=folder, input=json.dumps(message) + "\n", capture_output=True,
+                        text=True, encoding="utf-8", errors="replace", timeout=self.timeout,
+                        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                    )
+                    if result.returncode:
+                        raise VisionError("WorkBuddy CLI failed; check its login and selected vision model")
+                    try:
+                        blocks = parse_reply(result.stdout, width, height)
+                        break
+                    except InvalidJSONReply:
+                        if attempt:
+                            raise
+                        logging.getLogger("taobao_energy").warning(
+                            "WorkBuddy returned invalid JSON; retrying the same screenshot once"
+                        )
         except subprocess.TimeoutExpired:
             raise VisionError("WorkBuddy recognition timed out; no screenshot coordinates were used") from None
         except OSError:
             raise VisionError("WorkBuddy CLI could not be started") from None
-        if result.returncode:
-            raise VisionError("WorkBuddy CLI failed; check its login and selected vision model")
-        blocks = parse_reply(result.stdout, width, height)
         for block in blocks:
             block["cx"] = min(original_width - 1, round(block["cx"] * original_width / width))
             block["cy"] = min(original_height - 1, round(block["cy"] * original_height / height))

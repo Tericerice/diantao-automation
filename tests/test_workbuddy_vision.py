@@ -115,6 +115,34 @@ def test_cli_failure_is_not_used_as_observation(client, monkeypatch):
         client.recognize(Image.new("RGB", (600, 900)))
 
 
+def test_invalid_json_retries_identical_image_once(client, monkeypatch):
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=0, stdout=json.dumps(result("{bad json}"))),
+        SimpleNamespace(returncode=0, stdout=json.dumps(result(json.dumps(payload())))),
+    ])
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    assert run.call_count == 2
+    assert run.call_args_list[0] == run.call_args_list[1]
+
+
+def test_repeated_invalid_json_stops_without_coordinates(client, monkeypatch):
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout="invalid"))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="single JSON"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    assert run.call_count == 2
+
+
+def test_invalid_coordinates_fail_without_retry(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(text="去完成", cx=999, cy=20)])
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(invalid)))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="coordinates"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    run.assert_called_once()
+
+
 def test_json_only_command_has_clean_stdout(tmp_path, monkeypatch, capsys):
     image = tmp_path / "input.png"
     Image.new("RGB", (600, 900)).save(image)
