@@ -28,14 +28,21 @@ def client(monkeypatch):
         yield connection
 
 
-def test_dashboard_contains_all_business_tasks_and_one_qr_entry(client):
+def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     from task_catalog import TASK_FILES
 
     tasks = client.get("/api/apps").json()["apps"]
     assert len(tasks) == len(desktop.TASKS)
-    assert TASK_FILES <= {t["script"] for t in desktop.TASKS.values()}
+    removed_scripts = {
+        "../coin11-tb-main/2026淘宝618活动.py", "618花花乐.py", "diantao_1024_auto.py",
+        "全部执行.py", "一键下滑_AI.py",
+    }
+    scripts = {t["script"] for t in desktop.TASKS.values()}
+    assert TASK_FILES - removed_scripts <= scripts
+    assert not removed_scripts & scripts
+    assert len(tasks) == 24
     assert {"diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
-            "diantao-saved-tasks", "taobao-double11-energy", "taobao-double11-workbuddy",
+            "taobao-double11-energy", "taobao-double11-workbuddy",
             "diantao-coupon"} <= {t["id"] for t in tasks}
     assert all((desktop.ROOT / t["script"]).is_file()
                for t in desktop.TASKS.values() if not t["script"].startswith("../"))
@@ -46,6 +53,11 @@ def test_dashboard_contains_all_business_tasks_and_one_qr_entry(client):
     assert 'data-tab="ai"' not in html
     assert client.get("/api/health").json()["running_count"] == 0
     assert client.post("/api/start/unknown").status_code == 404
+    for task_id in (
+        "diantao-saved-tasks", "taobao-618-external", "diantao-618",
+        "diantao-1024", "diantao-swipe-ai",
+    ):
+        assert client.post("/api/start/" + task_id).status_code == 404
 
 
 def test_dashboard_brand_assets_are_served(client):
@@ -59,21 +71,21 @@ def test_dashboard_brand_assets_are_served(client):
     assert client.get("/static/../app.py").status_code == 404
 
 
-def test_missing_external_task_remains_visible_and_cannot_spawn(client, monkeypatch, tmp_path):
+def test_missing_task_remains_visible_and_cannot_spawn(client, monkeypatch, tmp_path):
     tasks = deepcopy(desktop.TASKS)
-    tasks["taobao-618-external"]["script"] = str(tmp_path / "missing.py")
+    tasks["diantao-coupon"]["script"] = str(tmp_path / "missing.py")
     monkeypatch.setattr(desktop, "TASKS", tasks)
     task = next(t for t in client.get("/api/apps").json()["apps"]
-                if t["id"] == "taobao-618-external")
+                if t["id"] == "diantao-coupon")
     assert task["available"] is False
     assert "缺少脚本" in task["unavailable_reason"]
-    assert client.post("/api/start/taobao-618-external").status_code == 400
+    assert client.post("/api/start/diantao-coupon").status_code == 400
     assert not desktop.PROCESSES
 
 
 @pytest.mark.parametrize("task_id", [
     "diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
-    "diantao-saved-tasks", "diantao-signin", "taobao-double11-workbuddy",
+    "diantao-signin", "taobao-double11-workbuddy",
 ])
 def test_migrated_entry_spawns_its_script_and_arguments(client, monkeypatch, task_id):
     from io import StringIO

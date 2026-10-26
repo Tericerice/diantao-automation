@@ -20,10 +20,6 @@ TASKS = {
     "diantao-one-click-tasks": entry(
         "点淘一键任务执行", "一键任务执行.py", "按原顺序执行十项日常任务，各最多复核五轮。",
     ),
-    "diantao-saved-tasks": entry(
-        "执行已保存的任务配置", "全部执行.py",
-        "读取原 task_config.json 的勾选、顺序和超时；可继续使用原任务选择器保存配置。",
-    ),
     "taobao-double11-energy": entry(
         "淘金币双11能量", "tools/taobao_energy.py",
         "淘宝 → 支付宝 → 其他应用；沿用任务排除项和返回复查规则。",
@@ -38,8 +34,6 @@ TASKS = {
 
 # Explicit mapping keeps debug and calibration scripts out of the dashboard.
 SCRIPT_IDS = {
-    "618花花乐.py": "diantao-618",
-    "diantao_1024_auto.py": "diantao-1024",
     "一键下滑.py": "diantao-swipe",
     "一键下滑_新.py": "diantao-swipe-new",
     "主播打卡粉丝礼.py": "diantao-anchor",
@@ -57,9 +51,8 @@ SCRIPT_IDS = {
     "走路赚元宝.py": "diantao-walk",
     "赚钱卡.py": "diantao-money-card",
     "养优惠.py": "diantao-coupon",
-    "../coin11-tb-main/2026淘宝618活动.py": "taobao-618-external",
 }
-for filename in sorted(TASK_FILES):
+for filename in sorted(TASK_FILES & SCRIPT_IDS.keys()):
     name = filename.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".py")
     TASKS[SCRIPT_IDS[filename]] = entry(
         "点淘养优惠" if filename == "养优惠.py" else name,
@@ -67,10 +60,6 @@ for filename in sorted(TASK_FILES):
         "沿用原脚本的导航、识别和任务规则；手动启动，可随时停止。",
     )
 
-TASKS["diantao-swipe-ai"] = entry(
-    "一键下滑 · AI 版", "一键下滑_AI.py",
-    "现有 AI 下滑入口：六轮导航与浏览；保留原识别配置。",
-)
 TASKS["diantao-connectivity"] = entry(
     "点淘连通性检查", "连通性脚本.py", "连接设备并进入点淘，沿用原连通性脚本。",
 )
