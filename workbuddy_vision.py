@@ -154,7 +154,9 @@ class WorkBuddyVision:
                                        "data": base64.b64encode(content.getvalue()).decode("ascii")}},
         ]}}
         try:
-            with tempfile.TemporaryDirectory(prefix="taobao-workbuddy-") as folder:
+            # Windows may keep the CLI's working directory locked briefly after exit.
+            with tempfile.TemporaryDirectory(
+                    prefix="taobao-workbuddy-", ignore_cleanup_errors=True) as folder:
                 for attempt in range(2):
                     result = subprocess.run(
                         command, cwd=folder, input=json.dumps(message) + "\n", capture_output=True,

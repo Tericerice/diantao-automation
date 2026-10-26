@@ -143,6 +143,32 @@ def test_invalid_coordinates_fail_without_retry(client, monkeypatch):
     run.assert_called_once()
 
 
+def test_locked_working_directory_does_not_discard_valid_observation(client, monkeypatch):
+    locked = []
+    rmdir, unlink = vision.os.rmdir, vision.os.unlink
+
+    def deny_locked(operation):
+        def call(path, *args, **kwargs):
+            if str(path) in locked:
+                raise PermissionError("working directory still in use")
+            return operation(path, *args, **kwargs)
+        return call
+
+    def run(*args, **kwargs):
+        locked.append(kwargs["cwd"])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload()))
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(vision.subprocess, "run", run)
+            patch.setattr(vision.os, "rmdir", deny_locked(rmdir))
+            patch.setattr(vision.os, "unlink", deny_locked(unlink))
+            assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    finally:
+        for folder in locked:
+            rmdir(folder)
+
+
 def test_json_only_command_has_clean_stdout(tmp_path, monkeypatch, capsys):
     image = tmp_path / "input.png"
     Image.new("RGB", (600, 900)).save(image)
