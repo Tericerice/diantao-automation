@@ -22,7 +22,11 @@ class VisionError(RuntimeError):
     pass
 
 
-class InvalidJSONReply(VisionError):
+class InvalidObservationReply(VisionError):
+    pass
+
+
+class InvalidJSONReply(InvalidObservationReply):
     pass
 
 
@@ -59,7 +63,7 @@ def parse_reply(stdout, width, height):
         if isinstance(value, str):
             value = _json_value(value)
     if not isinstance(value, dict) or set(value) != {"width", "height", "blocks"}:
-        raise VisionError("WorkBuddy screenshot JSON has an invalid schema")
+        raise InvalidObservationReply("WorkBuddy screenshot JSON has an invalid schema")
     if (type(value["width"]) is not int or type(value["height"]) is not int
             or (value["width"], value["height"]) != (width, height)):
         raise VisionError("WorkBuddy image dimensions do not match the supplied screenshot")
@@ -69,7 +73,7 @@ def parse_reply(stdout, width, height):
     seen, output = set(), []
     for block in blocks:
         if not isinstance(block, dict) or set(block) != {"text", "cx", "cy"}:
-            raise VisionError("WorkBuddy text block has an invalid schema")
+            raise InvalidObservationReply("WorkBuddy text block has an invalid schema")
         text, x, y = block["text"], block["cx"], block["cy"]
         if not isinstance(text, str) or not text.strip() or len(text) > 1000:
             raise VisionError("WorkBuddy text block is empty or invalid")
@@ -168,11 +172,11 @@ class WorkBuddyVision:
                     try:
                         blocks = parse_reply(result.stdout, width, height)
                         break
-                    except InvalidJSONReply:
+                    except InvalidObservationReply:
                         if attempt:
                             raise
                         logging.getLogger("taobao_energy").warning(
-                            "WorkBuddy returned invalid JSON; retrying the same screenshot once"
+                            "WorkBuddy returned invalid JSON or fields; retrying the same screenshot once"
                         )
         except subprocess.TimeoutExpired:
             raise VisionError("WorkBuddy recognition timed out; no screenshot coordinates were used") from None

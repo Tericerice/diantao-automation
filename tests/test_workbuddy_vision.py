@@ -134,6 +134,26 @@ def test_repeated_invalid_json_stops_without_coordinates(client, monkeypatch):
     assert run.call_count == 2
 
 
+def test_unexpected_model_field_is_rejected_then_retranscribed(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(payload()["blocks"][0], blockNote=False)])
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=0, stdout=json.dumps(invalid)),
+        SimpleNamespace(returncode=0, stdout=json.dumps(payload())),
+    ])
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    assert run.call_count == 2
+
+
+def test_repeated_unexpected_model_fields_stop(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(payload()["blocks"][0], blockNote=False)])
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(invalid)))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="invalid schema"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    assert run.call_count == 2
+
+
 def test_invalid_coordinates_fail_without_retry(client, monkeypatch):
     invalid = dict(payload(), blocks=[dict(text="去完成", cx=999, cy=20)])
     run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(invalid)))
