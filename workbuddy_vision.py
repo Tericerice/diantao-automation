@@ -139,16 +139,40 @@ class WorkBuddyVision:
             f'{{"width":{width},"height":{height},"blocks":[{{"text":"visible text","cx":10,"cy":20}}]}}. '
             "Use an empty blocks array if nothing is readable. No explanation, markdown, or code fences."
         )
-        # --json-schema requires StructuredOutput, unavailable with tools disabled.
-        # Pass the image directly, disable all tools, and enforce the schema locally.
+        schema = {
+            "type": "object",
+            "properties": {
+                "width": {"type": "integer", "const": width},
+                "height": {"type": "integer", "const": height},
+                "blocks": {
+                    "type": "array", "maxItems": 300,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+                            "cx": {"type": "integer", "minimum": 0, "maximum": width - 1},
+                            "cy": {"type": "integer", "minimum": 0, "maximum": height - 1},
+                        },
+                        "required": ["text", "cx", "cy"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["width", "height", "blocks"],
+            "additionalProperties": False,
+        }
+        # Only the JSON submission tool is enabled; no file, shell, or phone tools.
         command = self.command + [
-            "--print", "--output-format", "json", "--input-format", "stream-json", "--tools", "",
+            "--print", "--output-format", "json", "--input-format", "stream-json",
+            "--tools", "StructuredOutput", "--allowedTools", "StructuredOutput",
+            "--json-schema", json.dumps(schema),
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--setting-sources", "user", "--settings", '{"disableAllHooks":true}',
             "--max-turns", "4", "--effort", "low", "--model", self.model,
             "--system-prompt",
             "You are a screenshot transcription engine. Transcribe only the attached image. "
-            "Return only the requested JSON object. No planning, explanations, or action decisions.",
+            "Submit the requested JSON object through StructuredOutput. "
+            "No planning, explanations, or action decisions.",
         ]
         content = io.BytesIO()
         image.save(content, format="PNG")

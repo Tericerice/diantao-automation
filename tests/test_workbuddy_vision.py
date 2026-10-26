@@ -68,12 +68,13 @@ def client(monkeypatch, tmp_path):
     return vision.WorkBuddyVision()
 
 
-def test_image_is_passed_directly_with_no_tools_and_coordinates_map_back(client, monkeypatch):
+def test_image_uses_only_json_submission_tool_and_coordinates_map_back(client, monkeypatch):
     folders = []
     def run(command, **kwargs):
-        assert command[command.index("--tools") + 1] == ""
+        assert command[command.index("--tools") + 1] == "StructuredOutput"
+        assert command[command.index("--allowedTools") + 1] == "StructuredOutput"
         assert command[command.index("--input-format") + 1] == "stream-json"
-        assert "--json-schema" not in command
+        schema = json.loads(command[command.index("--json-schema") + 1])
         assert "--strict-mcp-config" in command
         assert "--system-prompt" in command
         assert kwargs.get("shell", False) is False
@@ -87,9 +88,16 @@ def test_image_is_passed_directly_with_no_tools_and_coordinates_map_back(client,
         width, height = image.size
         assert max(image.size) == 1440
         assert image.mode == "RGB"
+        assert schema["properties"]["width"]["const"] == width
+        assert schema["properties"]["height"]["const"] == height
+        block_schema = schema["properties"]["blocks"]["items"]
+        assert block_schema["additionalProperties"] is False
+        assert block_schema["properties"]["cx"]["maximum"] == width - 1
+        assert block_schema["properties"]["cy"]["maximum"] == height - 1
         answer = dict(width=width, height=height,
                       blocks=[dict(text="去完成", cx=width // 2, cy=height // 2)])
-        return SimpleNamespace(returncode=0, stdout=json.dumps([result(json.dumps(answer))]))
+        return SimpleNamespace(returncode=0, stdout=json.dumps([
+            dict(result(""), structured_output=answer)]))
     monkeypatch.setattr(vision.subprocess, "run", run)
     blocks = client.recognize(Image.new("RGBA", (1264, 2780)))
     assert abs(blocks[0]["cx"] - 632) <= 2

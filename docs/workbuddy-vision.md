@@ -49,7 +49,7 @@ CLI 的 `--output-format json` 是外层会话格式，不能保证模型内容�
 
 Windows 上 CLI 退出后，临时工作目录可能仍短暂被占用。临时目录清理采用尽力而为方式，避免清理时的文件占用错误丢弃已经校验通过的识别结果；这不影响 CLI 调用失败或识别结果无效时停止任务。
 
-当前 CLI 在限制工具时，`--json-schema` 会要求一个未开放的 `StructuredOutput` 工具，不能可靠约束结果。因此此版使用明确的 JSON 提示词与本地严格校验，不开放额外工具来迁就结构化输出。图片通过 `--input-format stream-json` 作为图像内容直接传入；`--tools ""` 禁用全部工具，同时禁用额外 MCP 配置和用户钩子，模型不能读取文件、执行命令或操作手机。
+`--json-schema` 需要开放 CLI 的 `StructuredOutput` 工具。2026-10-26 已实测仅开放这个 JSON 提交工具即可返回有效结果，因此适配器使用 `--tools StructuredOutput --allowedTools StructuredOutput`，并提交限定字段、图像尺寸和坐标范围的 schema。最终结果仍须经过本地严格校验。图片通过 `--input-format stream-json` 作为图像内容直接传入；文件、Shell、手机操作工具、额外 MCP 配置和用户钩子均未开放。
 
 大图会先按比例缩到最长边 1440 像素，要求模型返回这张实际输入图片的坐标，再分别映射回原截图宽高。不会像旧视觉封装那样压缩图片却要求模型猜原始坐标。
 
