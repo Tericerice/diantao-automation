@@ -86,7 +86,8 @@ def test_image_uses_only_json_submission_tool_and_coordinates_map_back(client, m
         parts = message["message"]["content"]
         image = Image.open(io.BytesIO(base64.b64decode(parts[1]["source"]["data"])))
         width, height = image.size
-        assert max(image.size) == 1440
+        assert max(image.size) <= 1440
+        assert width == 1264
         assert image.mode == "RGB"
         assert schema["properties"]["width"]["const"] == width
         assert schema["properties"]["height"]["const"] == height
@@ -100,9 +101,44 @@ def test_image_uses_only_json_submission_tool_and_coordinates_map_back(client, m
             dict(result(""), structured_output=answer)]))
     monkeypatch.setattr(vision.subprocess, "run", run)
     blocks = client.recognize(Image.new("RGBA", (1264, 2780)))
-    assert abs(blocks[0]["cx"] - 632) <= 2
-    assert blocks[0]["cy"] == 1390
+    assert len(blocks) == 2
+    assert [block["cx"] for block in blocks] == [632, 632]
+    assert [block["cy"] for block in blocks] == [720, 2062]
     assert all(not folder.exists() for folder in folders)
+
+
+def test_overlapping_phone_strips_deduplicate_the_same_text(client, monkeypatch):
+    local_y = iter([1370, 26])
+
+    def run(*args, **kwargs):
+        parts = json.loads(kwargs["input"])["message"]["content"]
+        image = Image.open(io.BytesIO(base64.b64decode(parts[1]["source"]["data"])))
+        answer = dict(width=image.width, height=image.height,
+                      blocks=[dict(text="好物随心逛(2/5)", cx=430, cy=next(local_y))])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(answer))
+
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (1264, 2780))) == [
+        dict(text="好物随心逛(2/5)", cx=430, cy=1370)]
+
+
+def test_wide_image_coordinates_map_back_after_width_resize(client, monkeypatch):
+    answer = dict(width=1440, height=810, blocks=[dict(text="去完成", cx=720, cy=405)])
+    monkeypatch.setattr(vision.subprocess, "run", Mock(return_value=SimpleNamespace(
+        returncode=0, stdout=json.dumps(answer))))
+    assert client.recognize(Image.new("RGB", (1920, 1080))) == [
+        dict(text="去完成", cx=960, cy=540)]
+
+
+def test_failed_second_strip_does_not_return_partial_observation(client, monkeypatch):
+    observe = Mock(side_effect=[
+        [dict(text="去完成", cx=1100, cy=1000)],
+        vision.VisionError("second strip failed"),
+    ])
+    monkeypatch.setattr(client, "_recognize_tile", observe)
+    with pytest.raises(vision.VisionError, match="second strip"):
+        client.recognize(Image.new("RGB", (1264, 2780)))
+    assert observe.call_count == 2
 
 
 @pytest.mark.parametrize("failure,match", [
