@@ -741,8 +741,10 @@ function taskState(task) {
 }
 function taskActions(task, featured) {
   var running = task.status === 'running', busy = pending.has(task.id);
-  var blocked = !running && (task.available === false || apps.some(function(a) { return a.status === 'running'; }));
+  var guard = task.id === 'diantao-work-guard';
+  var blocked = !running && (task.available === false || (!guard && apps.some(function(a) { return a.status === 'running' && a.id !== 'diantao-work-guard'; })));
   return '<div class="task-actions"><button class="icon-btn" data-action="logs" data-id="' + escapeHtml(task.id) + '" title="查看日志" aria-label="查看' + escapeHtml(task.name) + '的日志">' + icon('log') + '</button>' +
+    (guard && running ? '<button class="btn" data-action="calibrate" data-id="' + escapeHtml(task.id) + '"' + (busy ? ' disabled' : '') + '>立即校准</button>' : '') +
     '<button class="btn ' + (running ? 'btn-danger' : 'btn-primary') + '" data-action="' + (running ? 'stop' : 'start') + '" data-id="' + escapeHtml(task.id) + '"' +
     (busy || blocked ? ' disabled' : '') + (busy ? ' aria-busy="true"' : '') + '>' + (featured ? icon(running ? 'stop' : 'play') : '') +
     (busy ? '处理中…' : running ? '停止' : featured ? '开始执行' : '启动') + '</button></div>';
@@ -776,8 +778,9 @@ function renderTasks() {
       '<div class="task-icon">' + icon('code') + '</div><div class="task-copy"><h3 class="task-name">' + escapeHtml(task.name) +
       '</h3><p class="task-description">' + escapeHtml(task.unavailable_reason || task.description || '独立 Python 任务') + '</p><div class="task-meta">' +
       taskState(task) + (task.pid ? '<span class="muted mono" style="font-size:9px">PID ' + escapeHtml(task.pid) + '</span>' : '') +
-      '</div></div>' + taskActions(task, false) + '</article>';
+      '</div>' + (task.id === 'diantao-work-guard' ? '<p class="task-description" id="guard-countdown"></p>' : '') + '</div>' + taskActions(task, false) + '</article>';
   }).join('');
+  renderGuardTimer();
   $('script-empty').hidden = visible.length > 0;
   $('task-empty-description').textContent = !apps.length ? '暂未配置 Python 任务。' : taskFilter === 'running' && !search ? '启动任务后，它会显示在这里。' : '试试其他关键词或切换筛选条件。';
   $('task-footer').textContent = '显示 ' + visible.length + ' / ' + apps.length + ' 个任务';
@@ -800,6 +803,7 @@ async function refreshTasks() {
     if (!Array.isArray(data.apps)) throw new Error('任务列表返回异常');
     // Statistics, controls and log streams all share the same Python task list.
     apps = data.apps.filter(function(a) { return a.category === 'script'; });
+    apps.forEach(function(a) { a.timerReceivedAt = Date.now(); });
     renderTasks(); syncStreams();
     $('load-error').hidden = true;
     $('service-dot').classList.add('online');
@@ -886,7 +890,7 @@ async function doAction(action, id) {
   if (pending.has(id) || !apps.some(function(a) { return a.id === id; })) return;
   pending.add(id); renderTasks();
   try {
-    var data = await request('/api/' + action + '/' + encodeURIComponent(id), {method:'POST'});
+    var data = await request(action === 'calibrate' ? '/api/work-guard/refresh' : '/api/' + action + '/' + encodeURIComponent(id), {method:'POST'});
     if (!data.ok) throw new Error(data.message || '操作未完成');
     toast(data.message || (action === 'start' ? '任务已启动' : '任务已停止'));
     if (action === 'start') {
@@ -1011,7 +1015,7 @@ document.addEventListener('click', function(event) {
   var action = event.target.closest('[data-action]');
   if (action) {
     if (action.dataset.action === 'logs') selectLogs(action.dataset.id);
-    else if (['start','stop'].includes(action.dataset.action)) doAction(action.dataset.action, action.dataset.id);
+    else if (['start','stop','calibrate'].includes(action.dataset.action)) doAction(action.dataset.action, action.dataset.id);
   }
   var filter = event.target.closest('[data-filter]');
   if (filter) { taskFilter = filter.dataset.filter; renderTasks(); }
@@ -1027,7 +1031,23 @@ $('log-terminal').addEventListener('scroll', function() {
   $('log-scroll-hint').hidden = following; updateFollowStatus();
 });
 $('log-scroll-hint').addEventListener('click', function() { following = true; unread = 0; renderLogs(); });
-function tick() { $('clock').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false}); }
+function renderGuardTimer() {
+  var target = $('guard-countdown');
+  if (!target) return;
+  var task = apps.find(function(a) { return a.id === 'diantao-work-guard'; });
+  if (!task || task.status !== 'running') { target.textContent = '守护未启动，启动后读取当前打工状态'; return; }
+  var timer = task.timer || {}, phases = {starting:'正在读取状态', checking:'等待接管校准', acting:'正在处理打工', waiting:'后台计时', retrying:'识别失败，等待重试', blocked:'需要检查页面', stopped:'守护已结束'};
+  function remaining(name) {
+    var deadline = timer[name + '_at'];
+    if (deadline == null || !timer.active) return '待识别';
+    var seconds = Math.max(0, Math.ceil(deadline - (timer.server_time + (Date.now() - (task.timerReceivedAt || Date.now())) / 1000)));
+    if (!seconds) return timer.phase === 'waiting' ? '到期，等待接管' : '到期，正在复查';
+    return String(Math.floor(seconds / 3600)).padStart(2, '0') + ':' + String(Math.floor(seconds % 3600 / 60)).padStart(2, '0') + ':' + String(seconds % 60).padStart(2, '0');
+  }
+  target.textContent = (phases[timer.phase] || '正在读取状态') + ' · 打工 ' + remaining('work') + ' · 体力 ' + remaining('energy') +
+    (timer.phase === 'retrying' || timer.phase === 'blocked' ? ' · ' + (timer.message || '') : '');
+}
+function tick() { $('clock').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false}); renderGuardTimer(); }
 applyTheme(document.documentElement.dataset.theme, false);
 tick(); setInterval(tick, 1000);
 refreshTasks(); refreshDevice();

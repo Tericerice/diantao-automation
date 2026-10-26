@@ -16,7 +16,7 @@ phone = importlib.import_module("workbench.phone")
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     monkeypatch.setattr(desktop, "PROCESSES", {})
     monkeypatch.setattr(desktop, "STARTED", {})
     monkeypatch.setattr(desktop, "LOGS", {})
@@ -24,6 +24,7 @@ def client(monkeypatch):
     monkeypatch.setattr(desktop, "EXIT_CODES", {})
     monkeypatch.setattr(phone, "SESSIONS", {})
     monkeypatch.setenv("DIANTAO_OCR_SERVER_URL", "http://ocr.example.test/predict_ocr")
+    monkeypatch.setenv("DIANTAO_CONTROL_DIR", str(tmp_path / "phone-control"))
     with TestClient(desktop.app) as connection:
         yield connection
 
@@ -99,10 +100,21 @@ def test_migrated_entry_spawns_its_script_and_arguments(client, monkeypatch, tas
             )):
         assert client.post("/api/start/" + task_id).status_code == 200
     command = spawn.call_args.args[0]
-    assert command[1:] == ["-u", str(desktop.ROOT / task["script"]), *task["args"]]
+    assert command[1:4] == ["-u", str(desktop.ROOT / "task_host.py"), "--"]
+    assert command[5:] == ["-u", str(desktop.ROOT / task["script"]), *task["args"]]
     assert spawn.call_args.kwargs["cwd"] == desktop.ROOT
     assert spawn.call_args.kwargs["env"]["DIANTAO_OCR_SERVER_URL"]
     desktop.PROCESSES.clear()
+
+
+def test_guardian_can_wait_alongside_one_foreground_task(client, monkeypatch, tmp_path):
+    prepare_dummy(monkeypatch, tmp_path, "import time; time.sleep(60)\n")
+    assert client.post("/api/start/diantao-signin").status_code == 200
+    assert client.post("/api/start/diantao-work-guard").status_code == 200
+    assert client.post("/api/start/diantao-sleep").status_code == 409
+    assert client.post("/api/start/diantao-work-guard").status_code == 409
+    assert client.post("/api/stop/diantao-signin").status_code == 200
+    assert client.post("/api/stop/diantao-work-guard").status_code == 200
 
 
 def test_workbuddy_does_not_require_cloud_ocr(client, monkeypatch, tmp_path):

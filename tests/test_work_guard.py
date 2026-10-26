@@ -20,6 +20,11 @@ SIZE = (1264, 2780)
 NOW = 1_800_000_000
 
 
+@pytest.fixture(autouse=True)
+def isolated_phone_control(monkeypatch, tmp_path):
+    monkeypatch.setenv("DIANTAO_CONTROL_DIR", str(tmp_path / "phone-control"))
+
+
 def block(value, x, y):
     return dict(text=value, cx=x, cy=y)
 
@@ -154,14 +159,15 @@ def test_unavailable_ocr_retries_without_clicking_and_persists_schedule(monkeypa
     def sleep(seconds):
         sleeps.append(seconds)
         clock.value += seconds
-        if len(sleeps) == 2:
+        if clock.value >= 116:
             raise KeyboardInterrupt
 
     path = tmp_path / "state.json"
     with pytest.raises(KeyboardInterrupt):
         guard.guard(Mock(), state_path=path, now=lambda: clock.value, sleep=sleep)
     assert visits.call_count == 2
-    assert sleeps[0] == 15
+    assert sum(sleeps[:15]) == 15
+    assert max(sleeps) == 1
     assert json.loads(path.read_text()) == {"work_at": 7300, "energy_at": 200}
 
 

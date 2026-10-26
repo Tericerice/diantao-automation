@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import re
 import time
+from phone_control import guardian_turn
+from guard_timer import GuardTimer
 
 
 ROOT = Path(__file__).resolve().parent
@@ -65,11 +67,17 @@ class Page:
     chef: dict | None = None
     start: dict | None = None
     complete: dict | None = None
+    dismiss: dict | None = None
 
 
 def inspect_page(blocks, size):
     """用区域区分左侧体力、中间打工和装饰时钟，不把商品文案当成操作。"""
     labels = [text(b) for b in blocks]
+    if "定时奖励" in labels and any(re.fullmatch(r"获得\d+体力", t) for t in labels):
+        dismiss = find(region(blocks, size, .15, .5, .85, .75), "放弃获得额外奖励")
+        if dismiss:
+            return Page("energy_reward", dismiss=dismiss)
+        return Page("unknown")
     if "选工作赚元宝" in labels:
         chef = find(blocks, "厨师")
         start = find(blocks, "开始打工")
@@ -160,10 +168,28 @@ class Phone:
             return page
         from u2_scanner import navigate_to_dagong_page
         if not navigate_to_dagong_page(self.device):
-            raise ScanUnavailable("暂时无法导航到打工页")
+            # 冷启动可能弹出更新提示，遮住元宝中心入口；只处理已确认的提示。
+            blocks = self.scan()
+            if find(blocks, "快来更新点淘") and find(blocks, "立即更新"):
+                self.device.press("back")
+                time.sleep(2)
+                blocks = self.scan()
+            entry = find(blocks, "元宝中心") or find(blocks, "领元宝")
+            if entry is None:
+                raise ScanUnavailable("暂时无法导航到打工页")
+            self.click(entry)
+            time.sleep(3)
+            from yuanbao_popup import handle_yuanbao_live_popups
+            if not handle_yuanbao_live_popups(self.device):
+                raise ScanUnavailable("元宝中心弹窗未处理完成")
+            entry = find(self.scan(), "打工赚元宝")
+            if entry is None:
+                raise ScanUnavailable("元宝中心未识别到打工入口")
+            self.click(entry)
+            time.sleep(3)
         page = self.read()
         if page.kind == "unknown":
-            raise GuardBlocked("导航后未确认打工主页，保留现场")
+            raise ScanUnavailable("导航后未确认打工主页，稍后重新识别")
         return page
 
     def finish_reward(self, page):
@@ -214,9 +240,16 @@ def visit(phone, now=time.time):
     energy_clicked = False
     reward_clicked = False
     reward_completed = False
+    energy_bonus_dismissed = False
     started = False
     for _ in range(12):
-        if page.kind == "reward":
+        if page.kind == "energy_reward":
+            if energy_bonus_dismissed:
+                raise ScanUnavailable("体力奖励弹窗尚未消失，稍后复查")
+            phone.click(page.dismiss)
+            energy_bonus_dismissed = True
+            print("[体力] 已领取基础体力，关闭可选的额外直播奖励", flush=True)
+        elif page.kind == "reward":
             if reward_completed:
                 raise GuardBlocked("奖励任务后仍出现相同弹窗，停止重复执行")
             phone.finish_reward(page)
@@ -264,31 +297,63 @@ def format_time(timestamp):
     return datetime.fromtimestamp(timestamp).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-def guard(phone, *, once=False, state_path=STATE_PATH, now=time.time, sleep=time.sleep):
+def guard(phone, *, once=False, state_path=STATE_PATH, now=time.time, sleep=time.sleep,
+          turn=guardian_turn):
+    timer = GuardTimer(Path(state_path).parent, now=now)
+    timer.publish("starting", message="正在读取当前打工和体力状态")
+    try:
+        return _guard(phone, once=once, state_path=state_path, now=now, sleep=sleep,
+                      turn=turn, timer=timer)
+    except GuardBlocked as exc:
+        timer.publish("blocked", message=str(exc))
+        raise
+    finally:
+        if timer.value["phase"] != "blocked":
+            timer.publish("stopped", message="守护已停止")
+
+
+def _guard(phone, *, once, state_path, now, sleep, turn, timer):
     failures = 0
     while True:
         try:
-            schedule = visit(phone, now=now)
+            timer.consume_refresh()
+            timer.publish("checking", message="等待手机使用权，重新识别实际剩余时间")
+            with turn():
+                timer.publish("acting", message="正在检查打工、领取奖励或重新开工")
+                active_phone = phone() if callable(phone) else phone
+                try:
+                    schedule = visit(active_phone, now=now)
+                finally:
+                    watcher = getattr(getattr(active_phone, "device", None),
+                                      "_global_watcher_ctx", None)
+                    if watcher is not None:
+                        watcher.stop()
         except ScanUnavailable as exc:
             failures += 1
             delay = min(300, 15 * 2 ** min(failures - 1, 5))
             print(f"[重试] {exc}，{delay}秒后复查", flush=True)
+            timer.publish("retrying", message=f"{exc}；{delay}秒后重试")
             if once:
                 raise
-            wait_until(now() + delay, now=now, sleep=sleep)
+            wait_until(now() + delay, now=now, sleep=sleep,
+                       wake=timer.refresh_pending)
             continue
         failures = 0
         schedule.save(state_path)
+        timer.publish("waiting", schedule=schedule, message="后台计时中，到期接管后继续原任务")
         if once:
             return schedule
         delay = max(0, schedule.next_at() - now())
         print(f"[守护] 等待{delay:.0f}秒；不进行点击或滑动，可随时停止", flush=True)
-        wait_until(schedule.next_at(), now=now, sleep=sleep)
+        wait_until(schedule.next_at(), now=now, sleep=sleep,
+                   wake=timer.refresh_pending)
 
 
-def wait_until(deadline, *, now=time.time, sleep=time.sleep):
+def wait_until(deadline, *, now=time.time, sleep=time.sleep, wake=None):
     while (remaining := deadline - now()) > 0:
-        sleep(min(remaining, 30))
+        if wake is not None and wake():
+            return
+        sleep(min(remaining, 1 if wake is not None else 30))
 
 
 def main():
@@ -297,7 +362,7 @@ def main():
     args = parser.parse_args()
     from u2_scanner import connect_device
     print("[打工任务] 厨师两小时循环 + 左侧领体力独立定时；手动停止结束守护", flush=True)
-    guard(Phone(connect_device()), once=args.once)
+    guard(lambda: Phone(connect_device()), once=args.once)
 
 
 if __name__ == "__main__":
