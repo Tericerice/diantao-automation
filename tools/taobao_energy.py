@@ -48,6 +48,7 @@ VISIT = {
     "去芝麻信用涨分攒进度": "com.eg.android.AlipayGphone",
     "去百度App领现金": "com.baidu.searchbox",
     "去百度极速版领现金": "com.baidu.searchbox.lite",
+    "头条刷热点领现金": "com.ss.android.article.lite",
     "逛一逛领购物红包": "com.tmall.wireless",
 }
 # 淘宝内的“正在跳转”引导页：只点与目标应用同名的“打开X”，不点“下载X”。

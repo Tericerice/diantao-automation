@@ -77,12 +77,28 @@ def test_ambiguous_task_progress_is_not_used():
     ("去百度极速版领现金", "external"),
     ("逛一逛支付宝金豆夺宝", "alipay"),
     ("去百度App领现金", "external"),
+    ("头条刷热点领现金", "external"),
     ("去淘宝特价版0元购", "external"),
     ("天猫积分换能量", "skip"),
     ("预约组队开赛提醒", "skip"),
 ])
 def test_task_tiers_and_exclusions(title, kind):
     assert task_kind(title) == kind
+
+
+def test_toutiao_task_is_selected_as_external_visit():
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    title = "头条刷热点领现金"
+    nodes = page(title + "（0/1）")
+    phone = MagicMock()
+    phone.window_size.return_value = (1264, 2780)
+    assert task.VISIT[title] == "com.ss.android.article.lite"
+    assert task.pending_summary(nodes, 1264) == ([title], [])
+    assert task.next_task(
+        phone, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1),
+    )[0] == title
 
 
 def test_free_flash_visit_does_not_allow_purchase_tasks():
