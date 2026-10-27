@@ -1,5 +1,6 @@
 """Explicit dashboard entries; importing the catalog never connects to a phone."""
 from task_catalog import TASK_FILES
+from 一键全部执行 import ALL_TASKS
 
 
 def entry(name, script, description, *, args=(), requires_ocr=True):
@@ -67,3 +68,29 @@ TASKS["diantao-work-guard"] = entry(
     "打工任务", "打工任务.py",
     "持续守护：领取到期元宝并完成奖励任务，厨师每两小时开工，左侧领体力按独立倒计时领取；手动停止。",
 )
+
+# Keep the common entries first, then follow the runner's actual sequence.
+# Entries with alternate arguments (such as WorkBuddy) stay with manual tasks.
+_pinned_ids = (
+    "diantao-all-in-one",
+    "diantao-one-click",
+    "diantao-one-click-tasks",
+    "taobao-double11-energy",
+    "diantao-work-speed",
+    "diantao-duck-extra",
+    "diantao-work-guard",
+)
+_script_ids = {
+    task["script"]: task_id
+    for task_id, task in TASKS.items()
+    if not task["args"]
+}
+_sequence_ids = (
+    _script_ids[step.filename]
+    for step in ALL_TASKS
+    if step.filename in _script_ids
+)
+TASKS = {
+    task_id: TASKS[task_id]
+    for task_id in dict.fromkeys((*_pinned_ids, *_sequence_ids, *TASKS))
+}
