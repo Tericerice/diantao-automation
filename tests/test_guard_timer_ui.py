@@ -8,7 +8,7 @@ from test_workbench_ui import browser, workbench, playwright
 
 def add_guard(page, state, *, running=False):
     state["apps"].append({
-        "id": "diantao-work-guard", "name": "打工任务", "category": "script",
+        "id": "diantao-work-guard", "name": "打工守护", "category": "script",
         "status": "running" if running else "stopped",
         "timer": {"active": True, "phase": "waiting", "server_time": time.time(),
                   "work_at": time.time() + 3600, "energy_at": time.time() + 120},
@@ -21,7 +21,7 @@ def test_guard_can_start_during_foreground_and_foreground_during_guard(workbench
     page, state = workbench
     state["apps"][0]["status"] = "running"
     add_guard(page, state)
-    guard_row = page.get_by_role("listitem").filter(has_text="打工任务")
+    guard_row = page.get_by_role("listitem").filter(has_text="打工守护")
     playwright.expect(guard_row.get_by_role("button", name="启动", exact=True)).to_be_enabled()
     playwright.expect(page.get_by_role("listitem").filter(
         has_text="淘金币双11赚能量").get_by_role("button", name="启动", exact=True)).to_be_disabled()

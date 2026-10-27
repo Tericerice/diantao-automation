@@ -268,7 +268,7 @@ def test_independent_dashboard_entry_does_not_join_batch_catalog():
     from workbench.tasks import TASKS
     from task_catalog import TASK_FILES
     task = TASKS[TARGET_ID]
-    assert task["name"] == "打工任务"
+    assert task["name"] == "打工守护"
     assert task["script"] == "打工任务.py"
     assert task["args"] == []
     assert task["script"] not in TASK_FILES
