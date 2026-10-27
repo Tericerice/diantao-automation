@@ -1284,6 +1284,9 @@ def execute_browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
 # ========================================================
 def execute_task(device, task_name, btn_cx, btn_cy, browse_duration=20, guess_price_enabled=True):
     """通用任务执行：点击 → 等待 → 返回"""
+    if is_blocked_boutique_task(task_name):
+        print(f"  ⊘ 已屏蔽商品三次点击任务: 【{task_name}】")
+        return False
     print(f"  🎯 执行任务: 【{task_name}】")
     device.click(btn_cx, btn_cy)
     time.sleep(3)
@@ -1300,52 +1303,12 @@ def execute_task(device, task_name, btn_cx, btn_cy, browse_duration=20, guess_pr
 
 
 # ========================================================
-# 点击3个精选宝贝（屏幕比例坐标盲点法）
+# 旧版三次商品点击入口（保留兼容，禁止设备操作）
 # ========================================================
 def click_three_selected_items(device):
-    """
-    点击3个商品 / 查看3个精选宝贝：
-    屏幕比例坐标盲点法 —— 不依赖 OCR，按固定屏幕比例点击 3 个商品卡片。
-    间隔 10 秒冷却，避免连续点击过快导致闪退。
-    """
-    CLICK_COOLDOWN = 10  # 每次点击之间的冷却秒数
-    sw, sh = device.window_size()
-
-    # 2 列商品网格的盲点坐标（屏幕比例），3 个不同卡片
-    # 左上 / 右上 / 左下，避开顶部 tab 与底部按钮
-    click_points = [
-        (0.27, 0.46),
-        (0.73, 0.46),
-        (0.27, 0.70),
-    ]
-
-    print(f"  ✅ 放开点击3次任务：共 {len(click_points)} 次点击，每次间隔 {CLICK_COOLDOWN}s 冷却")
-
-    for i, (rx, ry) in enumerate(click_points, start=1):
-        # 在比例附近小幅抖动，避免命中卡片间隔
-        cx = int(sw * (rx + random.uniform(-0.02, 0.02)))
-        cy = int(sh * (ry + random.uniform(-0.015, 0.015)))
-
-        print(f"  👆 第 {i}/{len(click_points)} 次点击商品 @({cx},{cy})")
-        try:
-            device.click(cx, cy)
-        except Exception as e:
-            print(f"  ⚠️ 第 {i} 次点击异常：{e}")
-
-        # 进入商品详情页后停留几秒再返回，回到商品列表
-        time.sleep(3)
-        try:
-            device.press("back")
-        except Exception as e:
-            print(f"  ⚠️ 返回异常：{e}")
-        time.sleep(1.5)
-
-        # 与下一次点击之间保持 10s 冷却（最后一次无需再等）
-        if i < len(click_points):
-            print(f"  ⏱️ 冷却 {CLICK_COOLDOWN}s 再点下一次...")
-            time.sleep(CLICK_COOLDOWN)
-
-    print(f"  ✅ 点击3次任务完成")
+    """旧调用方仍可导入；任务已禁用，不点击商品，也不报告完成。"""
+    print("  ⊘ 已禁用优惠/精选商品三次点击任务")
+    return False
 
 
 # ========================================================

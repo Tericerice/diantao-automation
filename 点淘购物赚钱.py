@@ -277,8 +277,8 @@ def detect_entered_media_type(task_type, task_name):
 
 def do_task(tp, sec, task_name=""):
     """执行任务（已点击进入，根据类型执行）"""
-    if is_blocked_boutique_task(task_name):
-        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+    if tp == "click" or is_blocked_boutique_task(task_name):
+        print('  ⊘ 已屏蔽商品三次点击任务，跳过')
         return False
 
     time.sleep(3)
@@ -309,10 +309,6 @@ def do_task(tp, sec, task_name=""):
             d.press("back")
             time.sleep(1)
         return task_started_at
-    elif actual_tp == "click":
-        print(f"  👆 执行精选宝贝点击任务...")
-        click_three_selected_items(d)
-        time.sleep(2)
     elif actual_tp == "video":
         print(f"  🎬 看视频 {sec}s")
         # 此脚本在 do_task 开头已经完成点击后媒体页识别，避免公共执行器重复 OCR。
@@ -397,7 +393,7 @@ def detect_task_name_before_click(bs, btn_block):
         bs: 所有OCR文本块
         btn_block: "去完成"/"去浏览"按钮的OCR块
     返回:
-        (tp, sec, task_name) 如 ("click", 0, "查看3个精选宝贝")
+        (tp, sec, task_name)；商品三次点击返回 skip。
     """
     cx, cy = btn_block["cx"], btn_block["cy"]
     same_row = []
@@ -451,7 +447,7 @@ def detect_task_name_before_click(bs, btn_block):
         sec = 30 if ("30" in task_name or "幸运" in task_name) else 60
         return "live", sec, task_name
     if "查看" in task_name:
-        return "click", 0, task_name
+        return "skip", 0, task_name
 
     if "浏览" in task_name or "滑动" in task_name:
         sec = 60
@@ -467,7 +463,7 @@ def detect_task_name_before_click(bs, btn_block):
             sec = 30 if ("30" in t or "幸运" in t) else 60
             return "live", sec, task_name
         if "查看" in t:
-            return "click", 0, task_name
+            return "skip", 0, task_name
 
     is_browse = any("浏览" in t or "滑动" in t for t in all_nearby_texts)
     if is_browse:

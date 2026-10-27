@@ -43,8 +43,7 @@ WHITELIST = [
     "浏览精选推荐",
     "浏览当季上新好物",
     "浏览省钱专区",
-    "查看3个特惠卖场宝贝",
-    # “查看3个精选宝贝 / 精选宝贝”已按用户要求屏蔽，不再列入白名单。
+    # 优惠/特惠/精选商品三次点击任务统一排除。
 ]
 
 # 各任务时长
@@ -229,6 +228,9 @@ def scan_duck_tasks(blocks):
         # 配对：每个任务名块 → 找右边最近的去完成按钮
         for tb in task_blocks:
             full_name = tb["text"].strip()
+            if is_blocked_boutique_task(full_name):
+                print(f"    ⊘ 已屏蔽商品三次点击任务: 【{full_name}】")
+                continue
             tb_cx, tb_cy = tb["cx"], tb["cy"]
 
             # 向右找最近的去完成按钮

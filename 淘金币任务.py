@@ -13,6 +13,7 @@ import time
 import re
 import os
 import sys
+from task_exclusions import is_blocked_boutique_task
 
 # 强制 UTF-8 输出
 if hasattr(sys.stdout, 'reconfigure'):
@@ -49,7 +50,7 @@ KEYWORD_TASK_TYPE = {
     "看视频": "video",
     "视频": "video",
     "直播": "live",
-    "点击": "click_three",
+    "点击": "skip",
 }
 
 # "去完成"按钮类关键词
@@ -217,6 +218,8 @@ def find_done_button_tasks(nodes, split_y):
 
 def match_task_type(task_name):
     """任务名 → 任务类型"""
+    if is_blocked_boutique_task(task_name):
+        return "skip"
     for kw, tt in KEYWORD_TASK_TYPE.items():
         if kw in task_name:
             return tt
@@ -309,6 +312,9 @@ def exec_task(task_def):
     """执行一个任务"""
     tt = task_def["type"]
     task_name = task_def["name"]
+    if tt == "click_three" or is_blocked_boutique_task(task_name):
+        print(f"  ⊘ 已屏蔽商品三次点击任务: 【{task_name}】")
+        return False
     cx, cy = task_def["cx"], task_def["cy"]
     click_type = task_def.get("click_type", "done")
     click_text = task_def.get("click_text", "")
@@ -337,17 +343,6 @@ def exec_task(task_def):
             d, task_name, cx, cy,
             verify_media_page=True,
         )
-        return True
-
-    # ── 点击3次 ──
-    elif tt == "click_three":
-        d.click(cx, cy)
-        time.sleep(3)
-        # 点击三次执行：快速点击三个不同位置
-        for i in range(3):
-            d.click(screen_width // 2, screen_height // 2 + i * 100)
-            time.sleep(1.5)
-        time.sleep(5)
         return True
 
     # ── 跳转 ──

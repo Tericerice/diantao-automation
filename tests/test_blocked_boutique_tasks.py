@@ -1,7 +1,7 @@
 """屏蔽“查看3个精选宝贝 / 精选宝贝”类任务的回归测试。
 
 不连接设备：用 AST 读取各脚本的常量，并直接验证 utils/u2_scanner 的黑名单函数。
-“查看3个特惠卖场宝贝”必须保持不受影响。
+优惠/特惠商品的三次点击也排除，普通精选浏览继续保留。
 """
 import ast
 import importlib.util
@@ -21,10 +21,12 @@ BLOCKED_NAMES = (
     "精选宝贝",
     "查看 3 个精 选宝贝",
     "查看3个精\u200b选宝贝",
-)
-ALLOWED_NAMES = (
     "查看3个特惠卖场宝贝",
     "查看3个特惠卖场宝贝（0/10）",
+    "查看三件优惠宝贝",
+    "查看3个精选",
+)
+ALLOWED_NAMES = (
     "浏览精选推荐60秒",
     "浏览精选推荐",
     "看直播60秒",
@@ -84,9 +86,9 @@ def test_sleep_script_blocks_boutique_bubbles():
     assert "精选宝贝" in values["BLOCKED_TASK_KEYWORDS"]
 
 
-def test_diamond_whitelist_keeps_marketplace_but_drops_boutique():
+def test_diamond_whitelist_drops_both_marketplace_and_boutique_clicks():
     whitelist = _literal_assignments("点淘鸭钻石任务.py")["WHITELIST"]
-    assert "查看3个特惠卖场宝贝" in whitelist
+    assert "查看3个特惠卖场宝贝" not in whitelist
     assert "查看3个精选宝贝" not in whitelist
     assert "精选宝贝" not in whitelist
 
@@ -108,6 +110,7 @@ def test_shake_whitelist_drops_boutique():
 ])
 @pytest.mark.parametrize("name", [
     "查看3个精选宝贝", "看3个精选宝贝(0/3)", "查看3个精 选宝贝",
+    "查看3个特惠卖场宝贝", "查看三件优惠宝贝", "查看3个精选",
 ])
 def test_execution_entrypoints_never_touch_device_for_blocked_task(filename, function, kwargs, name):
     # 仅加载执行函数，避免模块顶层的设备连接及导航。

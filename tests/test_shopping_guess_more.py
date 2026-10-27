@@ -56,7 +56,8 @@ class ShoppingGuessMoreTest(unittest.TestCase):
         u2_scanner.DT_APP = "com.example"
         u2_scanner.connect_device = lambda: self.fake_device
         u2_scanner.click_three_selected_items = lambda _device: None
-        u2_scanner.handle_guess_price_game = lambda _device: None
+        u2_scanner.handle_guess_price_game = lambda _device, **kwargs: None
+        u2_scanner.is_search_low_price_task = lambda _name: False
         u2_scanner.click_u2_control = lambda *args, **kwargs: True
         u2_scanner.execute_video_task = lambda *args, **kwargs: None
 
@@ -64,7 +65,8 @@ class ShoppingGuessMoreTest(unittest.TestCase):
         utils.TASK_BTN_KW = ["去完成", "去浏览"]
         utils.BLACKLIST_KEYWORDS = []
         utils.LIVE_KW = []
-        utils.get_ocr_text_blocks = lambda _device: self.ocr_blocks
+        utils.get_ocr_text_blocks = lambda _device, **kwargs: self.ocr_blocks
+        utils.click_ocr_text = lambda *args, **kwargs: True
         utils.check_can_open = lambda _device: None
         utils.log_task_completed = lambda *args, **kwargs: None
         utils.show_today_summary = lambda: None
@@ -157,6 +159,7 @@ class ShoppingGuessMoreTest(unittest.TestCase):
         ]
         module_globals, output = self.load_shopping_module()
         module_globals["MAX_TASKS"] = 1
+        module_globals["main"].__globals__["navigate"] = lambda: True
 
         # When: the shopping script scans the task list.
         with contextlib.redirect_stdout(output):
