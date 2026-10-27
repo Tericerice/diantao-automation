@@ -109,6 +109,11 @@ def workbench(browser):
 
 def test_only_python_tasks_are_visible_and_counted(workbench):
     page, state = workbench
+    playwright.expect(page).to_have_title("Tearice · 自动化大管家")
+    playwright.expect(page.locator(".brand-name")).to_have_text("Tearice")
+    playwright.expect(page.locator("#page-title")).to_have_text("Tearice 自动化大管家")
+    assert page.locator(".brand-mark svg").count() == 1
+    assert page.locator('link[rel="icon"]').get_attribute("href") == "/static/tearice-logo.svg"
     assert state["actions"] == []
     assert page.locator("#connect-phone").count() == 1
     assert page.get_by_role("dialog").is_hidden()
@@ -221,8 +226,8 @@ def test_closing_while_qr_is_loading_cancels_late_session(workbench):
     assert state["cancelled"] == ["test-pairing"]
 
 
-@pytest.mark.parametrize("theme,label", [("black", "黑色配色"), ("white", "白色配色")])
-def test_monochrome_theme_persists_and_keeps_text_readable(workbench, theme, label):
+@pytest.mark.parametrize("theme,label", [("ink", "玄墨茶绿配色"), ("paper", "宣纸暖白配色")])
+def test_theme_persists_and_keeps_text_readable(workbench, theme, label):
     page, state = workbench
     page.get_by_role("button", name=label, exact=True).click()
     page.reload()
@@ -247,8 +252,25 @@ def test_monochrome_theme_persists_and_keeps_text_readable(workbench, theme, lab
     for background, text in [("background", "text"), ("dialogBackground", "dialogText")]:
         values = sorted([luminance(colors[background]), luminance(colors[text])])
         assert (values[1] + .05) / (values[0] + .05) >= 4.5
-    assert (luminance(colors["background"]) > .5) == (theme == "white")
+    assert (luminance(colors["background"]) > .5) == (theme == "paper")
     assert state["actions"] == []
+
+
+def test_legacy_theme_values_migrate_to_tearice_themes(workbench):
+    page, _ = workbench
+    page.evaluate("localStorage.setItem('butler.theme', 'black')")
+    page.reload()
+    playwright.expect(page.get_by_role("button", name="玄墨茶绿配色", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    assert page.evaluate("document.documentElement.dataset.theme") == "ink"
+
+    page.evaluate("localStorage.setItem('butler.theme', 'white')")
+    page.reload()
+    playwright.expect(page.get_by_role("button", name="宣纸暖白配色", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    assert page.evaluate("document.documentElement.dataset.theme") == "paper"
 
 
 @pytest.mark.parametrize("size", [(1280, 820), (900, 700), (700, 500), (390, 844)])

@@ -85,3 +85,47 @@ def test_home_coupon_banner_uses_x_from_its_own_row(monkeypatch):
 def test_coupon_banner_without_an_x_does_not_guess(monkeypatch):
     nodes = [dict(text="6张共1570元消费券，仅剩1天1小时", cx=461, cy=2550)]
     assert task.find_home_banner_close(phone(), nodes, deadline()) is None
+
+
+def home_coupon_popup():
+    return [
+        dict(text="6张消费券共", cx=630, cy=1098),
+        dict(text="88VIP专享", cx=774, cy=878),
+        dict(text="去使用", cx=631, cy=1847),
+        dict(text="关闭按钮", cx=631, cy=2148),
+    ]
+
+
+def test_home_coupon_popup_uses_explicit_close_button():
+    assert task.find_home_coupon_popup_close(home_coupon_popup()) == (631, 2148)
+
+
+def test_ambiguous_home_coupon_close_does_not_guess():
+    nodes = home_coupon_popup() + [dict(text="关闭按钮", cx=640, cy=2160)]
+    with pytest.raises(RuntimeError, match="未唯一"):
+        task.find_home_coupon_popup_close(nodes)
+
+
+def test_close_label_outside_coupon_popup_is_not_clicked():
+    nodes = [dict(text="关闭按钮", cx=631, cy=2148)]
+    assert task.find_home_coupon_popup_close(nodes) is None
+
+
+def test_home_coupon_popup_is_clicked_then_rescanned(monkeypatch):
+    d = phone()
+    opened = [dict(text="做任务赚能量", cx=600, cy=590)]
+    monkeypatch.setattr(task, "scan", Mock(return_value=opened))
+    monkeypatch.setattr(task.time, "sleep", lambda _: None)
+    assert task.close_entry_popups(d, deadline(), home_coupon_popup()) == opened
+    d.click.assert_called_once_with(631, 2148)
+
+
+def test_missing_overlay_close_does_not_end_entry_cleanup(monkeypatch):
+    d = phone()
+    opened = [dict(text="做任务赚能量", cx=600, cy=590)]
+    d(textMatches=task.DISMISS[0]).exists = False
+    d(descriptionMatches=task.DISMISS[0]).exists = False
+    monkeypatch.setattr(task, "scan", Mock(return_value=opened))
+    monkeypatch.setattr(task, "find_popup_close", Mock(return_value=None))
+    monkeypatch.setattr(task, "find_home_banner_close", Mock(return_value=None))
+    assert task.close_entry_popups(d, deadline(), []) == []

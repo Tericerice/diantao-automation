@@ -8,6 +8,13 @@
 [工作台使用说明](workbench/README.md) 配置本机 OCR 服务和 ADB。
 首次启动准备依赖，后续直接复用环境；墨绿、黑色和白色配色可独立切换并保存。
 
+## v0.2.1 更新
+
+- 一键全部执行自动带起打工守护，分别显示打工与体力倒计时，支持立即校准。
+- 守护到期接管手机，处理完续跑原任务；遇到系统锁屏提示解锁并重试。
+- 统一跳过优惠、特惠、精选商品的三次点击任务，保留普通浏览和直播。
+- 同步新版 Tearice 工作台和已提交的任务、OCR 识别修复。
+
 ## 下载发布版与保留本机配置
 
 观众请从本仓库 **Releases** 下载 `diantao-workbench-v*.zip`，解压后先双击
@@ -30,9 +37,9 @@
 ```powershell
 # 在已脱敏的公开发布分支操作；不要推送含私有配置的开发历史
 # 先完成相关测试，提交改动，确认工作区干净
-python tools/build_release.py v0.2.0
+python tools/build_release.py v0.2.1
 # 如开发配置存放在其他位置，可追加 --private-config <配置文件路径>
-gh release create v0.2.0 dist/diantao-workbench-v0.2.0.zip --target <已推送的公开提交号> --title "DianTao_Automation_Butler_v0.2.0" --notes-file <发布说明文件>
+gh release create v0.2.1 dist/diantao-workbench-v0.2.1.zip --target <已推送的公开提交号> --title "DianTao_Automation_Butler_v0.2.1" --notes-file <发布说明文件>
 ```
 
 打包器从当前 **Git 提交**生成 ZIP，拒绝未提交修改，排除本机 `.env`、虚拟环境、

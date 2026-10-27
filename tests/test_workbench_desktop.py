@@ -26,8 +26,13 @@ def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monk
     ))
     desktop.desktop()
     assert len(windows) == 1
-    assert windows[0][0] == "点淘 · 自动化大管家"
+    assert windows[0][0] == "Tearice · 自动化大管家"
     assert {task["id"] for task in windows[0][1]["apps"]} == set(desktop.TASKS)
     assert len(windows[0][1]["apps"]) > 20
     assert 'id="connect-phone"' in windows[0][2]
     assert settings[0]["private_mode"] is False
+    assert settings[0]["icon"].endswith(
+        "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
+    )
+    if sys.platform == "win32":
+        assert desktop.APP_USER_MODEL_ID == "DianTao.AutomationButler"

@@ -13,9 +13,11 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -23,6 +25,8 @@ sys.path.insert(0, str(ROOT))
 from local_config import load_config
 from workbench.phone import router as phone_router
 from workbench.tasks import TASKS
+from task_host import hosted_command
+from guard_timer import RUN_ENV, request_refresh, timer_status
 
 load_config()
 
@@ -31,10 +35,12 @@ STARTED: dict[str, float] = {}
 LOGS: dict[str, deque] = {}
 SEQUENCES: dict[str, int] = {}
 EXIT_CODES: dict[str, int] = {}
+GUARD_RUN_ID = None
 RUNTIME = ROOT / ".runtime" / "workbench"
 LOG_LOCK = threading.Lock()
 TASK_LOCK = threading.Lock()
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+APP_USER_MODEL_ID = "DianTao.AutomationButler"
 
 
 def append_log(task_id: str, text: str):
@@ -107,13 +113,23 @@ async def lifespan(_app):
     await asyncio.to_thread(cleanup)
 
 
-app = FastAPI(title="点淘 · 自动化大管家", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="Tearice · 自动化大管家", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.include_router(phone_router)
 
 
 @app.get("/")
 def index():
     return HTMLResponse((ROOT / "workbench" / "static" / "index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/static/{name}", include_in_schema=False)
+def static_asset(name: str):
+    if urlsplit(name).path != name or name != Path(name).name:
+        raise HTTPException(404, "未找到静态资源")
+    path = ROOT / "workbench" / "static" / name
+    if not path.is_file():
+        raise HTTPException(404, "未找到静态资源")
+    return FileResponse(path)
 
 
 @app.get("/api/health")
@@ -125,7 +141,9 @@ def health():
 def get_apps():
     return {"apps": [
         {"id": key, "category": "script", "name": task["name"],
-         "description": task["description"], **availability(task), **status(key)}
+         "description": task["description"], **availability(task), **status(key),
+         **({"timer": timer_status(status(key)["pid"], run_id=GUARD_RUN_ID)}
+            if key == "diantao-work-guard" else {})}
         for key, task in TASKS.items()
     ]}
 
@@ -153,7 +171,13 @@ def start_task(task_id: str):
     if task.get("requires_ocr", True) and not os.environ.get("DIANTAO_OCR_SERVER_URL", "").strip():
         raise HTTPException(400, "请运行配置本机.cmd，填写自己的 DIANTAO_OCR_SERVER_URL 后重新打开工作台")
     with TASK_LOCK:
-        if any(status(key)["status"] == "running" for key in TASKS):
+        is_guard = task_id == "diantao-work-guard"
+        if status(task_id)["status"] == "running":
+            raise HTTPException(409, "该任务已在运行")
+        if not is_guard and any(
+            status(key)["status"] == "running"
+            for key in TASKS if key != "diantao-work-guard"
+        ):
             raise HTTPException(409, "已有任务控制手机，请等待完成或先停止，再启动另一项")
         script = ROOT / task["script"]
         if not script.is_file():
@@ -164,24 +188,47 @@ def start_task(task_id: str):
         env = os.environ.copy()
         env.update(PYTHONIOENCODING="utf-8", PYTHONUTF8="1", PYTHONUNBUFFERED="1")
         RUNTIME.mkdir(parents=True, exist_ok=True)
-        try:
-            process = subprocess.Popen(
-                [str(python), "-u", str(script), *task["args"]],
-                cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace",
-                creationflags=NO_WINDOW, start_new_session=sys.platform != "win32",
-            )
-        except OSError as error:
-            raise HTTPException(500, "无法启动任务，请检查 Python 环境") from error
-        with LOG_LOCK:
-            LOGS[task_id] = deque(maxlen=500)
-        append_log(task_id, "[启动] " + task["name"])
-        PROCESSES[task_id] = process
-        STARTED[task_id] = time.time()
-        EXIT_CODES.pop(task_id, None)
-        threading.Thread(target=read_output, args=(task_id, process), daemon=True).start()
+        if task_id == "diantao-all-in-one" and status("diantao-work-guard")["status"] != "running":
+            guard_task = require_task("diantao-work-guard")
+            launch_process("diantao-work-guard", guard_task, python, env, is_guard=True)
+        process = launch_process(task_id, task, python, env, is_guard=is_guard)
     return {"ok": True, "message": task["name"] + "已启动", "pid": process.pid}
+
+
+def launch_process(task_id, task, python, env, *, is_guard):
+    global GUARD_RUN_ID
+    script = ROOT / task["script"]
+    if is_guard:
+        env = dict(env, **{RUN_ENV: uuid.uuid4().hex})
+    try:
+        command = [str(python), "-u", str(script), *task["args"]]
+        process = subprocess.Popen(
+            command if is_guard else hosted_command(command, str(python)),
+            cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=NO_WINDOW, start_new_session=sys.platform != "win32",
+        )
+    except OSError as error:
+        raise HTTPException(500, "无法启动任务，请检查 Python 环境") from error
+    with LOG_LOCK:
+        LOGS[task_id] = deque(maxlen=500)
+    append_log(task_id, "[启动] " + task["name"])
+    PROCESSES[task_id] = process
+    if is_guard:
+        GUARD_RUN_ID = env[RUN_ENV]
+    STARTED[task_id] = time.time()
+    EXIT_CODES.pop(task_id, None)
+    threading.Thread(target=read_output, args=(task_id, process), daemon=True).start()
+    return process
+
+@app.post("/api/work-guard/refresh")
+def refresh_work_guard():
+    with TASK_LOCK:
+        if status("diantao-work-guard")["status"] != "running":
+            raise HTTPException(409, "请先启动打工守护")
+        request_refresh()
+    return {"ok": True, "message": "已请求重新识别，守护将接管手机校准倒计时"}
 
 
 @app.post("/api/stop/{task_id}")
@@ -235,6 +282,16 @@ def desktop():
     import webview
     import urllib.request
 
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                APP_USER_MODEL_ID
+            )
+        except (AttributeError, OSError):
+            pass
+
     listener = socket.socket()
     if sys.platform == "win32":
         listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -259,10 +316,13 @@ def desktop():
     else:
         raise RuntimeError("工作台启动失败，请查看本地运行环境")
     atexit.register(cleanup)
-    webview.create_window("点淘 · 自动化大管家", url=url, width=1280, height=820,
+    icon_name = "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
+    icon = ROOT / "workbench" / "static" / icon_name
+    webview.create_window("Tearice · 自动化大管家", url=url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))
     try:
-        webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"))
+        webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"),
+                      icon=str(icon) if icon.is_file() else None)
     finally:
         cleanup()
         server.should_exit = True

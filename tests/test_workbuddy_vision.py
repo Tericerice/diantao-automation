@@ -68,12 +68,13 @@ def client(monkeypatch, tmp_path):
     return vision.WorkBuddyVision()
 
 
-def test_image_is_passed_directly_with_no_tools_and_coordinates_map_back(client, monkeypatch):
+def test_image_uses_only_json_submission_tool_and_coordinates_map_back(client, monkeypatch):
     folders = []
     def run(command, **kwargs):
-        assert command[command.index("--tools") + 1] == ""
+        assert command[command.index("--tools") + 1] == "StructuredOutput"
+        assert command[command.index("--allowedTools") + 1] == "StructuredOutput"
         assert command[command.index("--input-format") + 1] == "stream-json"
-        assert "--json-schema" not in command
+        schema = json.loads(command[command.index("--json-schema") + 1])
         assert "--strict-mcp-config" in command
         assert "--system-prompt" in command
         assert kwargs.get("shell", False) is False
@@ -85,16 +86,59 @@ def test_image_is_passed_directly_with_no_tools_and_coordinates_map_back(client,
         parts = message["message"]["content"]
         image = Image.open(io.BytesIO(base64.b64decode(parts[1]["source"]["data"])))
         width, height = image.size
-        assert max(image.size) == 1440
+        assert max(image.size) <= 1440
+        assert width == 1264
         assert image.mode == "RGB"
+        assert schema["properties"]["width"]["const"] == width
+        assert schema["properties"]["height"]["const"] == height
+        block_schema = schema["properties"]["blocks"]["items"]
+        assert block_schema["additionalProperties"] is False
+        assert block_schema["properties"]["cx"]["maximum"] == width - 1
+        assert block_schema["properties"]["cy"]["maximum"] == height - 1
         answer = dict(width=width, height=height,
                       blocks=[dict(text="去完成", cx=width // 2, cy=height // 2)])
-        return SimpleNamespace(returncode=0, stdout=json.dumps([result(json.dumps(answer))]))
+        return SimpleNamespace(returncode=0, stdout=json.dumps([
+            dict(result(""), structured_output=answer)]))
     monkeypatch.setattr(vision.subprocess, "run", run)
     blocks = client.recognize(Image.new("RGBA", (1264, 2780)))
-    assert abs(blocks[0]["cx"] - 632) <= 2
-    assert blocks[0]["cy"] == 1390
+    assert len(blocks) == 2
+    assert [block["cx"] for block in blocks] == [632, 632]
+    assert [block["cy"] for block in blocks] == [720, 2062]
     assert all(not folder.exists() for folder in folders)
+
+
+def test_overlapping_phone_strips_deduplicate_the_same_text(client, monkeypatch):
+    local_y = iter([1370, 26])
+
+    def run(*args, **kwargs):
+        parts = json.loads(kwargs["input"])["message"]["content"]
+        image = Image.open(io.BytesIO(base64.b64decode(parts[1]["source"]["data"])))
+        answer = dict(width=image.width, height=image.height,
+                      blocks=[dict(text="好物随心逛(2/5)", cx=430, cy=next(local_y))])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(answer))
+
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (1264, 2780))) == [
+        dict(text="好物随心逛(2/5)", cx=430, cy=1370)]
+
+
+def test_wide_image_coordinates_map_back_after_width_resize(client, monkeypatch):
+    answer = dict(width=1440, height=810, blocks=[dict(text="去完成", cx=720, cy=405)])
+    monkeypatch.setattr(vision.subprocess, "run", Mock(return_value=SimpleNamespace(
+        returncode=0, stdout=json.dumps(answer))))
+    assert client.recognize(Image.new("RGB", (1920, 1080))) == [
+        dict(text="去完成", cx=960, cy=540)]
+
+
+def test_failed_second_strip_does_not_return_partial_observation(client, monkeypatch):
+    observe = Mock(side_effect=[
+        [dict(text="去完成", cx=1100, cy=1000)],
+        vision.VisionError("second strip failed"),
+    ])
+    monkeypatch.setattr(client, "_recognize_tile", observe)
+    with pytest.raises(vision.VisionError, match="second strip"):
+        client.recognize(Image.new("RGB", (1264, 2780)))
+    assert observe.call_count == 2
 
 
 @pytest.mark.parametrize("failure,match", [
@@ -113,6 +157,80 @@ def test_cli_failure_is_not_used_as_observation(client, monkeypatch):
         returncode=1, stdout=json.dumps(payload()), stderr="private-details")))
     with pytest.raises(vision.VisionError, match="CLI failed"):
         client.recognize(Image.new("RGB", (600, 900)))
+
+
+def test_invalid_json_retries_identical_image_once(client, monkeypatch):
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=0, stdout=json.dumps(result("{bad json}"))),
+        SimpleNamespace(returncode=0, stdout=json.dumps(result(json.dumps(payload())))),
+    ])
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    assert run.call_count == 2
+    assert run.call_args_list[0] == run.call_args_list[1]
+
+
+def test_repeated_invalid_json_stops_without_coordinates(client, monkeypatch):
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout="invalid"))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="single JSON"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    assert run.call_count == 2
+
+
+def test_unexpected_model_field_is_rejected_then_retranscribed(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(payload()["blocks"][0], blockNote=False)])
+    run = Mock(side_effect=[
+        SimpleNamespace(returncode=0, stdout=json.dumps(invalid)),
+        SimpleNamespace(returncode=0, stdout=json.dumps(payload())),
+    ])
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    assert run.call_count == 2
+
+
+def test_repeated_unexpected_model_fields_stop(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(payload()["blocks"][0], blockNote=False)])
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(invalid)))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="invalid schema"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    assert run.call_count == 2
+
+
+def test_invalid_coordinates_fail_without_retry(client, monkeypatch):
+    invalid = dict(payload(), blocks=[dict(text="去完成", cx=999, cy=20)])
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=json.dumps(invalid)))
+    monkeypatch.setattr(vision.subprocess, "run", run)
+    with pytest.raises(vision.VisionError, match="coordinates"):
+        client.recognize(Image.new("RGB", (600, 900)))
+    run.assert_called_once()
+
+
+def test_locked_working_directory_does_not_discard_valid_observation(client, monkeypatch):
+    locked = []
+    rmdir, unlink = vision.os.rmdir, vision.os.unlink
+
+    def deny_locked(operation):
+        def call(path, *args, **kwargs):
+            if str(path) in locked:
+                raise PermissionError("working directory still in use")
+            return operation(path, *args, **kwargs)
+        return call
+
+    def run(*args, **kwargs):
+        locked.append(kwargs["cwd"])
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload()))
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(vision.subprocess, "run", run)
+            patch.setattr(vision.os, "rmdir", deny_locked(rmdir))
+            patch.setattr(vision.os, "unlink", deny_locked(unlink))
+            assert client.recognize(Image.new("RGB", (600, 900))) == payload()["blocks"]
+    finally:
+        for folder in locked:
+            rmdir(folder)
 
 
 def test_json_only_command_has_clean_stdout(tmp_path, monkeypatch, capsys):

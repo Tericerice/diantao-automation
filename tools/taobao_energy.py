@@ -20,11 +20,12 @@ import uiautomator2 as u2
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from device_connection import connect_with_retry
 from cloud_ocr import recognize, ocr_server_url
+from task_recheck import RECHECK_ENV, report_round_finished, report_task_found, recheck_enabled
 
 TB = "com.taobao.taobao"
 SKIP = ("升级赛车", "小游戏", "积分", "拍立淘", "邀请", "下单", "购买", "开通", "订阅", "预约", "答题", "考试")
 BROWSE = ("好物随心逛", "好物沉浸看", "去省钱卡领红包", "去芭芭农场领水果", "去签到领红包",
-          "搜一搜你心仪的宝贝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
+          "搜一搜你心仪的宝贝", "搜一搜你心仪的宝", "搜一搜你喜欢的宝贝", "天天签到免费拿IP周边",
           "去组队可加快升级", "你关注的商品都可抵", "拍立淘逛感兴趣的宝贝",
           "来闪购逛逛领红包", "去惊喜好物逛一逛")
 QUIZ = "淘金币省钱等级考试"
@@ -48,6 +49,10 @@ VISIT = {
     "去百度App领现金": "com.baidu.searchbox",
     "去百度极速版领现金": "com.baidu.searchbox.lite",
     "逛一逛领购物红包": "com.tmall.wireless",
+}
+# 淘宝内的“正在跳转”引导页：只点与目标应用同名的“打开X”，不点“下载X”。
+LANDING = {
+    "com.taobao.etao": "一淘",
 }
 OUT = Path(__file__).resolve().parents[1] / "screenshots" / "taobao_energy"
 LOG = logging.getLogger("taobao_energy")
@@ -143,14 +148,67 @@ def task_button(nodes, title, width):
     if len(matches) != 1:
         raise RuntimeError("任务未唯一定位: " + title)
     row = matches[0]
-    progress = re.search(r"[(（](\d+)\s*/\s*(\d+)[)）]", row["text"])
-    if progress and int(progress[1]) >= int(progress[2]):
-        raise RuntimeError("任务已经完成: " + title)
     buttons = [n for n in nodes if n["text"] == "去完成" and n["cx"] > width*.7
-               and abs(n["cy"]-row["cy"]) < width*.075]
+               and abs(n["cy"]-row["cy"]) < width*.09]
     if len(buttons) != 1:
         raise RuntimeError("任务按钮未唯一定位: " + title)
     return buttons[0]
+
+
+def task_rows(nodes, width):
+    """Return rows with a visible action button; progress totals are not an end signal."""
+    buttons = [
+        node for node in nodes
+        if node["text"] == "去完成" and node["cx"] > width * .7
+    ]
+    rows = []
+    for button in buttons:
+        row = [
+            node for node in nodes
+            if abs(node["cy"] - button["cy"]) < width * .09
+            and node["text"] != "去完成"
+            and not (
+                node["text"] in ("已完成", "已领取")
+                and node["cx"] > width * .7
+            )
+        ]
+        candidates = [
+            node for node in row
+            if node["cx"] < width * .72
+            and not re.fullmatch(r"[\d+\s]+", node["text"])
+            and "浏览" not in node["text"]
+            and "点击" not in node["text"]
+        ]
+        # 图标文字（￥、支、闲鱼）与按钮同一水平线，按距离会盖过标题；标题带 n/m 进度。
+        titled = [node for node in candidates if re.search(r"[(（]\s*\d+\s*/\s*\d+", node["text"])]
+        candidates = titled or candidates
+        if candidates:
+            title = min(candidates, key=lambda node: (
+                abs(node["cy"] - button["cy"]),
+                node["cy"] > button["cy"],
+                abs(node["cx"] - button["cx"]),
+            ))
+            rows.append((title, button))
+    return rows
+
+
+def has_pending_tasks(nodes, width):
+    """Return whether an eligible task still has a visible 去完成 action."""
+    for row, _button in task_rows(nodes, width):
+        title = re.split(r"[(（]", row["text"])[0].strip()
+        if task_kind(title) != "skip":
+            return True
+    return False
+
+
+def pending_summary(nodes, width):
+    """Summarize visible task rows without reading progress or balances."""
+    pending = []
+    skipped = []
+    for row, _button in task_rows(nodes, width):
+        title = re.split(r"[(（]", row["text"])[0].strip()
+        (skipped if task_kind(title) == "skip" else pending).append(title)
+    return pending, skipped
 
 
 def task_progress(nodes):
@@ -198,45 +256,49 @@ class RewardNotConfirmed(RuntimeError):
         self.nodes = nodes
 
 
+def task_action_state(nodes, title, width):
+    """Read only the task row's action. Progress counters are ignored."""
+    if title is None or not any("做任务赚能量" in n["text"] for n in nodes):
+        return "unknown"
+    rows = [n for n in nodes if re.split(r"[(（]", n["text"])[0].strip() == title]
+    if len(rows) != 1:
+        return "missing"
+    actions = [
+        n["text"] for n in nodes
+        if n["cx"] > width * .7
+        and abs(n["cy"] - rows[0]["cy"]) < width * .09
+        and n["text"] in ("去完成", "已完成", "已领取", "已领")
+    ]
+    if actions == ["去完成"]:
+        return "pending"
+    if len(actions) == 1:
+        return "done"
+    return "unknown"
+
+
 def verify_gain(d, nodes, before, before_task, deadline, *, title=None, recover_visit=False):
-    # 只核对累计次数或当前任务次数；能量余额不参与执行与完成判断。
+    """Settle one action without using progress as completion proof."""
+    del before
     for attempt in range(3):
         guard(deadline)
         if recover_visit and (
                 d.app_current()["package"] != TB
                 or not any("做任务赚能量" in n["text"] for n in nodes)):
             nodes = return_from_visit(d, deadline)
-        after = task_progress(nodes)
-        after_task = task_row_progress(nodes, title)
-        cumulative_changed = after is not None and before is not None and after > before
-        task_changed = (after_task is not None and before_task is not None
-                        and after_task[1] == before_task[1] and after_task[0] > before_task[0])
-        done_button = False
-        disappeared = False
-        if title and any("做任务赚能量" in n["text"] for n in nodes):
-            rows = [n for n in nodes if re.split(r"[(（]", n["text"])[0].strip() == title]
-            if len(rows) == 1:
-                w = d.window_size()[0] if hasattr(d, "window_size") else 1264
-                if any(n["text"] in ("已完成", "已领取") and n["cx"] > w * .7
-                       and abs(n["cy"] - rows[0]["cy"]) < w * .075 for n in nodes):
-                    done_button = True
-            elif len(rows) == 0 and before_task is not None and before_task[1] == 1:
-                disappeared = True
-        if any("做任务赚能量" in n["text"] for n in nodes) and (cumulative_changed or task_changed or done_button or disappeared):
+        width = d.window_size()[0] if hasattr(d, "window_size") else 1264
+        action = task_action_state(nodes, title, width)
+        if action == "done" or (action == "missing" and before_task is not None):
             _session["completed"] = _session.get("completed", 0) + 1
-            LOG.info("[完成] %s | 累计 %s/50 | 任务次数 %s→%s",
-                     title or "当前任务", after if after is not None else "未读取", before_task, after_task)
+            LOG.info("[完成] %s | 任务行已结束", title or "当前任务")
             return nodes
-        LOG.info("[核对] %s/3 | 累计 %s→%s | 任务次数 %s→%s",
-                 attempt + 1, before, after, before_task, after_task)
+        LOG.info("[核对] %s/3 | %s | 动作=%s | 进度不参与判定",
+                 attempt + 1, title or "当前任务", action)
         if attempt < 2:
-            if after is None and any("做任务赚能量" in n["text"] for n in nodes):
-                w, h = d.window_size()
-                guard(deadline)
-                d.swipe(w*.5, h*.4, w*.5, h*.9, duration=.5)
             time.sleep(3)
             nodes = scan(d)
-    raise RewardNotConfirmed(nodes)
+    LOG.info("[继续] %s | 动作已返回，任务行仍待办，交由下一轮继续",
+             title or "当前任务")
+    return nodes
 
 
 def return_from_visit(d, deadline):
@@ -300,6 +362,60 @@ def return_from_visit(d, deadline):
     raise RuntimeError("已尝试3次返回淘宝，仍未确认能量任务列表，已停止")
 
 
+def landing_open_button(nodes, package):
+    """在淘宝内的“正在跳转”引导页上定位目标应用自己的“打开X”。"""
+    label = LANDING.get(package)
+    if not label or not any("正在跳转" in n["text"] for n in nodes):
+        return None
+    if not any(n["text"] == label for n in nodes):
+        return None
+    buttons = [n for n in nodes if n["text"] == "打开" + label]
+    return buttons[0] if len(buttons) == 1 else None
+
+
+def allow_open_once(d, deadline):
+    """系统“淘宝想要打开X”确认框只点“仅本次允许”，不改成长期权限。"""
+    dialog = scan(d)
+    once = [n for n in dialog if n["text"] == "仅本次允许"]
+    if not any("淘宝" in n["text"] and "想要打开" in n["text"] for n in dialog):
+        return False
+    if len(once) != 1:
+        return False
+    guard(deadline)
+    d.click(once[0]["cx"], once[0]["cy"])
+    return True
+
+
+def open_landing_app(d, package, deadline, attempts=6, wait=4):
+    """引导页延迟出现，需轮询并在确认页面内容后点“打开X”；不点“下载X”。"""
+    for _ in range(attempts):
+        guard(deadline)
+        current = d.app_current()["package"]
+        if current == package:
+            return True
+        if current == "com.oplus.securitypermission":
+            allow_open_once(d, deadline)
+            continue
+        if current != TB:
+            return False
+        opening = landing_open_button(scan(d), package)
+        if opening is None:
+            time.sleep(wait)
+            continue
+        LOG.info("[跳转] 淘宝内引导页，点击打开%s", LANDING[package])
+        guard(deadline)
+        d.click(opening["cx"], opening["cy"])
+        for _ in range(20):
+            guard(deadline)
+            time.sleep(1)
+            current = d.app_current()["package"]
+            if current == package:
+                return True
+            if current == "com.oplus.securitypermission":
+                allow_open_once(d, deadline)
+    return False
+
+
 def visit(d, title, deadline, nodes):
     before = task_progress(nodes)
     before_task = task_row_progress(nodes, title)
@@ -309,7 +425,10 @@ def visit(d, title, deadline, nodes):
     guard(deadline)
     d.click(button["cx"], button["cy"])
     # 只等待跳转发生；进入目标应用后立即返回，不等待活动页面加载。
-    for second in range(30 if installed else 5):
+    landed = package == TB
+    if installed and package in LANDING:
+        landed = open_landing_app(d, package, deadline)
+    for second in range(0 if package in LANDING else (30 if installed else 5)):
         guard(deadline)
         time.sleep(1)
         if installed or second == 4:
@@ -317,6 +436,7 @@ def visit(d, title, deadline, nodes):
             if not installed:
                 break
             if current == package and (package != TB or second >= 3):
+                landed = True
                 if package in ("com.eg.android.AlipayGphone", "com.baidu.searchbox"):
                     time.sleep(6)
                 break
@@ -343,6 +463,11 @@ def visit(d, title, deadline, nodes):
                 break
     if not installed:
         LOG.info("[跳过] %s：未安装应用，返回并继续，不下载", title)
+    elif not landed and package in LANDING:
+        LOG.info("[跳过] %s：引导页未拉起目标应用，返回淘宝", title)
+    guard(deadline)
+    d.app_start(TB, use_monkey=True)
+    time.sleep(4)
     nodes = return_from_visit(d, deadline)
     try:
         return verify_gain(d, nodes, before, before_task, deadline, title=title, recover_visit=True)
@@ -357,51 +482,42 @@ def visit(d, title, deadline, nodes):
 
 
 def next_task(d, nodes, attempted, deadline):
-    """先扫描列表各页，再按淘宝、支付宝、其他应用的顺序选择。"""
-    LOG.info("[扫描] 检查剩余任务，顺序：淘宝 → 支付宝 → 其他应用")
-    header = [n for n in nodes if n["cx"] < 250 and re.fullmatch(r"\d+/50", n["text"])]
+    """只从当前任务页选择一项；执行后的新扫描结果由调用方继续使用。"""
+    guard(deadline)
+    LOG.info("[扫描] 检查当前可见任务，顺序：淘宝 → 支付宝 → 其他应用")
     candidates = {}
-    w, h = d.window_size()
-    for _ in range(4):
-        for n in nodes:
-            title = re.split(r"[(（]", n["text"])[0]
-            if task_kind(title) == "skip" or title in attempted:
-                continue
-            try:
-                task_button(nodes, title, w)
-            except RuntimeError:
-                continue
-            candidates[title] = {"taobao": 0, "alipay": 1, "external": 2}[task_kind(title)]
-        if any("以上奖励均为最高奖励" in n["text"] for n in nodes):
-            break
-        guard(deadline)
-        d.swipe(w*.5, h*.87, w*.5, h*.43, duration=.5)
-        time.sleep(2)
-        nodes = scan(d)
+    width = d.window_size()[0]
+    for row, _button in task_rows(nodes, width):
+        title = re.split(r"[(（]", row["text"])[0].strip()
+        if task_kind(title) == "skip" or title in attempted:
+            continue
+        try:
+            task_button(nodes, title, width)
+        except RuntimeError:
+            continue
+        candidates[title] = {"taobao": 0, "alipay": 1, "external": 2}[task_kind(title)]
     selected = min(candidates, key=candidates.get) if candidates else None
-    for _ in range(4):
-        guard(deadline)
-        d.swipe(w*.5, h*.4, w*.5, h*.9, duration=.5)
-        time.sleep(1)
-    nodes = scan(d)
-    header = [n for n in nodes if n["cx"] < 250 and re.fullmatch(r"\d+/50", n["text"])] or header
-    if selected:
-        for _ in range(4):
-            try:
-                task_button(nodes, selected, w)
-                return selected, nodes if task_progress(nodes) is not None else nodes + header
-            except RuntimeError:
-                guard(deadline)
-                d.swipe(w*.5, h*.87, w*.5, h*.43, duration=.5)
-                time.sleep(2)
-                nodes = scan(d)
-        raise RuntimeError("任务换页后未能重新定位: " + selected)
-    return None, nodes
+    return selected, nodes
 
 
 DISMISS = ("我知道了", "知道了", "暂不", "暂不开启", "暂不更新", "稍后再说",
-           "下次再说", "关闭弹窗", "关闭广告")
+           "下次再说", "关闭弹窗", "关闭广告", "关闭按钮")
 PROMPTS = ("开启快递物流提醒", "开启消息通知", "开启通知", "开启推送通知", "发现新版本")
+
+
+def find_home_coupon_popup_close(nodes):
+    """Locate the explicit X on the full-screen home coupon popup."""
+    if not any(n["text"] == "关闭按钮" for n in nodes):
+        return None
+    markers = [n for n in nodes if n["text"] in (
+        "6张消费券共", "88VIP专享", "后到期", "去使用",
+    )]
+    if not markers:
+        return None
+    candidates = [n for n in nodes if n["text"] == "关闭按钮"]
+    if len(candidates) != 1:
+        raise RuntimeError("首页券包弹窗的关闭按钮未唯一定位")
+    return candidates[0]["cx"], candidates[0]["cy"]
 
 
 def find_popup_close(d, nodes, deadline):
@@ -450,11 +566,20 @@ def close_entry_popups(d, deadline, nodes=None):
         if d.app_current()["package"] != TB:
             raise RuntimeError("入口弹窗处理时已离开淘宝，已停止")
         if nodes is not None:
+            coupon_close = find_home_coupon_popup_close(nodes)
+            if coupon_close:
+                LOG.info("[弹窗] 关闭首页券包弹窗（%s/3）", attempt + 1)
+                guard(deadline)
+                d.click(*coupon_close)
+                time.sleep(1)
+                nodes = scan(d)
+                continue
             overlay_close = find_popup_close(d, nodes, deadline)
             if overlay_close is None:
                 overlay_close = find_home_banner_close(d, nodes, deadline)
             if overlay_close:
                 LOG.info("[弹窗] 关闭商品推荐弹窗（%s/3）", attempt + 1)
+                guard(deadline)
                 d.click(*overlay_close)
                 time.sleep(1)
                 nodes = scan(d)
@@ -538,9 +663,24 @@ def enter(d, deadline, *, restart=False):
             any(n["text"] == "升级赛车拿钱" for n in nodes)
             and any(n["text"] == "去赚能量" for n in nodes)
         )
-        if not current_event and not any("淘金币双11" in n["text"] for n in nodes):
-            raise RuntimeError("请先回到淘宝首页，确认领淘金币入口；未点击未知页面")
-        buttons = [n for n in nodes if n["text"] in ("赚能量", "賺能量", "去赚能量")]
+        buttons = [n for n in nodes if n["text"] in (
+            "赚能量", "賺能量", "去赚能量", "去賺能量",
+        )]
+        if not current_event and not any("淘金币双11" in n["text"] for n in nodes) and not buttons:
+            guard(deadline)
+            LOG.info("[导航] 当前未确认活动入口，重新打开淘宝后重试")
+            d.app_start(TB, stop=True, use_monkey=True)
+            time.sleep(3)
+            if any(name in d.app_current()["activity"] for name in ("Welcome", "TBMainActivity")):
+                for selector in (dict(text="领淘金币"), dict(description="领淘金币")):
+                    entry = d(**selector)
+                    if entry.exists:
+                        guard(deadline)
+                        entry.click()
+                        time.sleep(5)
+                        break
+            nodes = close_entry_popups(d, deadline, scan(d))
+            continue
         if len(buttons) != 1:
             raise RuntimeError("未唯一识别赚能量按钮")
         guard(deadline)
@@ -669,10 +809,11 @@ def browse(d, title, seconds, deadline, nodes):
 
 
 def run_round(d, nodes, deadline, repeat, seconds):
-    """一轮执行；已访问任务本轮不重复，下一次重新进入后可再次复核。"""
+    """扫描当前页、执行一项、退出重扫，再检查同一屏幕的下一项。"""
     attempted = set()
     found = False
-    for index in range(min(max(repeat, 1), 30)):
+    limit = min(max(repeat, 1), 30)
+    for index in range(limit):
         guard(deadline)
         if not any("做任务赚能量" in n["text"] for n in nodes):
             raise RuntimeError("请先进入赚能量任务列表")
@@ -686,18 +827,17 @@ def run_round(d, nodes, deadline, repeat, seconds):
             nodes = scan(d)
         selected, nodes = next_task(d, nodes, attempted, deadline)
         if selected is None:
-            LOG.info("[本轮结束] 没有可继续执行的白名单任务")
-            return found
+            LOG.info("[本轮结束] 当前可见任务均已尝试或不在白名单，已保留任务列表")
+            return found, nodes
         found = True
         tier = {"taobao": "淘宝", "alipay": "支付宝", "external": "其他应用"}[task_kind(selected)]
-        LOG.info("[任务] %s/%s | %s | %s", index+1, min(max(repeat, 1), 30), tier, selected)
+        LOG.info("[任务] %s/%s | %s | %s", index+1, limit, tier, selected)
+        attempted.add(selected)
         try:
             if selected in VISIT:
                 LOG.info("[跳转] 确认打开目标应用后立即返回核对奖励")
-                attempted.add(selected)
                 nodes = visit(d, selected, deadline, nodes)
             elif selected == QUIZ:
-                attempted.add(selected)
                 nodes = quiz(d, deadline, nodes)
             else:
                 LOG.info("[浏览] 按任务要求浏览约 %s 秒", browse_seconds(nodes, selected, seconds))
@@ -708,9 +848,8 @@ def run_round(d, nodes, deadline, repeat, seconds):
             if (d.app_current()["package"] != TB
                     or not any("做任务赚能量" in n["text"] for n in nodes)):
                 raise
-            attempted.add(selected)
             LOG.info("[未到账] %s：已核对3次，本轮跳过并继续其他任务", selected)
-    return found
+    return found, nodes
 
 
 def main():
@@ -761,18 +900,38 @@ def main():
         enter(d, deadline, restart=True)
         return
     elif args.action in ("auto", "run"):
-        rechecks = args.rechecks if args.rechecks is not None else (5 if args.action == "run" else 0)
+        parent_rechecks = os.environ.get(RECHECK_ENV) == "1"
+        rechecks = 0 if parent_rechecks else (
+            args.rechecks if args.rechecks is not None else (5 if args.action == "run" else 0)
+        )
+        finished_reported = False
         for check in range(rechecks + 1):
             guard(deadline)
             if check:
                 LOG.info("[复核] 重新进入淘宝检查剩余任务 %s/%s", check, rechecks)
             nodes = enter(d, deadline, restart=True) if check or args.action == "run" else scan(d)
-            LOG.info("[进度] 累计 %s/50", task_progress(nodes))
-            found = run_round(d, nodes, deadline, args.repeat, args.seconds)
-            if check and not found:
-                LOG.info("[结束] 重新进入复核后无剩余白名单任务，已保留任务列表")
+            result = run_round(d, nodes, deadline, args.repeat, args.seconds)
+            found, nodes = result if isinstance(result, tuple) else (result, nodes)
+            nodes = close_entry_popups(d, deadline, nodes)
+            pending, skipped = pending_summary(nodes, d.window_size()[0])
+            LOG.info("[扫描] 可见待办=%s | 约定跳过=%s | 本轮执行=%s",
+                     len(pending), len(skipped), found)
+            has_pending = has_pending_tasks(nodes, d.window_size()[0])
+            LOG.info("[复核判定] 待办=%s | 轮次 %s/%s", has_pending, check, rechecks)
+            if recheck_enabled():
+                if found:
+                    report_task_found()
+                report_round_finished()
+                finished_reported = True
+            if check and not found and not has_pending:
+                LOG.info("[结束] 复核未发现新任务，确认本轮任务已处理完")
                 return
-        LOG.info("[结束] 已达到本次轮数上限，已保留任务列表")
+        if recheck_enabled() and not finished_reported:
+            report_round_finished()
+        if has_pending:
+            LOG.info("[结束] 已达到复核上限，仍有待办任务，已保留任务列表")
+        else:
+            LOG.info("[结束] 任务列表没有可继续执行的待办")
         return
     elif args.action == "browse":
         title = " ".join(args.values)

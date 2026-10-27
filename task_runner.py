@@ -20,6 +20,52 @@ def run_script(
     env_overrides: dict[str, str] | None = None,
     command: list[str] | None = None,
 ) -> tuple[bool, float, str]:
+    """受管会话内记录子任务边界，重放时跳过已结束子任务并恢复复核反馈。"""
+    from task_checkpoint import script_checkpoint
+    from task_recheck import TASK_FOUND, ROUND_FINISHED
+
+    if should_stop():
+        return False, 0.0, "用户停止"
+    actual_command = command or [sys.executable, "-u", str(filepath)]
+    checkpoint = script_checkpoint(filepath, actual_command)
+    if checkpoint.done:
+        on_line(f"[续跑] 跳过已完成：{Path(filepath).name}")
+        for line in checkpoint.cached["feedback"]:
+            on_line(line)
+        return tuple(checkpoint.cached["result"])
+    checkpoint.begin()
+    feedback = []
+
+    def forward(line):
+        if line.strip() in (TASK_FOUND, ROUND_FINISHED):
+            feedback.append(line)
+        on_line(line)
+
+    overrides = dict(env_overrides or {})
+    overrides.update(checkpoint.child_env())
+    try:
+        result = _run_script(
+            filepath, cwd=cwd, timeout=timeout, should_stop=should_stop,
+            on_line=forward, env_overrides=overrides, command=actual_command,
+        )
+    except Exception as exc:
+        checkpoint.finish((False, 0.0, f"启动异常：{exc}"), feedback)
+        raise
+    if result[2] != "用户停止":
+        checkpoint.finish(result, feedback)
+    return result
+
+
+def _run_script(
+    filepath: str | Path,
+    *,
+    cwd: str | Path,
+    timeout: float | None,
+    should_stop: Callable[[], bool],
+    on_line: Callable[[str], None],
+    env_overrides: dict[str, str] | None = None,
+    command: list[str] | None = None,
+) -> tuple[bool, float, str]:
     """返回成功、耗时和状态；超时/取消时终止并回收直接子进程。
 
     timeout 传 None 表示不设置超时，只等待脚本自行结束或用户停止。

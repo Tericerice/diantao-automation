@@ -12,7 +12,7 @@ def test_register_adds_entry_to_fresh_registry(tmp_path):
     assert 'name: "点淘一键全部执行"' in source
     assert (SCRIPT_DIR / "一键全部执行.py").as_posix() in source
     assert "→ 养优惠" in source
-    assert "能量" not in source
+    assert "→ 淘金币双11赚能量" in source
     assert source.index(f"id: {TARGET_ID}\n") < source.index("id: diantao-anchor\n")
 
 

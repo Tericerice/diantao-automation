@@ -1018,8 +1018,7 @@ BLACKLIST_KEYWORDS = [
     "消消乐", "农场小游戏", "斗地主", "开心消消乐",
     "大众点评", "拍立淘", "头条极速版", "趣头条",
     "全场3元3件", "好货限时直降", "查看并完成", "玩小游戏",
-    # 用户要求屏蔽“查看3个精选宝贝 / 看3个精选宝贝 / 精选宝贝”整类任务。
-    # 不包含“查看3个特惠卖场宝贝”，该任务保持原有执行逻辑。
+    # 商品三次点击由 is_blacklisted 的共享规则统一拦截，包含特惠/优惠变体。
     "精选宝贝",
 ]
 # 注意：含"猜"但不含"猜价格/猜价格游戏"的 → 黑名单
@@ -1082,6 +1081,9 @@ def normalize_task_name(raw_name: str) -> str:
 
 def is_blacklisted(name: str) -> bool:
     """判断任务名是否在黑名单中"""
+    from task_exclusions import is_blocked_boutique_task
+    if is_blocked_boutique_task(name):
+        return True
     if not name:
         return True
     name = name.strip()
