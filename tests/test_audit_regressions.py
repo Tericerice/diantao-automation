@@ -64,14 +64,14 @@ def test_yuanbao_exits_after_exactly_three_empty_scans(blocks):
 
 def test_coin_exits_when_page_has_text_but_no_tasks():
     scan = Mock(side_effect=[[{"text": "标题"}]] * 3 + [AssertionError("没有退出")])
-    ns = load_definitions("淘金币任务.py", {"main"}, {
+    ns = load_definitions("淘金币任务.py", {"run_tasks"}, {
         "d": Mock(), "screen_width": 1080, "screen_height": 2400,
-        "navigate_to_task_list": lambda: True, "scan_page": scan,
-        "parse_task_list": lambda nodes: [],
+        "read_page": scan, "is_task_page": lambda nodes: True,
+        "parse_task_list": lambda nodes: [], "normalize": str,
+        "EMPTY_LIMIT": 3, "MAX_ATTEMPTS": 2, "scroll_list": Mock(),
         "time": SimpleNamespace(sleep=lambda seconds: None),
     })
-    with patch.object(utils, "show_today_summary"):
-        ns["main"]()
+    ns["run_tasks"]()
     assert scan.call_count == 3
 
 

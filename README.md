@@ -233,6 +233,7 @@ DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
 | `启动大管家.cmd` | **点淘 · 自动化大管家**：全项目任务、淘金币双11能量 OCR/WorkBuddy 版、扫码连接、日志和主题；详见 [`workbench/README.md`](workbench/README.md) |
 | `一键全部执行.py` | **点淘一键全流程**：连通性 → 下滑 → 日常任务 → 养优惠（独立入口，`--list` 查看顺序；全程不设超时，Ctrl+C 停止） |
 | `run_taobao_energy.cmd` | **淘金币双11赚能量**入口：`run / enter / scan / auto / browse` |
+| `淘金币任务.py` | **双十一赚淘金币**：首页 → 领淘金币 → 去赚淘金币（兼容“去赚金币”）；OCR 定位、逐项复核，支持 `run / enter / scan`，详见 [`docs/taobao-coins.md`](docs/taobao-coins.md) |
 | `tools/taobao_energy.py` | 赚能量核心：U2+OCR 扫描、三梯队（淘宝→支付宝→其他应用）、逐项浏览并复核 |
 | `一键下滑_新.py` / `一键下滑_AI.py` | 打工、睡觉、签到、购物、摇一摇、走路 六轮下滑 |
 | `签到赢元宝.py` / `签到赢元宝_AI.py` | 每日签到与里程碑 |
