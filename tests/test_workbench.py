@@ -29,6 +29,14 @@ def client(monkeypatch, tmp_path):
         yield connection
 
 
+def test_coins_task_is_listed_immediately_above_work_guard():
+    task_ids = list(desktop.TASKS)
+
+    guard_index = task_ids.index("diantao-work-guard")
+
+    assert task_ids[guard_index - 1] == "diantao-coins"
+
+
 def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     from task_catalog import TASK_FILES
 

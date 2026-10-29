@@ -78,6 +78,7 @@ _pinned_ids = (
     "taobao-double11-energy",
     "diantao-work-speed",
     "diantao-duck-extra",
+    "diantao-coins",
     "diantao-work-guard",
 )
 _script_ids = {
