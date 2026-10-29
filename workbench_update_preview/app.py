@@ -1,8 +1,4 @@
-"""Completely isolated, in-memory preview of the workbench update experience.
-
-This module intentionally does not import production phone, task, hosting, or updater code.
-It never launches ADB, automation tasks, installers, or child processes.
-"""
+"""Dashboard shell for the real workbench and an explicit update simulation."""
 from __future__ import annotations
 
 import atexit
@@ -23,10 +19,10 @@ from fastapi.responses import FileResponse, HTMLResponse
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
 RUNTIME = ROOT.parent / ".runtime" / "workbench_update_preview"
-APP_USER_MODEL_ID = "Tearice.DianTao.UpdatePreview"
+APP_USER_MODEL_ID = "Tearice.DianTao.Dashboard"
 DEFAULT_PORT = 9070
-CURRENT_VERSION = "0.2.1"
-LATEST_VERSION = "0.3.0-preview"
+CURRENT_VERSION = "0.3.0"
+LATEST_VERSION = "0.3.1-demo"
 UPSTREAM = "http://127.0.0.1:9060"
 
 
@@ -54,14 +50,14 @@ def _snapshot() -> dict:
             progress = min(100, int(elapsed / _STATE.duration * 100))
             _STATE.progress = progress
             if progress < 22:
-                _STATE.phase = "验证更新包"
-                _STATE.message = "正在核对签名与文件清单。"
+                _STATE.phase = "模拟检查"
+                _STATE.message = "正在演示更新检查，不读取或替换程序文件。"
             elif progress < 68:
-                _STATE.phase = "准备新版本"
-                _STATE.message = "仅模拟写入预览环境，不会修改现有程序。"
+                _STATE.phase = "模拟准备"
+                _STATE.message = "正在演示准备阶段，不会修改现有程序。"
             elif progress < 100:
-                _STATE.phase = "完成安全检查"
-                _STATE.message = "正在确认回退点和启动文件。"
+                _STATE.phase = "模拟完成"
+                _STATE.message = "正在演示完成阶段，不提供安装或回退能力。"
             else:
                 _STATE.status = "installed"
                 _STATE.phase = "更新已就绪"
@@ -71,18 +67,17 @@ def _snapshot() -> dict:
         "update_available": payload["status"] in {"available", "installing", "cancelled"},
         "can_install": payload["status"] in {"available", "cancelled"},
         "can_cancel": payload["status"] == "installing",
-        "mock": True,
-        "security": {"signed": True, "verified": True, "rollback": True},
+        "simulation": True,
         "release_notes": [
-            "新增启动前更新提示，不打断正在查看的任务。",
-            "更新过程显示验证、准备和完成阶段。",
-            "保留当前版本，模拟失败时可安全回退。",
+            "这是界面流程 simulation，不下载、不安装任何更新。",
+            "演示检查、准备和完成阶段的状态反馈。",
+            "目标 v0.3.1-demo 仅用于演示，不代表可用发布版。",
         ],
     })
     return payload
 
 
-app = FastAPI(title="Tearice 更新预览", docs_url=None, redoc_url=None)
+app = FastAPI(title="Tearice 自动化大管家", docs_url=None, redoc_url=None)
 
 
 @app.get("/")
@@ -144,8 +139,8 @@ def update_install():
             raise HTTPException(409, "模拟更新已经完成，请先重置预览")
         _STATE.status = "installing"
         _STATE.progress = 1
-        _STATE.phase = "验证更新包"
-        _STATE.message = "正在核对签名与文件清单。"
+        _STATE.phase = "模拟检查"
+        _STATE.message = "正在演示更新检查，不读取或替换程序文件。"
         _STATE.started_at = time.monotonic()
     return {"ok": True, "message": "已开始模拟安装", "update": _snapshot()}
 
@@ -215,7 +210,7 @@ def desktop():
     atexit.register(shutdown)
     icon_name = "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
     icon = STATIC / icon_name
-    webview.create_window("Tearice · 自动更新预览", url=url, width=1180, height=780,
+    webview.create_window("Tearice · 自动化大管家", url=url, width=1180, height=780,
                           resizable=True, min_size=(700, 520))
     try:
         webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"),

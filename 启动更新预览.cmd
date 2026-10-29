@@ -1,5 +1,4 @@
 @echo off
-cd /d "%~dp0"
-"%~dp0workbench\.venv\Scripts\python.exe" "%~dp0tools\launch_update_preview.py"
-if errorlevel 1 pause
-exit /b 0
+chcp 65001 >nul
+echo 更新演示已并入默认看板，正在启动大管家。
+call "%~dp0启动大管家.cmd"

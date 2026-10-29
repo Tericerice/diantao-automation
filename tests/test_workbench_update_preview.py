@@ -1,6 +1,8 @@
 """Contract tests for the isolated in-memory update preview."""
 import importlib
+import importlib.util
 import inspect
+from pathlib import Path
 import sys
 from types import SimpleNamespace
 import urllib.request
@@ -20,7 +22,7 @@ def client(monkeypatch):
         yield connection
 
 
-def test_preview_contract_is_isolated_and_serves_safe_mock_data(client):
+def test_dashboard_serves_explicit_simulation_data(client):
     health = client.get("/api/health").json()
     assert health == {"ok": True, "preview": True, "running_count": 0,
                       "version": preview.CURRENT_VERSION}
@@ -41,13 +43,38 @@ def test_preview_contract_is_isolated_and_serves_safe_mock_data(client):
     assert upstream["ok"] is True
     assert upstream["upstream"] == "http://127.0.0.1:9060"
     status = client.get("/api/update/status").json()
-    assert status["mock"] is True
-    assert status["security"] == {"signed": True, "verified": True, "rollback": True}
+    assert status["simulation"] is True
+    assert status["current_version"] == "0.3.0"
+    assert status["latest_version"] == "0.3.1-demo"
+    assert "security" not in status
     source = inspect.getsource(preview)
     assert "workbench.phone" not in source
     assert "workbench.tasks" not in source
     assert "task_host" not in source
     assert "subprocess" not in source
+
+
+def test_launcher_reuses_compatible_backend_and_only_stops_owned_process(monkeypatch):
+    path = Path(__file__).resolve().parents[1] / "tools/launch_update_preview.py"
+    spec = importlib.util.spec_from_file_location("launch_dashboard", path)
+    launcher = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(launcher)
+
+    class Process:
+        def __init__(self):
+            self.terminated = False
+        def poll(self):
+            return None
+        def terminate(self):
+            self.terminated = True
+        def wait(self, timeout=None):
+            return 0
+
+    reused = Process()
+    launcher._stop_owned_backend(None)
+    assert reused.terminated is False
+    launcher._stop_owned_backend(reused)
+    assert reused.terminated is True
 
 
 def test_update_check_install_cancel_and_reset_are_in_memory(client):
@@ -99,7 +126,7 @@ def test_desktop_uses_dedicated_identity_storage_and_port_fallback(monkeypatch):
         start=lambda **options: settings.append(options),
     ))
     preview.desktop()
-    assert windows[0][0] == "Tearice · 自动更新预览"
+    assert windows[0][0] == "Tearice · 自动化大管家"
     assert preview.APP_USER_MODEL_ID != "DianTao.AutomationButler"
     assert settings[0]["storage_path"].endswith(
         ".runtime\\workbench_update_preview\\webview"
