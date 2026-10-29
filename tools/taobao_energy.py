@@ -483,9 +483,9 @@ def visit(d, title, deadline, nodes):
 
 
 def next_task(d, nodes, attempted, deadline):
-    """只从当前任务页选择一项；执行后的新扫描结果由调用方继续使用。"""
+    """只从当前任务页选择一项；普通能量任务全部排在跳转类任务之前。"""
     guard(deadline)
-    LOG.info("[扫描] 检查当前可见任务，顺序：淘宝 → 支付宝 → 其他应用")
+    LOG.info("[扫描] 检查当前可见任务，顺序：普通能量任务 → 跳转类任务")
     candidates = {}
     width = d.window_size()[0]
     for row, _button in task_rows(nodes, width):
@@ -496,7 +496,12 @@ def next_task(d, nodes, attempted, deadline):
             task_button(nodes, title, width)
         except RuntimeError:
             continue
-        candidates[title] = {"taobao": 0, "alipay": 1, "external": 2}[task_kind(title)]
+        # VISIT 中的任务都会离开当前任务列表，即使目标仍是淘宝本身，也最后执行；
+        # 跳转类内部继续维持淘宝 → 支付宝 → 其他应用的稳定顺序。
+        candidates[title] = (
+            (0, 0) if title not in VISIT
+            else (1, {"taobao": 0, "alipay": 1, "external": 2}[task_kind(title)])
+        )
     selected = min(candidates, key=candidates.get) if candidates else None
     return selected, nodes
 

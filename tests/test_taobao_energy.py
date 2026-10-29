@@ -163,6 +163,31 @@ def test_visible_task_selection_never_scrolls(monkeypatch):
     scan.assert_not_called()
 
 
+def test_non_jump_energy_task_precedes_all_visible_jump_tasks():
+    from tools import taobao_energy as task
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import MagicMock
+    nodes = [
+        dict(text="做任务赚能量", cx=630, cy=590),
+        dict(text="领闪购红包下单直接省(0/1)", cx=430, cy=1260),
+        dict(text="去完成", cx=1102, cy=1292),
+        dict(text="去百度App领现金(0/1)", cx=430, cy=1460),
+        dict(text="去完成", cx=1102, cy=1492),
+        dict(text="好物随心逛(0/1)", cx=430, cy=1700),
+        dict(text="去完成", cx=1102, cy=1732),
+    ]
+    d = MagicMock()
+    d.window_size.return_value = (1264, 2780)
+
+    title, selected = task.next_task(
+        d, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1)
+    )
+
+    assert title == "好物随心逛"
+    assert selected is nodes
+    d.swipe.assert_not_called()
+
+
 def test_visible_taobao_task_precedes_visible_alipay_task():
     from tools import taobao_energy as task
     from datetime import datetime, timezone, timedelta
