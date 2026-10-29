@@ -8,6 +8,7 @@ from __future__ import annotations
 import atexit
 import ctypes
 from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 import socket
 import sys
@@ -26,15 +27,7 @@ APP_USER_MODEL_ID = "Tearice.DianTao.UpdatePreview"
 DEFAULT_PORT = 9070
 CURRENT_VERSION = "0.2.1"
 LATEST_VERSION = "0.3.0-preview"
-
-APPS = (
-    {"id": "diantao-all-in-one", "category": "script", "name": "点淘一键全部执行",
-     "description": "连通性 → 下滑 → 日常任务 → 养优惠", "status": "stopped", "available": True},
-    {"id": "diantao-work-guard", "category": "script", "name": "打工与体力守护",
-     "description": "按倒计时守护打工和体力领取", "status": "stopped", "available": True},
-    {"id": "diantao-signin", "category": "script", "name": "签到赢元宝",
-     "description": "签到、视频与日常奖励", "status": "stopped", "available": True},
-)
+UPSTREAM = "http://127.0.0.1:9060"
 
 
 @dataclass
@@ -112,14 +105,15 @@ def health():
     return {"ok": True, "preview": True, "running_count": 0, "version": CURRENT_VERSION}
 
 
-@app.get("/api/apps")
-def apps():
-    return {"apps": [dict(item) for item in APPS]}
-
-
-@app.get("/api/adb/status")
-def adb_status():
-    return {"installed": True, "devices": [], "mock": True, "message": "预览模式未连接手机"}
+@app.get("/api/upstream/status")
+def upstream_status():
+    """Read-only probe of the real workbench that is embedded in the page."""
+    try:
+        with urllib.request.urlopen(UPSTREAM + "/api/health", timeout=2) as response:
+            health = json.loads(response.read().decode("utf-8"))
+        return {"ok": True, "upstream": UPSTREAM, "health": health}
+    except Exception as error:
+        return {"ok": False, "upstream": UPSTREAM, "error": str(error)}
 
 
 @app.get("/api/update/status")

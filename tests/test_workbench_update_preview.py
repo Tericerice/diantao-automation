@@ -24,9 +24,22 @@ def test_preview_contract_is_isolated_and_serves_safe_mock_data(client):
     health = client.get("/api/health").json()
     assert health == {"ok": True, "preview": True, "running_count": 0,
                       "version": preview.CURRENT_VERSION}
-    apps = client.get("/api/apps").json()["apps"]
-    assert apps and all(item["status"] == "stopped" for item in apps)
-    assert client.get("/api/adb/status").json()["mock"] is True
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"ok":true,"running_count":0}'
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(preview.urllib.request, "urlopen", lambda *args, **kwargs: Response())
+    upstream = client.get("/api/upstream/status").json()
+    monkeypatch.undo()
+    assert upstream["ok"] is True
+    assert upstream["upstream"] == "http://127.0.0.1:9060"
     status = client.get("/api/update/status").json()
     assert status["mock"] is True
     assert status["security"] == {"signed": True, "verified": True, "rollback": True}
