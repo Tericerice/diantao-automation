@@ -219,7 +219,8 @@ def desktop():
         server.should_exit = True
 
     atexit.register(shutdown)
-    icon = STATIC / "tearice-logo.svg"
+    icon_name = "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
+    icon = STATIC / icon_name
     webview.create_window("Tearice · 自动更新预览", url=url, width=1180, height=780,
                           resizable=True, min_size=(700, 520))
     try:
