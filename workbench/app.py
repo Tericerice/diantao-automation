@@ -43,6 +43,18 @@ NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 APP_USER_MODEL_ID = "DianTao.AutomationButler"
 
 
+def runtime_version() -> dict:
+    metadata = ROOT / "VERSION.json"
+    if metadata.is_file():
+        try:
+            payload = json.loads(metadata.read_text(encoding="utf-8"))
+            if isinstance(payload.get("version"), str):
+                return payload
+        except (OSError, ValueError):
+            pass
+    return {"version": "v0.3.0", "commit": None}
+
+
 def append_log(task_id: str, text: str):
     with LOG_LOCK:
         SEQUENCES[task_id] = SEQUENCES.get(task_id, 0) + 1
@@ -134,7 +146,13 @@ def static_asset(name: str):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "running_count": sum(status(key)["status"] == "running" for key in TASKS)}
+    return {"ok": True, "running_count": sum(status(key)["status"] == "running" for key in TASKS),
+            "version": runtime_version()["version"]}
+
+
+@app.get("/api/version")
+def version():
+    return runtime_version()
 
 
 @app.get("/api/apps")

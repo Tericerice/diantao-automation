@@ -52,7 +52,10 @@ def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     assert html.count('id="connect-phone"') == 1
     assert 'data-tab="web"' not in html
     assert 'data-tab="ai"' not in html
-    assert client.get("/api/health").json()["running_count"] == 0
+    health = client.get("/api/health").json()
+    assert health["running_count"] == 0
+    assert health["version"] == "v0.3.0"
+    assert client.get("/api/version").json()["version"] == "v0.3.0"
     assert client.post("/api/start/unknown").status_code == 404
     for task_id in (
         "diantao-saved-tasks", "taobao-618-external", "diantao-618",

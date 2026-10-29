@@ -27,8 +27,8 @@ def page(browser):
     errors = []
     tab.on("pageerror", lambda error: errors.append(str(error)))
     update = {
-        "status": "available", "current_version": "0.2.1",
-        "latest_version": "0.3.0-preview", "progress": 0,
+        "status": "available", "current_version": "0.3.0",
+        "latest_version": "0.3.1-demo", "progress": 0,
         "phase": "发现新版本", "message": "新版本已准备好。",
         "can_install": True, "can_cancel": False,
         "release_notes": ["新增真实管家嵌入的新看板。"],
@@ -66,14 +66,14 @@ def page(browser):
 
 
 def test_new_shell_embeds_real_workbench_and_shows_update_entry(page):
-    playwright.expect(page).to_have_title("Tearice · 新看板预览")
+    playwright.expect(page).to_have_title("Tearice · 自动化大管家")
     playwright.expect(page.locator("#upstream-status")).to_contain_text("真实管家已连接")
     playwright.expect(page.get_by_role("region", name="版本更新提示")).to_be_visible()
     playwright.expect(page.get_by_role("dialog")).to_be_hidden()
     assert page.locator("#real-workbench").get_attribute("src").startswith("http://127.0.0.1:9060/")
 
 
-def test_update_dialog_remains_mock_and_returns_focus(page):
+def test_update_dialog_remains_simulation_and_returns_focus(page):
     opener = page.get_by_role("button", name="查看更新")
     opener.click()
     playwright.expect(page.get_by_role("dialog")).to_be_visible()
