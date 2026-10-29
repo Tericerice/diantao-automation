@@ -24,8 +24,9 @@ def client(monkeypatch):
 
 def test_dashboard_serves_explicit_simulation_data(client):
     health = client.get("/api/health").json()
-    assert health == {"ok": True, "preview": True, "running_count": 0,
-                      "version": preview.CURRENT_VERSION}
+    assert health == {"ok": True, "running_count": 0,
+                      "version": preview.CURRENT_VERSION,
+                      "update_mode": "simulation"}
     class Response:
         def __enter__(self):
             return self
@@ -44,6 +45,7 @@ def test_dashboard_serves_explicit_simulation_data(client):
     assert upstream["upstream"] == "http://127.0.0.1:9060"
     status = client.get("/api/update/status").json()
     assert status["simulation"] is True
+    assert status["update_mode"] == "simulation"
     assert status["current_version"] == "0.3.0"
     assert status["latest_version"] == "0.3.1-demo"
     assert "security" not in status

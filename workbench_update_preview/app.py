@@ -68,6 +68,7 @@ def _snapshot() -> dict:
         "can_install": payload["status"] in {"available", "cancelled"},
         "can_cancel": payload["status"] == "installing",
         "simulation": True,
+        "update_mode": "simulation",
         "release_notes": [
             "这是界面流程 simulation，不下载、不安装任何更新。",
             "演示检查、准备和完成阶段的状态反馈。",
@@ -97,7 +98,8 @@ def static_asset(name: str):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "preview": True, "running_count": 0, "version": CURRENT_VERSION}
+    return {"ok": True, "running_count": 0, "version": CURRENT_VERSION,
+            "update_mode": "simulation"}
 
 
 @app.get("/api/upstream/status")
