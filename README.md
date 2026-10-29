@@ -19,10 +19,9 @@
 
 当前版本：**v0.3.0（2026-10-29）**。
 
-- **[夸克网盘下载 v0.3.0](https://pan.quark.cn/s/8b0cd4aa595a)**：永久有效，无需提取码。
-- GitHub 备用下载：本仓库 **Releases** 中的 `diantao-workbench-v0.3.0.zip`。
+- **[夸克网盘下载 v0.3.0](https://pan.quark.cn/s/a7adc945d95a)**：永久有效，无需提取码。
 
-从上述任一入口下载 `diantao-workbench-v0.3.0.zip`，解压后先双击
+从夸克网盘下载 `diantao-workbench-v0.3.0.zip`，解压后先双击
 **`配置本机.cmd`**，再双击 **`启动大管家.cmd`**。首次启动会在缺少 `uv` 时安装它，
 仍需自行安装 ADB 并准备自己的 OCR；这是源码运行包，不是免安装 EXE。
 
