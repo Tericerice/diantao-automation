@@ -237,6 +237,33 @@ def test_qr_pairs_only_its_own_service_and_verifies_device_connection(client, mo
     assert client.get("/api/adb/qr-poll/" + qr["session_id"]).json()["status"] == "expired"
 
 
+def test_native_update_endpoints_and_health_version(client):
+    health = client.get("/api/health").json()
+    assert health["ok"] is True
+    assert health["version"] == desktop.CURRENT_VERSION
+
+    status = client.get("/api/update/status").json()
+    assert status["simulation"] is True
+    assert status["update_mode"] == "simulation"
+    assert status["current_version"] == "0.3.0"
+
+    check = client.post("/api/update/check").json()
+    assert check["ok"] is True
+    assert check["update"]["status"] == "available"
+
+    install = client.post("/api/update/install").json()
+    assert install["ok"] is True
+    assert install["update"]["status"] == "installing"
+
+    cancel = client.post("/api/update/cancel").json()
+    assert cancel["ok"] is True
+    assert cancel["update"]["status"] == "cancelled"
+
+    reset = client.post("/api/update/reset").json()
+    assert reset["ok"] is True
+    assert reset["update"]["status"] == "available"
+
+
 def test_qr_requires_adb_and_connect_does_not_trust_exit_code_zero(client, monkeypatch):
     monkeypatch.setattr(phone, "find_adb", lambda: None)
     assert client.post("/api/adb/qr-generate").status_code == 400

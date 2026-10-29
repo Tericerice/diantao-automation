@@ -43,8 +43,9 @@ def test_archive_uses_commit_and_omits_untracked_ignored_settings(tmp_path):
     git("init")
     git("config", "user.name", "Release Test")
     git("config", "user.email", "release@example.invalid")
-    for name in ("启动工作台.cmd", "配置本机.cmd", "local_config.py", ".env.example",
-                 "workbench/app.py", "workbench/uv.lock", "养优惠.py", "tools/taobao_energy.py"):
+    for name in ("启动大管家.cmd", "启动旧版大管家.cmd", "启动工作台.cmd", "配置本机.cmd",
+                 "local_config.py", ".env.example", "workbench/app.py", "workbench/uv.lock",
+                 "养优惠.py", "tools/taobao_energy.py"):
         file = root / name
         file.parent.mkdir(parents=True, exist_ok=True)
         file.write_text("# example\n", encoding="utf-8")

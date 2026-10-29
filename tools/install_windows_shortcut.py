@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHER = ROOT / "启动大管家.cmd"
-ICON = ROOT / "workbench" / "static" / "butler-logo.ico"
+ICON = ROOT / "workbench" / "static" / "tearice-logo.ico"
 
 
 def main() -> int:

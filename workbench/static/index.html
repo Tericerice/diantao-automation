@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0B1411">
 <link rel="icon" type="image/svg+xml" href="/static/tearice-logo.svg">
+<link rel="alternate icon" type="image/png" href="/static/butler-logo.png">
 <title>Tearice · 自动化大管家</title>
 <script>
 function applyTheme(value, remember) {
@@ -629,6 +630,48 @@ catch (error) { applyTheme('ink', false); }
     .dialog { padding: 20px; }
     .qr-image { width: min(224px, 100%); height: auto; aspect-ratio: 1; }
   }
+  /* 原生更新组件样式 */
+  .version-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 10px; border-radius: var(--radius-pill);
+    border: 1px solid var(--line); background: var(--surface-panel);
+    color: var(--text-secondary); font-family: var(--mono); font-size: 11px;
+    cursor: pointer; transition: all .2s ease;
+  }
+  .version-badge:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+  .version-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); display: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 25%, transparent); }
+  .version-badge.has-update .version-dot { display: inline-block; }
+  .update-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    margin: 0 0 20px 0; padding: 12px 18px; border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--gold) 8%, var(--surface-panel));
+    border: 1px solid color-mix(in srgb, var(--gold) 40%, var(--line));
+    animation: fadeIn .3s ease both;
+  }
+  .update-banner[hidden] { display: none !important; }
+  .update-banner-copy { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  .update-banner-copy .update-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 4px color-mix(in srgb, var(--gold) 20%, transparent); flex-shrink: 0; }
+  .update-banner-copy strong { color: var(--text-primary); }
+  .update-banner-copy span { color: var(--text-secondary); font-size: 12px; }
+  .update-banner-actions { display: flex; align-items: center; gap: 8px; }
+  .version-route {
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px;
+    background: var(--surface-elevated); border: 1px solid var(--line); border-radius: var(--radius-md);
+    padding: 14px 18px; margin-bottom: 16px;
+  }
+  .version-route div:last-child { text-align: right; }
+  .version-route span { display: block; color: var(--text-tertiary); font-size: 11px; margin-bottom: 3px; }
+  .version-route strong { font-family: var(--mono); font-size: 18px; color: var(--accent-primary); }
+  .version-route .route-arrow { color: var(--gold); font-size: 20px; text-align: center; }
+  .update-notes { margin: 0 0 16px 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+  .security-badges { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  .security-badge { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px; text-align: center; font-size: 11px; }
+  .security-badge b { display: block; color: var(--accent-primary); margin-bottom: 2px; }
+  .update-progress-box { background: var(--surface-elevated); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; }
+  .update-progress-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 8px; }
+  .update-progress-track { height: 8px; background: var(--surface-panel); border-radius: var(--radius-pill); overflow: hidden; }
+  .update-progress-bar { height: 100%; width: 0%; background: var(--accent-primary); transition: width .25s ease; }
+  .update-progress-msg { color: var(--text-tertiary); font-size: 11px; margin: 8px 0 0 0; }
   @media (prefers-reduced-motion: reduce) {
     *, ::before, ::after {
       animation: none !important; transition: none !important; scroll-behavior: auto !important;
@@ -663,6 +706,7 @@ catch (error) { applyTheme('ink', false); }
     </svg>
   </span><span class="brand-name">Tearice</span><span class="brand-divider"></span><span class="brand-label">日常自动化工作台</span></div>
   <div class="topbar-right">
+    <button id="version-badge" class="version-badge" type="button" aria-haspopup="dialog" aria-label="版本与更新"><span id="version-tag">v0.3.0</span><span class="version-dot"></span></button>
     <div class="theme-switch" role="group" aria-label="界面配色">
       <button class="theme-option" data-theme-option="ink" aria-label="玄墨茶绿配色" aria-pressed="true">玄墨</button>
       <button class="theme-option" data-theme-option="paper" aria-label="宣纸暖白配色" aria-pressed="false">宣纸</button>
@@ -671,6 +715,16 @@ catch (error) { applyTheme('ink', false); }
   </div>
 </header>
 <main class="workspace">
+  <aside id="update-banner" class="update-banner" aria-label="版本更新提示" hidden>
+    <div class="update-banner-copy">
+      <i class="update-dot" aria-hidden="true"></i>
+      <div><strong id="banner-title">v0.3.1-demo 可用</strong><span id="banner-message">新版本已准备好，点击查看更新内容。</span></div>
+    </div>
+    <div class="update-banner-actions">
+      <button id="view-update" class="btn btn-primary" type="button">查看更新</button>
+      <button id="dismiss-banner" class="icon-btn" type="button" aria-label="稍后提醒">×</button>
+    </div>
+  </aside>
   <section class="page-heading" aria-labelledby="page-title">
     <div><div class="eyebrow">TEARICE · DAILY RITUAL</div><h1 id="page-title"><span class="brand-serif">Tearice</span> 自动化大管家</h1><p>全项目任务统一管理 · 同一时间执行一项任务</p></div>
     <div class="metrics"><div class="metric"><strong id="stat-total">—</strong><span>任务入口</span></div><div class="metric running"><strong id="stat-running">—</strong><span>正在运行</span></div></div>
@@ -711,6 +765,32 @@ catch (error) { applyTheme('ink', false); }
     <p id="adb-qr-status" class="qr-status" role="status" aria-live="polite">等待扫码</p>
     <div class="qr-instructions"><ol><li>手机打开<strong>设置 → 开发者选项 → 无线调试</strong>。</li><li>选择<strong>使用二维码配对设备</strong>，扫描上方二维码。</li><li>配对后自动连接，回到工作台即可启动任务。</li></ol></div>
     <div class="qr-actions"><button id="qr-regenerate" class="btn"><svg><use href="#i-refresh"/></svg>重新生成</button><button id="adb-qr-connect-btn" class="btn btn-primary" hidden>重试连接</button></div>
+  </div>
+</div>
+<div id="update-modal" class="overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="update-title" aria-describedby="update-subtitle">
+  <div class="dialog">
+    <div class="dialog-heading"><div><h2 id="update-title">版本与更新</h2><p id="update-subtitle">自动化大管家 · 交互演示</p></div><button id="update-close" class="icon-btn" aria-label="关闭更新窗口"><svg><use href="#i-close"/></svg></button></div>
+    <div class="version-route">
+      <div><span>当前版本</span><strong id="update-current">v0.3.0</strong></div>
+      <div class="route-arrow" aria-hidden="true">›</div>
+      <div><span>目标版本</span><strong id="update-target">v0.3.1-demo</strong></div>
+    </div>
+    <ul id="update-notes" class="update-notes"></ul>
+    <div class="security-badges" aria-label="安全特性">
+      <div class="security-badge"><b>✓ 原生启动</b>单进程无嵌套</div>
+      <div class="security-badge"><b>✓ 任务互斥</b>运行不被打断</div>
+      <div class="security-badge"><b>✓ 经典回退</b>支持 --legacy</div>
+    </div>
+    <div id="update-progress-box" class="update-progress-box" hidden>
+      <div class="update-progress-head"><strong id="update-phase">模拟检查</strong><span id="update-progress-val">0%</span></div>
+      <div class="update-progress-track" role="progressbar" aria-label="模拟更新进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="update-progress-bar" class="update-progress-bar"></div></div>
+      <p id="update-progress-msg" class="update-progress-msg"></p>
+    </div>
+    <div class="qr-actions">
+      <button id="update-cancel-btn" class="btn" hidden>取消</button>
+      <button id="update-reset-btn" class="btn" hidden>重新体验</button>
+      <button id="update-install-btn" class="btn btn-primary">开始模拟更新</button>
+    </div>
   </div>
 </div>
 <script>
@@ -1006,16 +1086,104 @@ $('adb-qr-connect-btn').addEventListener('click', function() {
   else connectQr(qrNonce, 0);
 });
 $('adb-qr-modal').addEventListener('click', function(event) { if (event.target === this) closeQr(); });
+$('update-modal').addEventListener('click', function(event) { if (event.target === this) closeUpdate(); });
 document.addEventListener('keydown', function(event) {
-  if ($('adb-qr-modal').style.display === 'none') return;
-  if (event.key === 'Escape') { closeQr(); return; }
+  var activeModal = $('adb-qr-modal').style.display !== 'none' ? $('adb-qr-modal') : ($('update-modal').style.display !== 'none' ? $('update-modal') : null);
+  if (!activeModal) return;
+  if (event.key === 'Escape') {
+    if (activeModal === $('adb-qr-modal')) closeQr();
+    else closeUpdate();
+    return;
+  }
   if (event.key === 'Tab') {
-    var buttons = Array.from($('adb-qr-modal').querySelectorAll('button')).filter(function(button) { return !button.hidden && !button.disabled; });
+    var buttons = Array.from(activeModal.querySelectorAll('button')).filter(function(button) { return !button.hidden && !button.disabled; });
     var first = buttons[0], last = buttons[buttons.length - 1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
   }
 });
+/* 原生更新逻辑 */
+var updateState = null, updatePoll = null, updateReturnFocus = null;
+var isLegacy = new URLSearchParams(window.location.search).has('legacy');
+function formatVer(v) { return String(v || '').startsWith('v') ? String(v) : 'v' + v; }
+function renderUpdate(next) {
+  updateState = next;
+  $('version-tag').textContent = formatVer(next.current_version);
+  $('version-badge').classList.toggle('has-update', !!next.update_available);
+  if (!isLegacy && next.update_available && !localStorage.getItem('butler.update.dismissed_' + next.latest_version)) {
+    $('banner-title').textContent = formatVer(next.latest_version) + ' 可用';
+    $('banner-message').textContent = next.message;
+    $('update-banner').hidden = false;
+  } else {
+    $('update-banner').hidden = true;
+  }
+  $('update-current').textContent = formatVer(next.current_version);
+  $('update-target').textContent = formatVer(next.latest_version);
+  $('update-notes').innerHTML = (next.release_notes || []).map(function(t) { return '<li>' + escapeHtml(t) + '</li>'; }).join('');
+  var active = ['installing', 'installed', 'cancelled'].indexOf(next.status) !== -1;
+  $('update-progress-box').hidden = !active;
+  $('update-phase').textContent = next.phase || '进行中';
+  $('update-progress-val').textContent = (next.progress || 0) + '%';
+  $('update-progress-bar').style.width = (next.progress || 0) + '%';
+  $('update-progress-msg').textContent = next.message || '';
+  $('update-install-btn').hidden = !next.can_install;
+  $('update-cancel-btn').hidden = !next.can_cancel;
+  $('update-reset-btn').hidden = next.status !== 'installed';
+  if (next.status === 'installing') startUpdatePoll();
+  else stopUpdatePoll();
+}
+async function refreshUpdate() {
+  if (isLegacy) return;
+  try {
+    var data = await request('/api/update/status');
+    renderUpdate(data);
+  } catch(e) {}
+}
+function startUpdatePoll() {
+  if (updatePoll) return;
+  updatePoll = setInterval(refreshUpdate, 300);
+}
+function stopUpdatePoll() {
+  clearInterval(updatePoll);
+  updatePoll = null;
+}
+function openUpdate() {
+  if (isLegacy) return;
+  updateReturnFocus = document.activeElement;
+  $('update-modal').style.display = 'flex';
+  $('update-close').focus();
+  refreshUpdate();
+}
+function closeUpdate() {
+  if (updateState && updateState.status === 'installing') return;
+  $('update-modal').style.display = 'none';
+  if (updateReturnFocus) updateReturnFocus.focus();
+}
+async function updateAction(action) {
+  try {
+    var data = await request('/api/update/' + action, {method: 'POST'});
+    if (data.update) renderUpdate(data.update);
+    if (data.message) toast(data.message);
+  } catch(e) {
+    toast(e.message, 'error');
+  }
+}
+$('version-badge').addEventListener('click', openUpdate);
+$('view-update').addEventListener('click', openUpdate);
+$('dismiss-banner').addEventListener('click', function() {
+  $('update-banner').hidden = true;
+  if (updateState && updateState.latest_version) {
+    localStorage.setItem('butler.update.dismissed_' + updateState.latest_version, '1');
+  }
+});
+$('update-close').addEventListener('click', closeUpdate);
+$('update-install-btn').addEventListener('click', function() { updateAction('install'); });
+$('update-cancel-btn').addEventListener('click', function() { updateAction('cancel'); });
+$('update-reset-btn').addEventListener('click', function() { updateAction('reset'); });
+if (isLegacy) {
+  $('version-badge').style.cursor = 'default';
+  $('version-badge').title = '经典回退模式';
+}
 document.addEventListener('click', function(event) {
   var themeButton = event.target.closest('[data-theme-option]');
   if (themeButton) applyTheme(themeButton.dataset.themeOption);
@@ -1058,6 +1226,7 @@ function tick() { $('clock').textContent = new Date().toLocaleTimeString('zh-CN'
 applyTheme(document.documentElement.dataset.theme, false);
 tick(); setInterval(tick, 1000);
 refreshTasks(); refreshDevice();
+if (!isLegacy) refreshUpdate();
 setInterval(function() { refreshTasks(); refreshDevice(); }, 8000);
 window.addEventListener('beforeunload', function() { stopQrPoll(); Object.keys(streams).forEach(function(id) { streams[id].close(); }); });
 </script>
