@@ -29,6 +29,14 @@ def client(monkeypatch, tmp_path):
         yield connection
 
 
+def test_coins_task_is_listed_immediately_above_work_guard():
+    task_ids = list(desktop.TASKS)
+
+    guard_index = task_ids.index("diantao-work-guard")
+
+    assert task_ids[guard_index - 1] == "diantao-coins"
+
+
 def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     from task_catalog import TASK_FILES
 
@@ -52,10 +60,7 @@ def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     assert html.count('id="connect-phone"') == 1
     assert 'data-tab="web"' not in html
     assert 'data-tab="ai"' not in html
-    health = client.get("/api/health").json()
-    assert health["running_count"] == 0
-    assert health["version"] == "v0.3.0"
-    assert client.get("/api/version").json()["version"] == "v0.3.0"
+    assert client.get("/api/health").json()["running_count"] == 0
     assert client.post("/api/start/unknown").status_code == 404
     for task_id in (
         "diantao-saved-tasks", "taobao-618-external", "diantao-618",
@@ -230,6 +235,33 @@ def test_qr_pairs_only_its_own_service_and_verifies_device_connection(client, mo
     assert next(call for call in calls if call[0] == "pair")[1] == "192.0.2.5:37001"
     client.post("/api/adb/qr-cancel/" + qr["session_id"])
     assert client.get("/api/adb/qr-poll/" + qr["session_id"]).json()["status"] == "expired"
+
+
+def test_native_update_endpoints_and_health_version(client):
+    health = client.get("/api/health").json()
+    assert health["ok"] is True
+    assert health["version"] == desktop.CURRENT_VERSION
+
+    status = client.get("/api/update/status").json()
+    assert status["simulation"] is True
+    assert status["update_mode"] == "simulation"
+    assert status["current_version"] == "0.3.0"
+
+    check = client.post("/api/update/check").json()
+    assert check["ok"] is True
+    assert check["update"]["status"] == "available"
+
+    install = client.post("/api/update/install").json()
+    assert install["ok"] is True
+    assert install["update"]["status"] == "installing"
+
+    cancel = client.post("/api/update/cancel").json()
+    assert cancel["ok"] is True
+    assert cancel["update"]["status"] == "cancelled"
+
+    reset = client.post("/api/update/reset").json()
+    assert reset["ok"] is True
+    assert reset["update"]["status"] == "available"
 
 
 def test_qr_requires_adb_and_connect_does_not_trust_exit_code_zero(client, monkeypatch):

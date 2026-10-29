@@ -91,6 +91,16 @@ def workbench(browser):
         elif path.startswith("/api/adb/qr-connect/"):
             state["connected"] = True
             body = {"ok": True, "message": "connected"}
+        elif path == "/api/update/status":
+            body = {
+                "status": "available", "current_version": "0.3.0",
+                "latest_version": "0.3.1-demo", "progress": 0,
+                "update_available": True, "can_install": True, "can_cancel": False,
+                "phase": "发现新版本", "message": "新版本已准备好，点击查看更新内容。",
+                "release_notes": ["双十一淘金币任务全新重构。"],
+            }
+        elif path.startswith("/api/update/"):
+            body = {"ok": True, "message": "操作完成"}
         elif path.startswith("/api/adb/qr-cancel/"):
             state["cancelled"].append(path.rsplit("/", 1)[-1])
             body = {"ok": True}
@@ -282,3 +292,20 @@ def test_workbench_has_no_horizontal_overflow(workbench, size):
     )
     playwright.expect(page.locator("#connect-phone")).to_be_visible()
     playwright.expect(page.locator("#log-filter")).to_be_visible()
+
+
+def test_update_banner_and_modal_interaction(workbench):
+    page, _ = workbench
+    playwright.expect(page.locator("#version-badge")).to_contain_text("v0.3.0")
+    playwright.expect(page.locator("#update-banner")).to_be_visible()
+    page.locator("#view-update").click()
+    playwright.expect(page.locator("#update-modal")).to_be_visible()
+    playwright.expect(page.locator("#update-close")).to_be_focused()
+    page.keyboard.press("Escape")
+    playwright.expect(page.locator("#update-modal")).to_be_hidden()
+
+
+def test_legacy_mode_silences_update_banner(workbench):
+    page, _ = workbench
+    page.goto("http://workbench.test/?legacy=1")
+    playwright.expect(page.locator("#update-banner")).to_be_hidden()

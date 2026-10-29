@@ -5,6 +5,7 @@ import asyncio
 import atexit
 from collections import deque
 from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass
 import json
 import os
 from pathlib import Path
@@ -41,18 +42,60 @@ LOG_LOCK = threading.Lock()
 TASK_LOCK = threading.Lock()
 NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 APP_USER_MODEL_ID = "DianTao.AutomationButler"
+CURRENT_VERSION = "0.3.0"
+LATEST_VERSION = "0.3.1-demo"
 
 
-def runtime_version() -> dict:
-    metadata = ROOT / "VERSION.json"
-    if metadata.is_file():
-        try:
-            payload = json.loads(metadata.read_text(encoding="utf-8"))
-            if isinstance(payload.get("version"), str):
-                return payload
-        except (OSError, ValueError):
-            pass
-    return {"version": "v0.3.0", "commit": None}
+@dataclass
+class UpdateState:
+    status: str = "available"
+    current_version: str = CURRENT_VERSION
+    latest_version: str = LATEST_VERSION
+    progress: int = 0
+    phase: str = "发现新版本"
+    message: str = "新版本已准备好，点击查看更新内容。"
+    checked_at: float | None = None
+    started_at: float | None = None
+    duration: float = 8.0
+
+
+UPDATE_LOCK = threading.Lock()
+UPDATE_STATE = UpdateState()
+
+
+def update_snapshot() -> dict:
+    with UPDATE_LOCK:
+        if UPDATE_STATE.status == "installing" and UPDATE_STATE.started_at is not None:
+            elapsed = max(0.0, time.monotonic() - UPDATE_STATE.started_at)
+            progress = min(100, int(elapsed / UPDATE_STATE.duration * 100))
+            UPDATE_STATE.progress = progress
+            if progress < 22:
+                UPDATE_STATE.phase = "模拟检查"
+                UPDATE_STATE.message = "正在演示更新检查，不读取或替换程序文件。"
+            elif progress < 68:
+                UPDATE_STATE.phase = "模拟准备"
+                UPDATE_STATE.message = "正在演示准备阶段，不会修改现有程序。"
+            elif progress < 100:
+                UPDATE_STATE.phase = "模拟完成"
+                UPDATE_STATE.message = "正在演示完成阶段，不提供安装或回退能力。"
+            else:
+                UPDATE_STATE.status = "installed"
+                UPDATE_STATE.phase = "更新已就绪"
+                UPDATE_STATE.message = "模拟安装完成。关闭弹窗后可继续使用管家。"
+        payload = asdict(UPDATE_STATE)
+    payload.update({
+        "update_available": payload["status"] in {"available", "installing", "cancelled"},
+        "can_install": payload["status"] in {"available", "cancelled"},
+        "can_cancel": payload["status"] == "installing",
+        "simulation": True,
+        "update_mode": "simulation",
+        "release_notes": [
+            "双十一淘金币任务全新重构，更强稳定性与到账复核。",
+            "新版大管家看板设为默认入口，一体化原生启动。",
+            "更新流程为交互演示，真实在线自动更新器后续就绪。",
+        ],
+    })
+    return payload
 
 
 def append_log(task_id: str, text: str):
@@ -146,13 +189,65 @@ def static_asset(name: str):
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "running_count": sum(status(key)["status"] == "running" for key in TASKS),
-            "version": runtime_version()["version"]}
+    return {
+        "ok": True,
+        "version": CURRENT_VERSION,
+        "running_count": sum(status(key)["status"] == "running" for key in TASKS),
+    }
 
 
-@app.get("/api/version")
-def version():
-    return runtime_version()
+@app.get("/api/update/status")
+def update_status():
+    return update_snapshot()
+
+
+@app.post("/api/update/check")
+def update_check():
+    with UPDATE_LOCK:
+        if UPDATE_STATE.status == "installing":
+            raise HTTPException(409, "模拟更新正在进行")
+        UPDATE_STATE.status = "available"
+        UPDATE_STATE.progress = 0
+        UPDATE_STATE.phase = "发现新版本"
+        UPDATE_STATE.message = "检查完成：有一个经过验证的新版本演示。"
+        UPDATE_STATE.checked_at = time.time()
+        UPDATE_STATE.started_at = None
+    return {"ok": True, "message": "已完成模拟检查", "update": update_snapshot()}
+
+
+@app.post("/api/update/install")
+def update_install():
+    with UPDATE_LOCK:
+        if UPDATE_STATE.status == "installing":
+            raise HTTPException(409, "模拟更新正在进行")
+        if UPDATE_STATE.status == "installed":
+            raise HTTPException(409, "模拟更新已经完成，请先重置演示")
+        UPDATE_STATE.status = "installing"
+        UPDATE_STATE.progress = 1
+        UPDATE_STATE.phase = "模拟检查"
+        UPDATE_STATE.message = "正在演示更新检查，不读取或替换程序文件。"
+        UPDATE_STATE.started_at = time.monotonic()
+    return {"ok": True, "message": "已开始模拟安装", "update": update_snapshot()}
+
+
+@app.post("/api/update/cancel")
+def update_cancel():
+    with UPDATE_LOCK:
+        if UPDATE_STATE.status != "installing":
+            raise HTTPException(409, "当前没有可取消的模拟安装")
+        UPDATE_STATE.status = "cancelled"
+        UPDATE_STATE.phase = "更新已取消"
+        UPDATE_STATE.message = "当前版本保持不变，可随时重新开始。"
+        UPDATE_STATE.started_at = None
+    return {"ok": True, "message": "已取消模拟安装", "update": update_snapshot()}
+
+
+@app.post("/api/update/reset")
+def update_reset():
+    global UPDATE_STATE
+    with UPDATE_LOCK:
+        UPDATE_STATE = UpdateState()
+    return {"ok": True, "message": "更新演示已重置", "update": update_snapshot()}
 
 
 @app.get("/api/apps")
@@ -334,9 +429,12 @@ def desktop():
     else:
         raise RuntimeError("工作台启动失败，请查看本地运行环境")
     atexit.register(cleanup)
+    is_legacy = "--legacy" in sys.argv or os.environ.get("WORKBENCH_LEGACY") == "1"
+    target_url = url + ("?legacy=1" if is_legacy else "")
+    title = "Tearice · 自动化大管家 (经典版)" if is_legacy else "Tearice · 自动化大管家"
     icon_name = "tearice-logo.ico" if sys.platform == "win32" else "tearice-logo.png"
     icon = ROOT / "workbench" / "static" / icon_name
-    webview.create_window("Tearice · 自动化大管家", url=url, width=1280, height=820,
+    webview.create_window(title, url=target_url, width=1280, height=820,
                           resizable=True, min_size=(700, 500))
     try:
         webview.start(private_mode=False, storage_path=str(RUNTIME / "webview"),

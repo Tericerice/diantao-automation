@@ -36,3 +36,19 @@ def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monk
     )
     if sys.platform == "win32":
         assert desktop.APP_USER_MODEL_ID == "DianTao.AutomationButler"
+
+
+def test_desktop_supports_legacy_flag(monkeypatch):
+    windows = []
+
+    def create_window(title, *, url, **options):
+        windows.append((title, url))
+
+    monkeypatch.setattr(sys, "argv", ["app.py", "--legacy"])
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(
+        create_window=create_window, start=lambda **opts: None,
+    ))
+    desktop.desktop()
+    assert len(windows) == 1
+    assert "经典版" in windows[0][0]
+    assert "?legacy=1" in windows[0][1]
