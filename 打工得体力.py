@@ -99,6 +99,22 @@ TASK_CATEGORY_MAP: dict[str, str] = {
 }
 
 
+def handle_dagong_reward_popup():
+    """收下打工奖励；弹窗关闭后再点击一次“打工”回到打工页。"""
+    print("  🔍 检查打工奖励弹窗...")
+    if not u2_click_text(d, "开心收下"):
+        return False
+
+    print("  ✅ 已点击【开心收下】")
+    time.sleep(3)
+    if u2_click_text(d, "打工"):
+        print("  ✅ 已重新点击【打工】返回打工页")
+        time.sleep(4)
+    else:
+        print("  ⚠️ 奖励弹窗已关闭，但未找到【打工】")
+    return True
+
+
 def click_detili():
     """点击得体力（猜价格任务完成后需要重新进入任务列表页）"""
     print("  Step 3: 查找【得体力】...")
@@ -288,7 +304,10 @@ def main():
     print(" 💪 打工得体力")
     print("=" * 50)
 
-    navigate_to_dagong_page(d)
+    if not navigate_to_dagong_page(d):
+        print("⚠️ OCR 导航未完成，停止打工得体力任务")
+        return
+    handle_dagong_reward_popup()
     click_detili()
 
     print("\n✅ 已进入任务列表页面")

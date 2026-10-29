@@ -81,6 +81,46 @@ def load_parse_tasks_from_blocks():
 
 
 class DagongVideoRoutingTest(unittest.TestCase):
+    def test_reward_popup_is_accepted_and_dagong_is_reopened(self):
+        calls = []
+
+        def click_text(_device, text):
+            calls.append(text)
+            return True
+
+        handle_popup = load_function(
+            "打工得体力.py",
+            "handle_dagong_reward_popup",
+            {
+                "d": object(),
+                "u2_click_text": click_text,
+                "time": types.SimpleNamespace(sleep=lambda _seconds: None),
+            },
+        )
+
+        self.assertTrue(handle_popup())
+        self.assertEqual(calls, ["开心收下", "打工"])
+
+    def test_reward_popup_handler_does_not_click_dagong_without_popup(self):
+        calls = []
+
+        def click_text(_device, text):
+            calls.append(text)
+            return False
+
+        handle_popup = load_function(
+            "打工得体力.py",
+            "handle_dagong_reward_popup",
+            {
+                "d": object(),
+                "u2_click_text": click_text,
+                "time": types.SimpleNamespace(sleep=lambda _seconds: None),
+            },
+        )
+
+        self.assertFalse(handle_popup())
+        self.assertEqual(calls, ["开心收下"])
+
     def test_exact_video_name_maps_to_video(self):
         match_task_type = load_match_task_type()
 
