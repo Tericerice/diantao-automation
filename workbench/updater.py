@@ -379,16 +379,15 @@ class UpdateManager:
             total = int(asset["size"])
             digest = hashlib.sha256()
             received = 0
+            cancelled = False
             with requests.get(asset["url"], stream=True, timeout=(10, 90),
                               headers={"User-Agent": "Tearice-Updater/1.0"}) as response:
                 response.raise_for_status()
                 with part.open("wb") as output:
                     for chunk in response.iter_content(CHUNK):
                         if self._cancel.is_set():
-                            part.unlink(missing_ok=True)
-                            self._set(state="available", phase="已取消",
-                                      message="已取消下载", progress=0)
-                            return False
+                            cancelled = True
+                            break
                         if not chunk:
                             continue
                         output.write(chunk)
@@ -396,6 +395,11 @@ class UpdateManager:
                         received += len(chunk)
                         with self.lock:
                             self.progress = min(99, int(received / total * 100))
+            if cancelled:
+                part.unlink(missing_ok=True)
+                self._set(state="available", phase="已取消",
+                          message="已取消下载", progress=0)
+                return False
             if received != total:
                 raise ValueError(f"下载大小不一致：{received} != {total}")
             if digest.hexdigest() != asset["sha256"]:
