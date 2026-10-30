@@ -14,7 +14,10 @@ import re
 import sys
 import time
 
-from u2_scanner import DT_APP, connect_device, navigate_chain
+from u2_scanner import (
+    DT_APP, classify_media_page, connect_device,
+    execute_browse_task, execute_live_task, navigate_chain,
+)
 from utils import get_ocr_text_blocks
 
 
@@ -111,7 +114,7 @@ def return_to_walk_page():
 
 
 def claim_tier(tier_block):
-    """处理一个档位；返回 True 表示已处理，False 表示该档不可用。"""
+    """处理一个档位；返回 claimed / unavailable / failed。"""
     steps = text(tier_block)
     print(f"\n  🎯 点击档位【{steps}】 @({tier_block['cx']},{tier_block['cy']})")
     d.click(int(tier_block["cx"]), int(tier_block["cy"]))
@@ -120,7 +123,7 @@ def claim_tier(tier_block):
 
     if not popup_visible(blocks):
         print(f"  ⊘ 档位【{steps}】没有出现领取弹窗，判定为灰色/未达成")
-        return False
+        return "unavailable"
 
     extra = find_extra_button(blocks)
     if not extra:
@@ -129,15 +132,25 @@ def claim_tier(tier_block):
         if give_up:
             d.click(int(give_up["cx"]), int(give_up["cy"]))
             time.sleep(2)
-        return True
+        return "claimed"
 
     print(f"  🎁 点击【{text(extra)}】 @({extra['cx']},{extra['cy']})")
     d.click(int(extra["cx"]), int(extra["cy"]))
     time.sleep(4)
     blocks = get_ocr_text_blocks(d)
     seconds = browse_seconds(blocks)
-    print(f"  ⏳ 等待额外任务完成（约 {seconds} 秒）...")
-    time.sleep(seconds + 10)
+    media = classify_media_page(blocks)
+    print(f"  🔎 额外任务类型: {media or 'browse'}，目标时长约 {seconds} 秒")
+
+    if media == "live":
+        execute_live_task(d, "走路额外元宝", 0, 0, duration=seconds + 5)
+    else:
+        completed = execute_browse_task(
+            d, min_duration=seconds, max_wait=seconds + 40, extra_seconds=10,
+        )
+        if not completed:
+            print("  ⚠️ 浏览任务超时，停止以避免在错误页面继续点击")
+            return "failed"
 
     if not return_to_walk_page():
         print("  ⚠️ 未能返回走路页，尝试放弃额外奖励后继续")
@@ -146,9 +159,11 @@ def claim_tier(tier_block):
         if give_up:
             d.click(int(give_up["cx"]), int(give_up["cy"]))
             time.sleep(2)
-        return_to_walk_page()
+        if not return_to_walk_page():
+            print("  ⚠️ 仍未能返回走路页，停止")
+            return "failed"
     print(f"  ✅ 档位【{steps}】处理完成")
-    return True
+    return "claimed"
 
 
 def main():
@@ -182,8 +197,12 @@ def main():
             repeats = 0
         last_steps = steps
 
-        if not claim_tier(tier_block):
+        result = claim_tier(tier_block)
+        if result == "unavailable":
             print("\n 已遇到灰色档位，按累计规则停止")
+            break
+        if result == "failed":
+            print("\n 档位处理失败，停止")
             break
         processed += 1
         time.sleep(2)

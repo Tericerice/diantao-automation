@@ -5,7 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock
 
 
 class _FakeDevice:
@@ -57,6 +57,9 @@ class WalkSphereTest(unittest.TestCase):
         scanner.DT_APP = "com.example"
         scanner.connect_device = lambda: self.fake_device
         scanner.navigate_chain = lambda *_args, **_kwargs: True
+        scanner.classify_media_page = lambda _blocks: None
+        scanner.execute_browse_task = lambda *_args, **_kwargs: True
+        scanner.execute_live_task = lambda *_args, **_kwargs: None
 
         utils = types.ModuleType("utils")
         utils.get_ocr_text_blocks = lambda _device: self.ocr_pages.pop(0)
@@ -105,7 +108,7 @@ class WalkSphereTest(unittest.TestCase):
         module = self.load()
         self.ocr_pages = [popup_page(), task_page(), walk_page("500步")]
         result = module["claim_tier"](block("100步", 146, 766))
-        self.assertTrue(result)
+        self.assertEqual(result, "claimed")
         self.assertEqual(self.fake_device.clicks, [(146, 766), (631, 1790)])
         self.assertEqual(self.fake_device.presses, ["back"])
 
@@ -113,8 +116,18 @@ class WalkSphereTest(unittest.TestCase):
         module = self.load()
         self.ocr_pages = [walk_page("100步")]
         result = module["claim_tier"](block("2500步", 354, 878))
-        self.assertFalse(result)
+        self.assertEqual(result, "unavailable")
         self.assertEqual(self.fake_device.clicks, [(354, 878)])
+
+    def test_live_page_uses_live_executor(self):
+        scanner = sys.modules["u2_scanner"]
+        scanner.classify_media_page = lambda _blocks: "live"
+        scanner.execute_live_task = Mock()
+        module = self.load()
+        self.ocr_pages = [popup_page(), task_page(), walk_page("500步")]
+        result = module["claim_tier"](block("100步", 146, 766))
+        self.assertEqual(result, "claimed")
+        scanner.execute_live_task.assert_called_once()
 
     def test_task_is_registered_in_dashboard(self):
         from workbench.tasks import TASKS
