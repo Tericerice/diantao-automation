@@ -68,6 +68,7 @@ class Page:
     start: dict | None = None
     complete: dict | None = None
     dismiss: dict | None = None
+    energy_claimed: bool = False
 
 
 def inspect_page(blocks, size):
@@ -89,7 +90,10 @@ def inspect_page(blocks, size):
             if "120分钟" in details and "888" in details:
                 return Page("chooser", chef=chef, start=start)
         return Page("unknown")
-    if "恭喜获得元宝" in labels:
+    if "打工奖励" in labels or "恭喜获得元宝" in labels or any(re.search(r"获得\d+元宝", t) for t in labels):
+        accept = next((find(blocks, name) for name in ("开心收下", "收下奖励", "直接收下", "我知道了")), None)
+        if accept:
+            return Page("reward_claim", complete=accept)
         complete = find(region(blocks, size, .15, .35, .85, .75), "去完成")
         if complete and any(re.fullmatch(r"888(?:元宝)?", t) for t in labels):
             return Page("reward", complete=complete)
@@ -103,8 +107,10 @@ def inspect_page(blocks, size):
                   if re.fullmatch(r"领取888(?:元宝|奖励)", text(b))), None)
     work = find(middle, "去打工赚钱")
     if find(right, "得体力") and (work_seconds is not None or claim or work):
+        energy_claimed = find(left, "已领完") is not None
         return Page("home", work_seconds=work_seconds,
                     energy_seconds=countdown(left, MAX_ENERGY_SECONDS),
+                    energy_claimed=energy_claimed,
                     claim=claim, work=work, energy=find(left, "领体力"))
     return Page("unknown")
 
@@ -118,9 +124,13 @@ class Schedule:
     def from_page(cls, page, observed_at):
         if page.kind != "home" or page.work_seconds is None:
             raise GuardBlocked("未确认打工倒计时，不能安排下一轮")
-        # OCR/页面动画可能暂时遮住体力计时；短暂复查，不假设已领或等待三小时。
-        energy_wait = (page.energy_seconds if page.energy_seconds is not None
-                       else RECHECK_SECONDS)
+        if page.energy_claimed:
+            # 体力已明确显示“已领完”，无需频繁复查，随打工倒计时复查即可
+            energy_wait = max(page.work_seconds, 60 * 60)
+        else:
+            # OCR/页面动画可能暂时遮住体力计时；短暂复查，不假设已领或等待三小时。
+            energy_wait = (page.energy_seconds if page.energy_seconds is not None
+                           else RECHECK_SECONDS)
         return cls(observed_at + max(1, page.work_seconds) + 1,
                    observed_at + max(1, energy_wait) + 1)
 
@@ -263,6 +273,10 @@ def visit(phone, now=time.time):
                 raise GuardBlocked("奖励任务后仍出现相同弹窗，停止重复执行")
             phone.finish_reward(page)
             reward_completed = True
+        elif page.kind == "reward_claim":
+            phone.click(page.complete)
+            print(f"[奖励] 点击【{text(page.complete)}】收下打工元宝", flush=True)
+            time.sleep(1)
         elif page.kind == "chooser":
             if started:
                 raise GuardBlocked("开工后仍停留选工作面板，未确认厨师倒计时")
