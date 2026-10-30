@@ -237,31 +237,48 @@ def test_qr_pairs_only_its_own_service_and_verifies_device_connection(client, mo
     assert client.get("/api/adb/qr-poll/" + qr["session_id"]).json()["status"] == "expired"
 
 
-def test_native_update_endpoints_and_health_version(client):
+def test_native_update_endpoints_and_health_version(client, monkeypatch):
+    import time
+    import workbench.updater as updater
+
     health = client.get("/api/health").json()
     assert health["ok"] is True
-    assert health["version"] == desktop.CURRENT_VERSION
+    assert health["version"] == desktop.current_version(desktop.ROOT)
 
     status = client.get("/api/update/status").json()
-    assert status["simulation"] is True
-    assert status["update_mode"] == "simulation"
-    assert status["current_version"] == "0.3.0"
+    assert status["simulation"] is False
+    assert status["current_version"] == desktop.current_version(desktop.ROOT)
 
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "schema": 1,
+                "version": "v9.9.9",
+                "tag": "v9.9.9",
+                "notes_url": "https://example.invalid/releases/tag/v9.9.9",
+                "notes": ["测试更新"],
+                "min_supported": "v0.0.1",
+                "worker_protocol": 1,
+                "asset": {
+                    "url": "https://example.invalid/update.zip",
+                    "sha256": "0" * 64,
+                    "size": 123,
+                },
+            }
+
+    monkeypatch.setattr(updater.requests, "get", lambda *args, **kwargs: Response())
     check = client.post("/api/update/check").json()
     assert check["ok"] is True
-    assert check["update"]["status"] == "available"
-
-    install = client.post("/api/update/install").json()
-    assert install["ok"] is True
-    assert install["update"]["status"] == "installing"
-
-    cancel = client.post("/api/update/cancel").json()
-    assert cancel["ok"] is True
-    assert cancel["update"]["status"] == "cancelled"
-
-    reset = client.post("/api/update/reset").json()
-    assert reset["ok"] is True
-    assert reset["update"]["status"] == "available"
+    for _ in range(50):
+        status = client.get("/api/update/status").json()
+        if status["status"] != "checking":
+            break
+        time.sleep(0.02)
+    assert status["status"] == "available"
+    assert status["latest_version"] == "9.9.9"
 
 
 def test_qr_requires_adb_and_connect_does_not_trust_exit_code_zero(client, monkeypatch):

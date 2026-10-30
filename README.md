@@ -8,20 +8,20 @@
 [工作台使用说明](workbench/README.md) 配置本机 OCR 服务和 ADB。
 首次启动准备依赖，后续直接复用环境；墨绿、黑色和白色配色可独立切换并保存。
 
-## v0.3.0 更新
+## v0.3.1 更新
 
-- **`启动大管家.cmd`** 现在默认打开 9070 新看板，并自动启动真实的 9060 任务服务。
-- 若 9060 已有兼容服务则直接复用；关闭看板时只清理本次启动器创建的后端，不终止外部服务。
-- **`启动工作台.cmd`** 兼容转发到默认入口；**`启动旧版大管家.cmd`** 保留原 9060 独立窗口入口。
-- 更新区域是明确标注的 **simulation**，目标 `v0.3.1-demo`；不会下载、安装、签名验证或承诺回退。
-- 根 `VERSION.json`、运行时版本 API 与发布打包器统一使用 v0.3.0。
+- 自动更新从**交互演示**改为**真实更新**：读取 `latest.json`、下载 ZIP、校验 SHA-256、独立更新器替换文件并自动重启。
+- 更新失败会按日志回滚到上一版本；更新前会检查是否仍有任务运行。
+- **重要**：v0.3.0 的更新按钮是模拟的，无法自动升级。请手动下载并解压 v0.3.1 一次；从 v0.3.1 起才能在看板内自动更新。
+- 根 `VERSION.json`、运行时版本 API 与发布打包器统一使用 v0.3.1。
+
 ## 下载发布版与保留本机配置
 
-当前版本：**v0.3.0（2026-10-29）**。
+当前版本：**v0.3.1（2026-10-30）**。
 
-- **[夸克网盘下载 v0.3.0](https://pan.quark.cn/s/a7adc945d95a)**：永久有效，无需提取码。
+- **[夸克网盘下载 v0.3.1](https://pan.quark.cn/s/a7adc945d95a)**：永久有效，无需提取码。
 
-从夸克网盘下载 `diantao-workbench-v0.3.0.zip`，解压后先双击
+从夸克网盘下载 `diantao-workbench-v0.3.1.zip`，解压后先双击
 **`配置本机.cmd`**，再双击 **`启动大管家.cmd`**。首次启动会在缺少 `uv` 时安装它，
 仍需自行安装 ADB 并准备自己的 OCR；这是源码运行包，不是免安装 EXE。
 
@@ -41,10 +41,19 @@
 ```powershell
 # 在已脱敏的公开发布分支操作；不要推送含私有配置的开发历史
 # 先完成相关测试，提交改动，确认工作区干净
-python tools/build_release.py v0.3.0
+python tools/build_release.py v0.3.1 --notes "本次更新内容"
 # 如开发配置存放在其他位置，可追加 --private-config <配置文件路径>
-gh release create v0.3.0 dist/diantao-workbench-v0.3.0.zip --target <已推送的公开提交号> --title "DianTao_Automation_Butler_v0.3.0" --notes-file <发布说明文件>
+# 先创建 draft release，上传全部资产后再 publish，避免 latest 指针指向不完整资产
+gh release create v0.3.1 dist/diantao-workbench-v0.3.1.zip dist/latest.json dist/sha256-v0.3.1.txt --draft --target <已推送的公开提交号> --title "点淘自动化大管家 v0.3.1" --notes-file <发布说明文件>
+gh release edit v0.3.1 --draft=false --latest
 ```
+
+`build_release.py` 会同时生成：
+- `dist/diantao-workbench-vX.Y.Z.zip`：完整运行包；
+- `dist/latest.json`：客户端自动更新清单；
+- `dist/sha256-vX.Y.Z.txt`：ZIP 校验和。
+
+三个文件都必须上传到同一个 Release；缺少 `latest.json` 时客户端无法检查更新。
 
 打包器从当前 **Git 提交**生成 ZIP，拒绝未提交修改，排除本机 `.env`、虚拟环境、
 运行记录、截图和开发记忆，并检查常见凭证、私有网络 URL 及本机配置值。

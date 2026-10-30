@@ -718,7 +718,7 @@ catch (error) { applyTheme('ink', false); }
   <aside id="update-banner" class="update-banner" aria-label="版本更新提示" hidden>
     <div class="update-banner-copy">
       <i class="update-dot" aria-hidden="true"></i>
-      <div><strong id="banner-title">v0.3.1-demo 可用</strong><span id="banner-message">新版本已准备好，点击查看更新内容。</span></div>
+      <div><strong id="banner-title">发现新版本</strong><span id="banner-message">正在检查更新…</span></div>
     </div>
     <div class="update-banner-actions">
       <button id="view-update" class="btn btn-primary" type="button">查看更新</button>
@@ -769,27 +769,28 @@ catch (error) { applyTheme('ink', false); }
 </div>
 <div id="update-modal" class="overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="update-title" aria-describedby="update-subtitle">
   <div class="dialog">
-    <div class="dialog-heading"><div><h2 id="update-title">版本与更新</h2><p id="update-subtitle">自动化大管家 · 交互演示</p></div><button id="update-close" class="icon-btn" aria-label="关闭更新窗口"><svg><use href="#i-close"/></svg></button></div>
+    <div class="dialog-heading"><div><h2 id="update-title">版本与更新</h2><p id="update-subtitle">自动更新 · 下载完成后重启安装</p></div><button id="update-close" class="icon-btn" aria-label="关闭更新窗口"><svg><use href="#i-close"/></svg></button></div>
     <div class="version-route">
-      <div><span>当前版本</span><strong id="update-current">v0.3.0</strong></div>
+      <div><span>当前版本</span><strong id="update-current">—</strong></div>
       <div class="route-arrow" aria-hidden="true">›</div>
-      <div><span>目标版本</span><strong id="update-target">v0.3.1-demo</strong></div>
+      <div><span>目标版本</span><strong id="update-target">—</strong></div>
     </div>
     <ul id="update-notes" class="update-notes"></ul>
     <div class="security-badges" aria-label="安全特性">
-      <div class="security-badge"><b>✓ 原生启动</b>单进程无嵌套</div>
-      <div class="security-badge"><b>✓ 任务互斥</b>运行不被打断</div>
-      <div class="security-badge"><b>✓ 经典回退</b>支持 --legacy</div>
+      <div class="security-badge"><b>✓ SHA-256</b>下载完整性校验</div>
+      <div class="security-badge"><b>✓ 独立更新器</b>退出后替换文件</div>
+      <div class="security-badge"><b>✓ 失败回滚</b>保留上一版本</div>
     </div>
     <div id="update-progress-box" class="update-progress-box" hidden>
-      <div class="update-progress-head"><strong id="update-phase">模拟检查</strong><span id="update-progress-val">0%</span></div>
-      <div class="update-progress-track" role="progressbar" aria-label="模拟更新进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="update-progress-bar" class="update-progress-bar"></div></div>
+      <div class="update-progress-head"><strong id="update-phase">准备中</strong><span id="update-progress-val">0%</span></div>
+      <div class="update-progress-track" role="progressbar" aria-label="更新进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="update-progress-bar" class="update-progress-bar"></div></div>
       <p id="update-progress-msg" class="update-progress-msg"></p>
     </div>
     <div class="qr-actions">
-      <button id="update-cancel-btn" class="btn" hidden>取消</button>
-      <button id="update-reset-btn" class="btn" hidden>重新体验</button>
-      <button id="update-install-btn" class="btn btn-primary">开始模拟更新</button>
+      <button id="update-check-btn" class="btn">检查更新</button>
+      <button id="update-cancel-btn" class="btn" hidden>取消下载</button>
+      <a id="update-notes-link" class="text-button" target="_blank" rel="noopener noreferrer" hidden>发行说明 ↗</a>
+      <button id="update-install-btn" class="btn btn-primary" hidden>立即更新</button>
     </div>
   </div>
 </div>
@@ -1103,33 +1104,47 @@ document.addEventListener('keydown', function(event) {
   }
 });
 /* 原生更新逻辑 */
-var updateState = null, updatePoll = null, updateReturnFocus = null;
+var updateState = null, updatePoll = null, updateIdle = null, updateReturnFocus = null;
 var isLegacy = new URLSearchParams(window.location.search).has('legacy');
-function formatVer(v) { return String(v || '').startsWith('v') ? String(v) : 'v' + v; }
+function formatVer(v) { return v ? (String(v).startsWith('v') ? String(v) : 'v' + v) : '—'; }
 function renderUpdate(next) {
   updateState = next;
   $('version-tag').textContent = formatVer(next.current_version);
-  $('version-badge').classList.toggle('has-update', !!next.update_available);
-  if (!isLegacy && next.update_available && !localStorage.getItem('butler.update.dismissed_' + next.latest_version)) {
-    $('banner-title').textContent = formatVer(next.latest_version) + ' 可用';
-    $('banner-message').textContent = next.message;
+  var available = next.status === 'available';
+  $('version-badge').classList.toggle('has-update', available);
+  if (!isLegacy && available && !localStorage.getItem('butler.update.dismissed_' + next.latest_version)) {
+    $('banner-title').textContent = '发现新版本 ' + formatVer(next.latest_version);
+    $('banner-message').textContent = next.message || '';
     $('update-banner').hidden = false;
   } else {
     $('update-banner').hidden = true;
   }
   $('update-current').textContent = formatVer(next.current_version);
   $('update-target').textContent = formatVer(next.latest_version);
-  $('update-notes').innerHTML = (next.release_notes || []).map(function(t) { return '<li>' + escapeHtml(t) + '</li>'; }).join('');
-  var active = ['installing', 'installed', 'cancelled'].indexOf(next.status) !== -1;
+  $('update-notes').innerHTML = (next.release_notes || []).map(function(t) {
+    return '<li>' + escapeHtml(t) + '</li>';
+  }).join('');
+  var active = ['checking', 'downloading', 'downloaded', 'installing', 'failed'].indexOf(next.status) !== -1;
   $('update-progress-box').hidden = !active;
-  $('update-phase').textContent = next.phase || '进行中';
+  $('update-phase').textContent = next.phase || '准备中';
   $('update-progress-val').textContent = (next.progress || 0) + '%';
   $('update-progress-bar').style.width = (next.progress || 0) + '%';
-  $('update-progress-msg').textContent = next.message || '';
+  $('update-progress-msg').textContent = next.error || next.message || '';
+  var busy = ['checking', 'downloading', 'installing'].indexOf(next.status) !== -1;
+  $('update-check-btn').hidden = busy;
   $('update-install-btn').hidden = !next.can_install;
+  $('update-install-btn').textContent = next.status === 'failed' ? '重试' : '立即更新';
+  $('update-install-btn').disabled = !next.can_install;
+  $('update-install-btn').title = next.blocked_reason || '';
   $('update-cancel-btn').hidden = !next.can_cancel;
-  $('update-reset-btn').hidden = next.status !== 'installed';
-  if (next.status === 'installing') startUpdatePoll();
+  var link = $('update-notes-link');
+  if (next.latest && next.latest.notes_url) {
+    link.href = next.latest.notes_url;
+    link.hidden = false;
+  } else {
+    link.hidden = true;
+  }
+  if (busy) startUpdatePoll();
   else stopUpdatePoll();
 }
 async function refreshUpdate() {
@@ -1140,12 +1155,14 @@ async function refreshUpdate() {
   } catch(e) {}
 }
 function startUpdatePoll() {
+  if (updateIdle) { clearInterval(updateIdle); updateIdle = null; }
   if (updatePoll) return;
-  updatePoll = setInterval(refreshUpdate, 300);
+  updatePoll = setInterval(refreshUpdate, 1000);
 }
 function stopUpdatePoll() {
   clearInterval(updatePoll);
   updatePoll = null;
+  if (!updateIdle && !isLegacy) updateIdle = setInterval(refreshUpdate, 60000);
 }
 function openUpdate() {
   if (isLegacy) return;
@@ -1159,13 +1176,14 @@ function closeUpdate() {
   $('update-modal').style.display = 'none';
   if (updateReturnFocus) updateReturnFocus.focus();
 }
-async function updateAction(action) {
+async function updateAction(action, silent) {
   try {
     var data = await request('/api/update/' + action, {method: 'POST'});
     if (data.update) renderUpdate(data.update);
-    if (data.message) toast(data.message);
+    if (data.message && !silent) toast(data.message);
   } catch(e) {
-    toast(e.message, 'error');
+    if (!silent) toast(e.message, 'error');
+    refreshUpdate();
   }
 }
 $('version-badge').addEventListener('click', openUpdate);
@@ -1177,9 +1195,9 @@ $('dismiss-banner').addEventListener('click', function() {
   }
 });
 $('update-close').addEventListener('click', closeUpdate);
+$('update-check-btn').addEventListener('click', function() { updateAction('check'); });
 $('update-install-btn').addEventListener('click', function() { updateAction('install'); });
 $('update-cancel-btn').addEventListener('click', function() { updateAction('cancel'); });
-$('update-reset-btn').addEventListener('click', function() { updateAction('reset'); });
 if (isLegacy) {
   $('version-badge').style.cursor = 'default';
   $('version-badge').title = '经典回退模式';
@@ -1226,7 +1244,11 @@ function tick() { $('clock').textContent = new Date().toLocaleTimeString('zh-CN'
 applyTheme(document.documentElement.dataset.theme, false);
 tick(); setInterval(tick, 1000);
 refreshTasks(); refreshDevice();
-if (!isLegacy) refreshUpdate();
+if (!isLegacy) {
+  refreshUpdate();
+  setTimeout(function() { updateAction('check', true); }, 1500);
+  updateIdle = setInterval(refreshUpdate, 60000);
+}
 setInterval(function() { refreshTasks(); refreshDevice(); }, 8000);
 window.addEventListener('beforeunload', function() { stopQrPoll(); Object.keys(streams).forEach(function(id) { streams[id].close(); }); });
 </script>

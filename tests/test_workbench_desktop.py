@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import urllib.request
 
 desktop = importlib.import_module("workbench.app")
+updater = importlib.import_module("workbench.updater")
 
 
-def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monkeypatch):
+def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "RUNTIME", tmp_path)
     windows, settings = [], []
 
     def create_window(title, *, url, **options):
@@ -38,7 +40,8 @@ def test_desktop_launches_one_window_with_full_catalog_and_persistent_theme(monk
         assert desktop.APP_USER_MODEL_ID == "DianTao.AutomationButler"
 
 
-def test_desktop_supports_legacy_flag(monkeypatch):
+def test_desktop_supports_legacy_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater, "RUNTIME", tmp_path)
     windows = []
 
     def create_window(title, *, url, **options):

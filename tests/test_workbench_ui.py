@@ -94,10 +94,14 @@ def workbench(browser):
         elif path == "/api/update/status":
             body = {
                 "status": "available", "current_version": "0.3.0",
-                "latest_version": "0.3.1-demo", "progress": 0,
+                "latest_version": "0.3.1", "progress": 0,
                 "update_available": True, "can_install": True, "can_cancel": False,
-                "phase": "发现新版本", "message": "新版本已准备好，点击查看更新内容。",
+                "phase": "发现新版本", "message": "发现新版本 v0.3.1",
                 "release_notes": ["双十一淘金币任务全新重构。"],
+                "simulation": False, "error": "", "blocked_reason": "",
+                "latest": {"version": "0.3.1", "notes_url":
+                           "https://example.invalid/releases/tag/v0.3.1",
+                           "size": 123456},
             }
         elif path.startswith("/api/update/"):
             body = {"ok": True, "message": "操作完成"}

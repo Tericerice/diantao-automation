@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
+import hashlib
 import io
 import ipaddress
 import json
@@ -13,6 +15,7 @@ from urllib.parse import urlsplit
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+GITHUB_REPO = "Tericerice/diantao-automation"
 BLOCKED_DIRS = {
     ".git", ".workbuddy", ".runtime", "__pycache__", ".pytest_cache",
     "screenshots", "logs", "ocr_debug", ".cb_vision_temp", "dist", "tests",
@@ -72,9 +75,16 @@ def check_content(name, data, known_private=()):
             raise ValueError(f"{name}: 私有网络服务地址")
 
 
-def build_release(root, version, output, known_private=()):
+def build_release(root, version, output, known_private=(), notes=(), min_supported="v0.3.0"):
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?", version):
         raise ValueError("版本格式应为 v1.0.0 或 v1.0.0-rc.1")
+    metadata_path = root / "VERSION.json"
+    try:
+        declared = json.loads(metadata_path.read_text(encoding="utf-8"))["version"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError("根 VERSION.json 缺失或无效") from error
+    if declared != version:
+        raise ValueError(f"发布版本 {version} 与 VERSION.json {declared} 不一致")
     def git(*args):
         return subprocess.check_output(["rtk", "proxy", "git", *args], cwd=root)
     # Ignored runtime files may exist; modifications to tracked publication files may not.
@@ -90,13 +100,22 @@ def build_release(root, version, output, known_private=()):
             data = archive.read(entry)
             check_content(entry.filename, data, known_private)
             files[entry.filename] = data
+    files["VERSION.json"] = json.dumps(
+        {"version": version, "commit": commit}, ensure_ascii=False, indent=2,
+    ).encode("utf-8")
     for required in ("启动大管家.cmd", "启动旧版大管家.cmd", "启动工作台.cmd", "配置本机.cmd",
-                     "local_config.py", ".env.example", "workbench/app.py", "workbench/uv.lock",
+                     "local_config.py", ".env.example", "workbench/app.py", "workbench/updater.py",
+                     "workbench/update_worker.py", "workbench/uv.lock", "VERSION.json",
                      "养优惠.py", "走路球体完成.py", "tools/taobao_energy.py"):
         if required not in files:
             raise ValueError(f"发布包缺少必需文件：{required}")
-    files["VERSION.json"] = json.dumps(
-        {"version": version, "commit": commit}, ensure_ascii=False, indent=2,
+    manifest_files = {
+        name: {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data)}
+        for name, data in files.items() if name != "manifest.json"
+    }
+    files["manifest.json"] = json.dumps(
+        {"schema": 1, "version": version, "worker_protocol": 1, "files": manifest_files},
+        ensure_ascii=False, indent=2,
     ).encode("utf-8")
     output.mkdir(parents=True, exist_ok=True)
     destination = output / f"diantao-workbench-{version}.zip"
@@ -109,6 +128,28 @@ def build_release(root, version, output, known_private=()):
         temporary.replace(destination)
     finally:
         temporary.unlink(missing_ok=True)
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    size = destination.stat().st_size
+    asset_url = (f"https://github.com/{GITHUB_REPO}/releases/download/"
+                 f"{version}/{destination.name}")
+    notes_url = f"https://github.com/{GITHUB_REPO}/releases/tag/{version}"
+    latest = {
+        "schema": 1,
+        "version": version,
+        "tag": version,
+        "release_date": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+        "notes_url": notes_url,
+        "notes": list(notes),
+        "min_supported": min_supported,
+        "worker_protocol": 1,
+        "asset": {"url": asset_url, "sha256": digest, "size": size},
+    }
+    (output / "latest.json").write_text(
+        json.dumps(latest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (output / f"sha256-{version}.txt").write_text(
+        f"{digest}  {destination.name}\n", encoding="ascii"
+    )
     return destination
 
 
@@ -118,13 +159,18 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "dist")
     parser.add_argument("--private-config", action="append", type=Path, default=[],
                         help="额外检查的本机配置路径，配置内容不会输出或打包")
+    parser.add_argument("--notes", action="append", default=[],
+                        help="写入 latest.json 的更新说明条目，可重复")
+    parser.add_argument("--min-supported", default="v0.3.0",
+                        help="允许自动升级的最低版本")
     args = parser.parse_args()
     import os
     config = Path(os.environ.get("DIANTAO_CONFIG_FILE") or
                   Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".config") / "DianTao" / "config.env")
     try:
         secrets = private_values([ROOT / ".env", config, *args.private_config])
-        print(build_release(ROOT, args.version, args.output, secrets))
+        print(build_release(ROOT, args.version, args.output, secrets,
+                            tuple(args.notes), args.min_supported))
     except (ValueError, subprocess.CalledProcessError) as error:
         print(f"发布检查失败：{error}", file=sys.stderr)
         return 1
