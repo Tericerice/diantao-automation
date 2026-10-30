@@ -127,6 +127,7 @@ configure_updater(
     ],
     stop_tasks=cleanup,
     exit_process=lambda code: os._exit(code),
+    task_lock=TASK_LOCK,
 )
 app.include_router(phone_router)
 app.include_router(update_router)

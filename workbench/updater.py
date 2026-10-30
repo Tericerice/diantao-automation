@@ -247,12 +247,14 @@ class UpdateManager:
     def __init__(self, root: Path, runtime: Path,
                  running_check: Callable[[], list[str]],
                  stop_tasks: Callable[[], None],
-                 exit_process: Callable[[int], None]):
+                 exit_process: Callable[[int], None],
+                 task_lock: threading.Lock | None = None):
         self.root = Path(root)
         self.runtime = Path(runtime)
         self.running_check = running_check
         self.stop_tasks = stop_tasks
         self.exit_process = exit_process
+        self.task_lock = task_lock or threading.Lock()
         self.lock = threading.Lock()
         self.state = "idle"
         self.progress = 0
@@ -421,31 +423,32 @@ class UpdateManager:
             return False
 
     def install(self) -> dict:
-        with self.lock:
-            if self.state in {"checking", "downloading", "installing"}:
-                raise HTTPException(409, "更新正在进行")
-            if self.state == "up_to_date":
-                raise HTTPException(409, "当前已是最新版本")
-            if not self.latest:
-                raise HTTPException(409, "请先检查更新")
-            running = list(self.running_check())
-            if running:
-                raise HTTPException(409, "检测到任务正在运行，请先停止任务")
-            if is_development(self.root):
-                raise HTTPException(409, "开发版不支持自动更新")
-            min_supported = self.latest.get("min_supported")
-            if min_supported and is_newer(min_supported, current_version(self.root)):
-                raise HTTPException(409, "当前版本过低，请手动下载完整包")
-            if self.state == "downloaded":
-                self._thread = threading.Thread(target=self._apply, daemon=True)
-                self._thread.start()
-                return self.snapshot()
-            self.state = "downloading"
-            self.phase = "下载更新"
-            self.message = "正在下载更新包…"
-            self.error = ""
-            self.progress = 0
-            self._cancel.clear()
+        with self.task_lock:
+            with self.lock:
+                if self.state in {"checking", "downloading", "installing"}:
+                    raise HTTPException(409, "更新正在进行")
+                if self.state == "up_to_date":
+                    raise HTTPException(409, "当前已是最新版本")
+                if not self.latest:
+                    raise HTTPException(409, "请先检查更新")
+                running = list(self.running_check())
+                if running:
+                    raise HTTPException(409, "检测到任务正在运行，请先停止任务")
+                if is_development(self.root):
+                    raise HTTPException(409, "开发版不支持自动更新")
+                min_supported = self.latest.get("min_supported")
+                if min_supported and is_newer(min_supported, current_version(self.root)):
+                    raise HTTPException(409, "当前版本过低，请手动下载完整包")
+                if self.state == "downloaded":
+                    self._thread = threading.Thread(target=self._apply, daemon=True)
+                    self._thread.start()
+                    return self._snapshot_unlocked()
+                self.state = "downloading"
+                self.phase = "下载更新"
+                self.message = "正在下载更新包…"
+                self.error = ""
+                self.progress = 0
+                self._cancel.clear()
         self._thread = threading.Thread(target=self._download_then_apply, daemon=True)
         self._thread.start()
         return self.snapshot()
@@ -535,14 +538,16 @@ class UpdateManager:
 def configure_updater(root: Path, runtime: Path,
                       running_check: Callable[[], list[str]],
                       stop_tasks: Callable[[], None],
-                      exit_process: Callable[[int], None]) -> None:
+                      exit_process: Callable[[int], None],
+                      task_lock: threading.Lock | None = None) -> None:
     global _manager, ROOT, RUNTIME, _running_check, _stop_tasks, _exit_process
     ROOT = Path(root)
     RUNTIME = Path(runtime)
     _running_check = running_check
     _stop_tasks = stop_tasks
     _exit_process = exit_process
-    _manager = UpdateManager(ROOT, RUNTIME, running_check, stop_tasks, exit_process)
+    _manager = UpdateManager(ROOT, RUNTIME, running_check, stop_tasks, exit_process,
+                             task_lock=task_lock)
 
 
 def manager() -> UpdateManager:
