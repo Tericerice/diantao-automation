@@ -19,8 +19,8 @@
 
 当前版本：**v0.3.1（2026-10-30）**。
 
-- **[GitHub Release 下载 v0.3.1](https://github.com/Tericerice/diantao-automation/releases/tag/v0.3.1)**：包含自动更新所需的 `latest.json`。
-- 夸克网盘镜像将在上传后更新。
+- **[夸克网盘下载 v0.3.1](https://pan.quark.cn/s/c0eddfc96bd7)**：永久有效，无需提取码。
+- **[GitHub Release v0.3.1](https://github.com/Tericerice/diantao-automation/releases/tag/v0.3.1)**：包含自动更新所需的 `latest.json`。
 
 从上述入口下载 `diantao-workbench-v0.3.1.zip`，解压后先双击
 **`配置本机.cmd`**，再双击 **`启动大管家.cmd`**。首次启动会在缺少 `uv` 时安装它，
