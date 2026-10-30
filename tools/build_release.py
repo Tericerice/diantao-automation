@@ -92,7 +92,7 @@ def build_release(root, version, output, known_private=()):
             files[entry.filename] = data
     for required in ("启动大管家.cmd", "启动旧版大管家.cmd", "启动工作台.cmd", "配置本机.cmd",
                      "local_config.py", ".env.example", "workbench/app.py", "workbench/uv.lock",
-                     "养优惠.py", "tools/taobao_energy.py"):
+                     "养优惠.py", "走路球体完成.py", "tools/taobao_energy.py"):
         if required not in files:
             raise ValueError(f"发布包缺少必需文件：{required}")
     files["VERSION.json"] = json.dumps(

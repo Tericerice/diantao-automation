@@ -65,8 +65,12 @@ TASKS["diantao-connectivity"] = entry(
     "点淘连通性检查", "连通性脚本.py", "连接设备并进入点淘，沿用原连通性脚本。",
 )
 TASKS["diantao-work-guard"] = entry(
-    "打工任务", "打工任务.py",
+    "打工守护", "打工任务.py",
     "持续守护：领取到期元宝并完成奖励任务，厨师每两小时开工，左侧领体力按独立倒计时领取；手动停止。",
+)
+TASKS["diantao-walk-sphere"] = entry(
+    "走路球体完成", "走路球体完成.py",
+    "进入走路赚元宝，依次点击步数档位，领取走路奖励并完成额外的浏览/直播任务。",
 )
 
 # Keep the common entries first, then follow the runner's actual sequence.
@@ -78,6 +82,8 @@ _pinned_ids = (
     "taobao-double11-energy",
     "diantao-work-speed",
     "diantao-duck-extra",
+    "diantao-walk-sphere",
+    "diantao-coins",
     "diantao-work-guard",
 )
 _script_ids = {
