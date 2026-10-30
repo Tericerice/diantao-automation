@@ -49,10 +49,10 @@ def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     scripts = {t["script"] for t in desktop.TASKS.values()}
     assert TASK_FILES - removed_scripts <= scripts
     assert not removed_scripts & scripts
-    assert len(tasks) == 24
+    assert len(tasks) == 25
     assert {"diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
             "taobao-double11-energy", "taobao-double11-workbuddy",
-            "diantao-coupon"} <= {t["id"] for t in tasks}
+            "diantao-walk-sphere", "diantao-coupon"} <= {t["id"] for t in tasks}
     assert all((desktop.ROOT / t["script"]).is_file()
                for t in desktop.TASKS.values() if not t["script"].startswith("../"))
     assert all("command" not in t and "script" not in t for t in tasks)
