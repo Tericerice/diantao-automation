@@ -49,6 +49,11 @@ def reward():
             block("元宝", 784, 1494), block("去完成", 634, 1779)]
 
 
+def reward_claim():
+    return [block("打工奖励", 631, 784), block("获得888元宝", 634, 905),
+            block("开心收下", 631, 1739)]
+
+
 def page(blocks):
     return guard.inspect_page(blocks, SIZE)
 
@@ -116,6 +121,26 @@ def test_full_cycle_collects_energy_finishes_reward_starts_chef_and_rescans():
     phone.finish_reward.assert_called_once()
     assert schedule.work_at == NOW + 7181
     assert schedule.energy_at == NOW + 101
+
+
+def test_reward_claim_popup_clicks_accept_and_continues():
+    claimed_popup = page(reward_claim())
+    assert claimed_popup.kind == "reward_claim"
+    assert claimed_popup.complete["text"] == "开心收下"
+
+    ready = page(home(work="领取888元宝", energy="已领完"))
+    idle = page(home(work="去打工赚钱", energy="已领完"))
+    choice = page(chooser())
+    working = page(home(work="01:59:40", energy="已领完"))
+    phone = phone_with(ready, claimed_popup, idle, choice, choice, working)
+    schedule = guard.visit(phone, now=lambda: NOW)
+    assert phone.click.call_args_list == [
+        call(ready.claim), call(claimed_popup.complete), call(idle.work),
+        call(choice.chef), call(choice.start),
+    ]
+    phone.finish_reward.assert_not_called()
+    assert schedule.work_at == NOW + 7181
+    assert schedule.energy_at == NOW + 7181  # 已领完随打工倒计时复查，杜绝15秒死循环抢占
 
 
 def test_restart_reads_remaining_work_without_resetting_two_hours():
@@ -268,7 +293,7 @@ def test_independent_dashboard_entry_does_not_join_batch_catalog():
     from workbench.tasks import TASKS
     from task_catalog import TASK_FILES
     task = TASKS[TARGET_ID]
-    assert task["name"] == "打工任务"
+    assert task["name"] == "打工守护"
     assert task["script"] == "打工任务.py"
     assert task["args"] == []
     assert task["script"] not in TASK_FILES
