@@ -1,7 +1,8 @@
 """一键执行点淘全流程：连通性、一键下滑、日常任务与淘金币双11赚能量。
 
-顺序：连通性 → 一键下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇 → 购物 → 打工
-      → 走路 → 元宝中心小任务 → 养优惠 → 淘金币双11赚能量。
+顺序：6 个连通性入口 → 6 轮一键下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇
+      → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠 → 淘金币双11赚能量。
+每个连通性入口和下滑轮次都是独立步骤，守护打断后只重跑当前步骤。
 本脚本独立运行，不修改或依赖 一键顺序执行.py / 一键任务执行.py 的执行结果。
 """
 
@@ -18,6 +19,8 @@ from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ENERGY_SCRIPT = "tools/taobao_energy.py"
+CONNECTIVITY_ENTRY_COUNT = 6
+SWIPE_ROUND_COUNT = 6
 
 
 class Step(NamedTuple):
@@ -32,11 +35,16 @@ class Step(NamedTuple):
     rechecks: int = 0
 
 
-# 前两步与 一键顺序执行.py 一致：这两个脚本不输出复核标记，只执行一轮。
-SEQUENCE_TASKS = (
-    Step("连通性脚本.py", None),
-    Step("一键下滑.py", None),
+# 连通性按入口、下滑按轮次拆成独立步骤；每步单独记录断点，守护打断后只重跑当前步。
+CONNECTIVITY_TASKS = tuple(
+    Step("连通性脚本.py", None, args=("--entry-index", str(index)))
+    for index in range(1, CONNECTIVITY_ENTRY_COUNT + 1)
 )
+SWIPE_TASKS = tuple(
+    Step("一键下滑.py", None, args=("--round", str(index)))
+    for index in range(1, SWIPE_ROUND_COUNT + 1)
+)
+SEQUENCE_TASKS = CONNECTIVITY_TASKS + SWIPE_TASKS
 
 # 与 一键任务执行.py 的 REMAINING_TASKS 一致，每项最多复核 5 轮。
 REMAINING_TASKS = (
@@ -67,6 +75,11 @@ def build_command(step):
     return [sys.executable, "-u", script, *step.args]
 
 
+def step_label(step):
+    """展示步骤名；带参数的步骤同时显示入口或轮次。"""
+    return " ".join((step.filename, *step.args))
+
+
 def run_task(step, stop):
     """首次执行后重新启动原脚本复核；每轮保留原脚本的导航、扫描和执行逻辑。"""
     total_elapsed = 0
@@ -75,7 +88,7 @@ def run_task(step, stop):
         if stop.is_set():
             break
         if recheck:
-            print(f"\n🔄 {step.filename}：重新进入界面复核 {recheck}/{step.rechecks}", flush=True)
+            print(f"\n🔄 {step_label(step)}：重新进入界面复核 {recheck}/{step.rechecks}", flush=True)
         feedback = {"found": False, "finished": False}
 
         def on_line(line):
@@ -98,7 +111,7 @@ def run_task(step, stop):
         except Exception as exc:
             success, elapsed, reason = False, 0, f"启动异常：{exc}"
         total_elapsed += elapsed
-        print(f"{step.filename}：{reason}（本轮 {elapsed:.1f}s）", flush=True)
+        print(f"{step_label(step)}：{reason}（本轮 {elapsed:.1f}s）", flush=True)
         if stop.is_set() or not step.rechecks:
             break
         if recheck and success and feedback["finished"] and not feedback["found"]:
@@ -136,10 +149,11 @@ def execute(stop=None, tasks=None):
     for index, step in enumerate(tasks, 1):
         if stop.is_set():
             break
-        print(f"\n[{index}/{len(tasks)}] 启动 {step.filename}（{_timeout_label(step.timeout)}）", flush=True)
+        label = step_label(step)
+        print(f"\n[{index}/{len(tasks)}] 启动 {label}（{_timeout_label(step.timeout)}）", flush=True)
         success, elapsed, reason = run_task(step, stop)
-        results.append((step.filename, success, reason))
-        print(f"{step.filename}：{reason}（{elapsed:.1f}s）", flush=True)
+        results.append((label, success, reason))
+        print(f"{label}：{reason}（{elapsed:.1f}s）", flush=True)
 
     print("\n执行汇总：", flush=True)
     for filename, success, reason in results:
@@ -157,7 +171,7 @@ def main(tasks=None, description=__doc__):
     args = parser.parse_args()
     if args.list:
         for index, step in enumerate(tasks, 1):
-            print(f"{index}. {step.filename}（{_timeout_label(step.timeout)}）")
+            print(f"{index}. {step_label(step)}（{_timeout_label(step.timeout)}）")
         return 0
 
     stop = Event()

@@ -23,7 +23,7 @@ def test_sequence_continues_after_failure(monkeypatch):
 
     monkeypatch.setattr(module, "run_script", fake_run)
     assert module.execute() == 1
-    assert calls == ["连通性脚本.py", "一键下滑.py"]
+    assert calls == ["连通性脚本.py"] * 6 + ["一键下滑.py"] * 6
 
 
 def test_remaining_sequence_continues_after_failure(monkeypatch):

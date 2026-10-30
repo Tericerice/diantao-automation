@@ -2,18 +2,37 @@
 
 import argparse
 import signal
+import sys
 from pathlib import Path
 from threading import Event
+from typing import NamedTuple
 
 from task_runner import run_script
 from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-# 使用现有任务选择器的超时预算；连通性导航单独预留 30 分钟。
-TASKS = (
-    ("连通性脚本.py", 1800),
-    ("一键下滑.py", 2100),
+CONNECTIVITY_ENTRY_COUNT = 6
+SWIPE_ROUND_COUNT = 6
+CONNECTIVITY_STEP_TIMEOUT = 600
+SWIPE_STEP_TIMEOUT = 600
+
+
+class Step(NamedTuple):
+    """带参数的串行步骤；普通日常任务仍使用 (filename, timeout) 二元组。"""
+
+    filename: str
+    timeout: int
+    args: tuple = ()
+
+
+# 连通性按入口、下滑按轮次拆成独立步骤，每步单独记录断点。
+TASKS = tuple(
+    Step("连通性脚本.py", CONNECTIVITY_STEP_TIMEOUT, ("--entry-index", str(index)))
+    for index in range(1, CONNECTIVITY_ENTRY_COUNT + 1)
+) + tuple(
+    Step("一键下滑.py", SWIPE_STEP_TIMEOUT, ("--round", str(index)))
+    for index in range(1, SWIPE_ROUND_COUNT + 1)
 )
 
 REMAINING_TASKS = (
@@ -30,15 +49,28 @@ REMAINING_TASKS = (
 )
 
 
-def run_task(filename, timeout, stop, max_rechecks):
+def _task_parts(task):
+    """兼容带参数的 Step 与日常任务的 (filename, timeout) 二元组。"""
+    if isinstance(task, Step):
+        return task.filename, task.timeout, task.args
+    filename, timeout = task
+    return filename, timeout, ()
+
+
+def _label(filename, args):
+    return " ".join((filename, *args))
+
+
+def run_task(filename, timeout, args, stop, max_rechecks):
     """首次执行后重新启动原脚本复核；每轮保留原脚本的导航、扫描和执行逻辑。"""
+    label = _label(filename, args)
     total_elapsed = 0
     success, reason = False, "未执行"
     for recheck in range(max_rechecks + 1):
         if stop.is_set():
             break
         if recheck:
-            print(f"\n🔄 {filename}：重新进入界面复核 {recheck}/{max_rechecks}", flush=True)
+            print(f"\n🔄 {label}：重新进入界面复核 {recheck}/{max_rechecks}", flush=True)
         feedback = {"found": False, "finished": False}
 
         def on_line(line):
@@ -52,15 +84,19 @@ def run_task(filename, timeout, stop, max_rechecks):
         kwargs = {}
         if max_rechecks:
             kwargs["env_overrides"] = {RECHECK_ENV: "1"}
+        command = (
+            [sys.executable, "-u", str(SCRIPT_DIR / filename), *args]
+            if args else None
+        )
         try:
             success, elapsed, reason = run_script(
                 SCRIPT_DIR / filename, cwd=SCRIPT_DIR, timeout=timeout,
-                should_stop=stop.is_set, on_line=on_line, **kwargs,
+                should_stop=stop.is_set, on_line=on_line, command=command, **kwargs,
             )
         except Exception as exc:
             success, elapsed, reason = False, 0, f"启动异常：{exc}"
         total_elapsed += elapsed
-        print(f"{filename}：{reason}（本轮 {elapsed:.1f}s）", flush=True)
+        print(f"{label}：{reason}（本轮 {elapsed:.1f}s）", flush=True)
         if stop.is_set() or not max_rechecks:
             break
         if recheck and success and feedback["finished"] and not feedback["found"]:
@@ -84,23 +120,28 @@ def execute(stop=None, tasks=None, max_rechecks=0):
     """串行执行一轮；失败/超时继续下一项，停止信号取消后续项。"""
     stop = stop if stop is not None else Event()
     tasks = TASKS if tasks is None else tasks
-    missing = [filename for filename, _ in tasks if not (SCRIPT_DIR / filename).is_file()]
+    missing = [
+        filename for filename, _, _ in map(_task_parts, tasks)
+        if not (SCRIPT_DIR / filename).is_file()
+    ]
     if missing:
         print(f"缺少脚本：{', '.join(missing)}", flush=True)
         return 1
 
     results = []
-    for index, (filename, timeout) in enumerate(tasks, 1):
+    for index, task in enumerate(tasks, 1):
         if stop.is_set():
             break
-        print(f"\n[{index}/{len(tasks)}] 启动 {filename}（超时 {timeout}s）", flush=True)
-        success, elapsed, reason = run_task(filename, timeout, stop, max_rechecks)
-        results.append((filename, success, reason))
-        print(f"{filename}：{reason}（{elapsed:.1f}s）", flush=True)
+        filename, timeout, args = _task_parts(task)
+        label = _label(filename, args)
+        print(f"\n[{index}/{len(tasks)}] 启动 {label}（超时 {timeout}s）", flush=True)
+        success, elapsed, reason = run_task(filename, timeout, args, stop, max_rechecks)
+        results.append((label, success, reason))
+        print(f"{label}：{reason}（{elapsed:.1f}s）", flush=True)
 
     print("\n执行汇总：", flush=True)
-    for filename, success, reason in results:
-        print(f"  {'成功' if success else '失败'} | {filename} | {reason}", flush=True)
+    for label, success, reason in results:
+        print(f"  {'成功' if success else '失败'} | {label} | {reason}", flush=True)
     if stop.is_set():
         print("已停止，后续脚本未启动。", flush=True)
         return 130
@@ -113,8 +154,9 @@ def main(tasks=None, description=__doc__, max_rechecks=0):
     parser.add_argument("--list", action="store_true", help="仅显示执行顺序，不操作设备")
     args = parser.parse_args()
     if args.list:
-        for index, (filename, timeout) in enumerate(tasks, 1):
-            print(f"{index}. {filename}（{timeout}s）")
+        for index, task in enumerate(tasks, 1):
+            filename, timeout, args = _task_parts(task)
+            print(f"{index}. {_label(filename, args)}（{timeout}s）")
         return 0
 
     stop = Event()

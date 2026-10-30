@@ -3,10 +3,12 @@
 沿用一键下滑.py 的六个入口导航流程，每个入口从点淘首页重新开始并尝试三次。
 本脚本只验证入口路径，不执行入口页面内的计时下滑任务。
 """
+import argparse
 import sys
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 
+from task_checkpoint import run_step
 from u2_scanner import connect_device, DT_APP
 from utils import get_ocr_text_blocks
 
@@ -226,12 +228,50 @@ def _run_attempt(device, entry_name, nav_func, sw, sh, attempt_index):
     time.sleep(STEP_SETTLE_SECONDS)
 
 
+def _entry_choices():
+    return "、".join(
+        f"{index}={name}" for index, (name, _) in enumerate(ENTRY_ROUTES, 1)
+    )
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--entry-index", type=int, choices=range(1, len(ENTRY_ROUTES) + 1),
+        help=f"只执行指定入口（{_entry_choices()}）；不传则执行全部入口",
+    )
+    parser.add_argument(
+        "--attempt", type=int, choices=range(1, ATTEMPTS_PER_ENTRY + 1),
+        help="只执行指定的一次尝试，需要与 --entry-index 一起使用",
+    )
+    args = parser.parse_args()
+    if args.attempt is not None and args.entry_index is None:
+        parser.error("--attempt 需要与 --entry-index 一起使用")
+
+    entries = list(enumerate(ENTRY_ROUTES, 1))
+    if args.entry_index is not None:
+        entries = [entries[args.entry_index - 1]]
+    attempts = (
+        (args.attempt,) if args.attempt is not None
+        else tuple(range(1, ATTEMPTS_PER_ENTRY + 1))
+    )
+
     print("=" * 56)
-    print("🔌 点淘连通性脚本：6 个入口 × 每个固定尝试 3 次")
+    if args.entry_index is None and args.attempt is None:
+        print(
+            f"🔌 点淘连通性脚本：{len(ENTRY_ROUTES)} 个入口 × "
+            f"每个固定尝试 {ATTEMPTS_PER_ENTRY} 次"
+        )
+    else:
+        selected = (
+            ENTRY_ROUTES[args.entry_index - 1][0]
+            if args.entry_index is not None else "全部入口"
+        )
+        attempt_text = f"第 {args.attempt} 次" if args.attempt is not None else "全部尝试"
+        print(f"🔌 点淘连通性脚本：{selected}，{attempt_text}")
     print("只执行首页到入口的导航，不执行入口页面内的计时下滑。")
     print("=" * 56)
 
@@ -239,12 +279,17 @@ def main():
     sw, sh = device.window_size()
     print(f"📱 屏幕分辨率: {sw} x {sh}")
 
-    for entry_name, nav_func in ENTRY_ROUTES:
-        for attempt_index in range(1, ATTEMPTS_PER_ENTRY + 1):
-            _run_attempt(device, entry_name, nav_func, sw, sh, attempt_index)
+    for entry_index, (entry_name, nav_func) in entries:
+        for attempt_index in attempts:
+            run_step(
+                f"connect-{entry_index}-{attempt_index}",
+                f"{entry_name} 第{attempt_index}/{ATTEMPTS_PER_ENTRY}次",
+                _run_attempt,
+                device, entry_name, nav_func, sw, sh, attempt_index,
+            )
 
     print(f"\n{'=' * 56}")
-    print("✅ 六个入口的固定连通性尝试均已执行完毕。")
+    print("✅ 所选连通性尝试均已执行完毕。")
     print(f"{'=' * 56}")
 
 

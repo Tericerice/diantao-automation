@@ -15,6 +15,7 @@
     - swipe_seconds: 下滑浏览秒数
     - nav_func:     导航函数（接收 device 参数，负责进入对应页面）
 """
+import argparse
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -22,6 +23,7 @@ import random
 
 from u2_scanner import connect_device, DT_APP
 from utils import get_ocr_text_blocks
+from task_checkpoint import run_step
 
 CENTER_OCR_PRE_SCAN_DELAY_SECONDS = 5
 CENTER_OCR_SCAN_ATTEMPTS = 3
@@ -332,20 +334,38 @@ def run_round(label, name, swipe_seconds, nav_func):
 # ========================================================
 # 主函数
 # ========================================================
+def _round_choices():
+    return "、".join(
+        f"{r['label']}={r['name']}" for r in ROUNDS_CONFIG
+    )
+
+
 def main():
     if sys.stdout.encoding == 'gbk':
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--round", type=int, choices=range(1, len(ROUNDS_CONFIG) + 1),
+        help=f"只执行指定轮次（{_round_choices()}）；不传则执行全部轮次",
+    )
+    args = parser.parse_args()
+    rounds = [
+        r for r in ROUNDS_CONFIG
+        if args.round is None or int(r["label"]) == args.round
+    ]
 
     print("=" * 60)
     print(" 🎮 一键下滑")
     print("   流程: 打工 → 睡觉 → 签到 → 购物赚钱 → 摇一摇 → 走路赚元宝")
     print("   每轮配置如下：")
-    for r in ROUNDS_CONFIG:
+    for r in rounds:
         print(f"     {r['label']}. {r['name']}: 下滑 {r['swipe_seconds']}s")
     print("=" * 60)
 
-    for r in ROUNDS_CONFIG:
-        run_round(
+    for r in rounds:
+        run_step(
+            f"swipe-{r['label']}", r["name"], run_round,
             label=r["label"],
             name=r["name"],
             swipe_seconds=r["swipe_seconds"],
@@ -353,7 +373,7 @@ def main():
         )
 
     print(f"\n{'='*60}")
-    print(" ✅ 全部完成！")
+    print(" ✅ 所选轮次执行完成！" if args.round is not None else " ✅ 全部完成！")
     print(f"{'='*60}")
 
 

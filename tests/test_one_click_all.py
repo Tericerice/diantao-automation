@@ -15,14 +15,21 @@ spec.loader.exec_module(module)
 
 
 def test_all_tasks_cover_sequence_daily_tasks_and_energy():
-    assert [step.filename for step in module.ALL_TASKS] == [
-        "连通性脚本.py", "一键下滑.py",
-        "主播打卡粉丝礼.py", "签到赢元宝.py", "睡觉赚元宝.py",
-        "点淘鸭钻石任务.py", "点淘鸭摇一摇.py", "点淘购物赚钱.py",
-        "打工得体力.py", "走路赚元宝.py", "元宝中心小任务.py", "养优惠.py",
-        "tools/taobao_energy.py",
-    ]
-    assert [step.rechecks for step in module.SEQUENCE_TASKS] == [0, 0]
+    expected_sequence = (
+        [("连通性脚本.py", ("--entry-index", str(index))) for index in range(1, 7)]
+        + [("一键下滑.py", ("--round", str(index))) for index in range(1, 7)]
+    )
+    assert [(step.filename, step.args) for step in module.SEQUENCE_TASKS] == expected_sequence
+    assert [step.filename for step in module.ALL_TASKS] == (
+        ["连通性脚本.py"] * 6 + ["一键下滑.py"] * 6
+        + [
+            "主播打卡粉丝礼.py", "签到赢元宝.py", "睡觉赚元宝.py",
+            "点淘鸭钻石任务.py", "点淘鸭摇一摇.py", "点淘购物赚钱.py",
+            "打工得体力.py", "走路赚元宝.py", "元宝中心小任务.py", "养优惠.py",
+            "tools/taobao_energy.py",
+        ]
+    )
+    assert all(step.rechecks == 0 for step in module.SEQUENCE_TASKS)
     assert all(step.rechecks == 5 for step in module.REMAINING_TASKS)
     assert module.ENERGY_TASK.rechecks == 5
     assert module.ENERGY_TASK.args == ("run", "--repeat", "30", "--rechecks", "0")
@@ -47,14 +54,15 @@ def test_list_output_shows_no_timeout(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["一键全部执行.py", "--list"])
     assert module.main(tasks=module.SEQUENCE_TASKS) == 0
     out = capsys.readouterr().out
-    assert "1. 连通性脚本.py（不设超时）" in out
-    assert "2. 一键下滑.py（不设超时）" in out
+    assert "1. 连通性脚本.py --entry-index 1（不设超时）" in out
+    assert "7. 一键下滑.py --round 1（不设超时）" in out
 
 
 def test_plain_command_uses_current_interpreter():
     command = module.build_command(module.SEQUENCE_TASKS[0])
     assert command[0] == module.sys.executable
     assert command[1:3] == ["-u", str(module.SCRIPT_DIR / "连通性脚本.py")]
+    assert command[3:] == ["--entry-index", "1"]
 
 
 def test_full_run_finishes_with_energy(monkeypatch):
@@ -98,7 +106,7 @@ def test_sequence_continues_after_failure(monkeypatch):
 
     monkeypatch.setattr(module, "run_script", fake_run)
     assert module.execute(tasks=module.SEQUENCE_TASKS) == 1
-    assert calls == ["连通性脚本.py", "一键下滑.py"]
+    assert calls == ["连通性脚本.py"] * 6 + ["一键下滑.py"] * 6
 
 
 def test_remaining_sequence_continues_after_failure(monkeypatch):
@@ -160,4 +168,4 @@ def test_no_recheck_step_runs_once_without_markers(monkeypatch):
 
     monkeypatch.setattr(module, "run_script", fake_run)
     assert module.execute(tasks=module.SEQUENCE_TASKS) == 0
-    assert calls == [("连通性脚本.py", None), ("一键下滑.py", None)]
+    assert calls == [("连通性脚本.py", None)] * 6 + [("一键下滑.py", None)] * 6

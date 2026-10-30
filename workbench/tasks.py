@@ -13,10 +13,10 @@ def entry(name, script, description, *, args=(), requires_ocr=True):
 TASKS = {
     "diantao-all-in-one": entry(
         "点淘一键全部执行", "一键全部执行.py",
-        "连通性 → 下滑 → 日常任务 → 养优惠；串行执行，各任务沿用原有复核规则。",
+        "连通性(6入口) → 下滑(6轮) → 日常任务 → 养优惠；每步独立记录断点，守护打断后只重跑当前步。",
     ),
     "diantao-one-click": entry(
-        "点淘一键顺序执行", "一键顺序执行.py", "先检查连通性，再执行六轮下滑。",
+        "点淘一键顺序执行", "一键顺序执行.py", "逐个检查六个连通性入口，再执行六轮下滑。",
     ),
     "diantao-one-click-tasks": entry(
         "点淘一键任务执行", "一键任务执行.py", "按原顺序执行十项日常任务，各最多复核五轮。",
@@ -62,7 +62,7 @@ for filename in sorted(TASK_FILES & SCRIPT_IDS.keys()):
     )
 
 TASKS["diantao-connectivity"] = entry(
-    "点淘连通性检查", "连通性脚本.py", "连接设备并进入点淘，沿用原连通性脚本。",
+    "点淘连通性检查", "连通性脚本.py", "逐个检查六个入口；每次尝试独立记录断点。",
 )
 TASKS["diantao-work-guard"] = entry(
     "打工守护", "打工任务.py",

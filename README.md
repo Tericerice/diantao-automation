@@ -219,7 +219,7 @@ DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
 | 文件 | 用途 |
 | --- | --- |
 | `启动工作台.cmd` | **GitHub 发布版双任务工作台**：淘金币双11能量、点淘养优惠；扫码连接、日志、墨绿/黑/白配色，详见 [`workbench/README.md`](workbench/README.md) |
-| `一键全部执行.py` | **点淘一键全流程**：连通性 → 下滑 → 日常任务 → 养优惠 → 淘金币双11赚能量（独立入口，`--list` 查看顺序；全程不设超时，Ctrl+C 停止） |
+| `一键全部执行.py` | **点淘一键全流程**：6 个连通性入口 → 6 轮下滑 → 日常任务 → 养优惠 → 淘金币双11赚能量（每步独立断点，独立入口，`--list` 查看顺序；全程不设超时，Ctrl+C 停止） |
 | `run_taobao_energy.cmd` | **淘金币双11赚能量**入口：`run / enter / scan / auto / browse` |
 | `淘金币任务.py` | **双十一赚淘金币**：首页 → 领淘金币 → 去赚淘金币（兼容“去赚金币”）；OCR 定位、逐项复核，支持 `run / enter / scan`，详见 [`docs/taobao-coins.md`](docs/taobao-coins.md) |
 | `tools/taobao_energy.py` | 赚能量核心：U2+OCR 扫描、三梯队（淘宝→支付宝→其他应用）、逐项浏览并复核 |
@@ -235,7 +235,7 @@ DIANTAO_OCR_SERVER_URL=http://127.0.0.1:8888/predict_ocr
 # 打开与 GitHub 发布版一致的双任务桌面窗口
 .\启动工作台.cmd
 
-# 点淘一键全流程（连通性 → 下滑 → 日常任务 → 养优惠 → 淘金币双11赚能量）
+# 点淘一键全流程（6 个连通性入口 → 6 轮下滑 → 日常任务 → 养优惠 → 淘金币双11赚能量）
 py -3.10 一键全部执行.py
 
 # 淘金币双11赚能量（需先设置 DIANTAO_OCR_SERVER_URL）
