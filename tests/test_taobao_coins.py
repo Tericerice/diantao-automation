@@ -247,6 +247,57 @@ def test_stale_progress_after_confirmation_is_not_replayed(coins, monkeypatch):
     execute.assert_called_once()
 
 
+def search_landing():
+    return [node("搜索有福利", 252, 222), node("搜索后浏览立得奖励", 996, 216),
+            node("搜索宝贝", 318, 396), node("搜索", 1130, 398),
+            node("历史搜索", 148, 536), node("港币点钞机", 232, 658),
+            node("上海律所", 626, 658), node("牙刷", 954, 794),
+            node("搜索发现", 147, 970), node("大闸蟹", 308, 1106),
+            node("洗衣粉", 912, 1104)]
+
+
+def search_results():
+    return [node("浏览15秒可领30", 920, 227), node("牙刷", 198, 410),
+            node("搜索", 1131, 408), node("旗舰店", 96, 1166)]
+
+
+def test_search_landing_and_results_detection(coins):
+    assert coins.is_search_landing(search_landing())
+    assert not coins.is_search_results(search_landing())
+    assert coins.is_search_results(search_results())
+    assert not coins.is_search_landing(search_results())
+
+
+def test_search_suggestion_prefers_known_keyword(coins):
+    assert coins.search_suggestion(search_landing())["text"] == "牙刷"
+
+
+def test_search_suggestion_falls_back_to_history(coins):
+    nodes = [node("历史搜索", 148, 536), node("上海律所", 626, 658),
+             node("搜索发现", 147, 970)]
+    assert coins.search_suggestion(nodes)["text"] == "上海律所"
+
+
+def test_execute_search_browse_clicks_suggestion_and_browses(coins, monkeypatch):
+    monkeypatch.setattr(coins, "read_page", Mock(
+        side_effect=[search_landing(), search_results()]))
+    browse = Mock(return_value=True)
+    monkeypatch.setattr(coins, "execute_browse_task", browse)
+    assert coins.execute_search_browse(coins.d, 15)
+    coins.d.click.assert_called_once_with(954, 794)
+    browse.assert_called_once_with(coins.d, min_duration=15, max_wait=120)
+
+
+def test_exec_task_routes_search_landing(coins, monkeypatch):
+    before = coins.parse_task_list(live_panel())[2]
+    monkeypatch.setattr(coins, "read_page", Mock(
+        side_effect=[live_panel(), search_landing()]))
+    search = Mock(return_value=True)
+    monkeypatch.setattr(coins, "execute_search_browse", search)
+    assert coins.exec_task(before)
+    search.assert_called_once_with(coins.d, 15, "发现精选好物")
+
+
 def test_split_task_header_is_still_recognized(coins):
     assert coins.is_task_page([node("今日速赚240", 300, 374), node("淘金币", 600, 374)])
 

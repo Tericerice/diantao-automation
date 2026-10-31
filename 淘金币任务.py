@@ -21,6 +21,7 @@ ENTRY_TEXTS = ("去赚淘金币", "去赚金币")
 ACTION_TEXTS = ("去完成", "去浏览", "去观看", "去逛逛", "逛一逛", "去领取", "立即领取")
 CLAIM_TEXTS = ("去领取", "立即领取", "领取", "领取奖励")
 ROW_ACTION_TEXTS = ACTION_TEXTS + CLAIM_TEXTS
+SEARCH_PREFERRED = ("牙刷", "固态硬盘", "移动硬盘", "牛肉干", "纸巾")
 MAX_ATTEMPTS = 2
 SCAN_VIEWS = 6
 
@@ -260,6 +261,76 @@ def parse_task_list(nodes, include_skipped=False):
     return results
 
 
+def is_search_landing(nodes):
+    """识别“搜索有福利”搜索承接页。"""
+    texts = [normalize(n["text"]) for n in nodes]
+    return any("搜索有福利" in text for text in texts) or (
+        any("历史搜索" in text for text in texts)
+        and any("搜索发现" in text for text in texts))
+
+
+def is_search_results(nodes):
+    """搜索结果页顶部会显示“浏览N秒可领”的任务倒计时。"""
+    return any(re.search(r"浏览\s*\d+\s*秒", normalize(n["text"])) for n in nodes)
+
+
+def search_suggestion(nodes):
+    """优先常用词，其次历史搜索，最后搜索发现；只返回可点击文字块。"""
+    nodes = [dict(n, text=normalize(n["text"])) for n in nodes]
+    preferred = [n for n in nodes if n["text"] in SEARCH_PREFERRED
+                 and n["cx"] < screen_width * .9 and n["cy"] > screen_height * .1]
+    if preferred:
+        return preferred[0]
+    history_y = next((n["cy"] for n in nodes if n["text"] == "历史搜索"), None)
+    discover_y = next((n["cy"] for n in nodes if n["text"] == "搜索发现"), None)
+    if history_y is not None and discover_y is not None:
+        rows = sorted(
+            (n for n in nodes
+             if history_y < n["cy"] < discover_y
+             and n["cx"] < screen_width * .9 and len(n["text"]) >= 2),
+            key=lambda n: n["cy"],
+        )
+        if rows:
+            return rows[0]
+    if discover_y is not None:
+        rows = sorted(
+            (n for n in nodes
+             if discover_y < n["cy"] < discover_y + screen_height * .45
+             and n["cx"] < screen_width * .9 and len(n["text"]) >= 2
+             and not any(word in n["text"] for word in (
+                 "近一个月", "点击", "下单", "曝光", "行业", "官方", "商品",
+             ))),
+            key=lambda n: n["cy"],
+        )
+        if rows:
+            return rows[0]
+    return None
+
+
+def execute_search_browse(device, seconds, task_name=""):
+    """搜索任务必须点进结果页后再浏览，不能只滑搜索承接页。"""
+    nodes = read_page()
+    if not is_search_results(nodes):
+        if not is_search_landing(nodes):
+            return False
+        suggestion = search_suggestion(nodes)
+        if not suggestion or not click_node(suggestion):
+            print("  未定位到可点击的搜索词，停止该任务")
+            return False
+        print(f"  点击搜索词【{suggestion['text']}】进入结果页")
+        for _ in range(3):
+            time.sleep(2)
+            nodes = read_page()
+            if is_search_results(nodes):
+                break
+        else:
+            print("  点击搜索词后未进入搜索结果页，停止该任务")
+            return False
+    print("  已进入浏览页，开始浏览")
+    return execute_browse_task(
+        device, min_duration=seconds, max_wait=max(120, seconds + 60))
+
+
 def exec_task(task_def):
     """执行器保留独立屏蔽门禁，调用者不得绕过解析器的限制。"""
     kind, name = task_def["type"], task_def["name"]
@@ -283,6 +354,8 @@ def exec_task(task_def):
     landed = read_page()
     if not landed or is_task_page(landed):
         return False
+    if is_search_landing(landed) or is_search_results(landed):
+        return execute_search_browse(d, fresh[0]["seconds"], name)
     seconds = fresh[0]["seconds"]
     if kind == "live":
         return execute_live_task(d, name, fresh[0]["cx"], fresh[0]["cy"], duration=seconds + 5)
