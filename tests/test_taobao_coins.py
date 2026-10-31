@@ -278,6 +278,12 @@ def test_search_suggestion_falls_back_to_history(coins):
     assert coins.search_suggestion(nodes)["text"] == "上海律所"
 
 
+def test_search_suggestion_prefers_public_discovery_over_history(coins):
+    nodes = [node("历史搜索", 148, 536), node("私人词", 232, 658),
+             node("搜索发现", 147, 970), node("大闸蟹", 308, 1106)]
+    assert coins.search_suggestion(nodes)["text"] == "大闸蟹"
+
+
 def test_execute_search_browse_clicks_suggestion_and_browses(coins, monkeypatch):
     monkeypatch.setattr(coins, "read_page", Mock(
         side_effect=[search_landing(), search_results()]))

@@ -283,15 +283,7 @@ def search_suggestion(nodes):
         return preferred[0]
     history_y = next((n["cy"] for n in nodes if n["text"] == "历史搜索"), None)
     discover_y = next((n["cy"] for n in nodes if n["text"] == "搜索发现"), None)
-    if history_y is not None and discover_y is not None:
-        rows = sorted(
-            (n for n in nodes
-             if history_y < n["cy"] < discover_y
-             and n["cx"] < screen_width * .9 and len(n["text"]) >= 2),
-            key=lambda n: n["cy"],
-        )
-        if rows:
-            return rows[0]
+    # 优先公共“搜索发现”词，避免把用户私人历史词写进日志或误点。
     if discover_y is not None:
         rows = sorted(
             (n for n in nodes
@@ -300,6 +292,15 @@ def search_suggestion(nodes):
              and not any(word in n["text"] for word in (
                  "近一个月", "点击", "下单", "曝光", "行业", "官方", "商品",
              ))),
+            key=lambda n: n["cy"],
+        )
+        if rows:
+            return rows[0]
+    if history_y is not None and discover_y is not None:
+        rows = sorted(
+            (n for n in nodes
+             if history_y < n["cy"] < discover_y
+             and n["cx"] < screen_width * .9 and len(n["text"]) >= 2),
             key=lambda n: n["cy"],
         )
         if rows:
