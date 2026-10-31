@@ -129,13 +129,6 @@ class WalkSphereTest(unittest.TestCase):
         self.assertEqual(result, "claimed")
         scanner.execute_live_task.assert_called_once()
 
-    def test_task_is_registered_in_dashboard(self):
-        from workbench.tasks import TASKS
-        task = TASKS["diantao-walk-sphere"]
-        self.assertEqual(task["name"], "走路球体完成")
-        self.assertEqual(task["script"], "走路球体完成.py")
-        self.assertTrue(task["requires_ocr"])
-
 
 if __name__ == "__main__":
     unittest.main()

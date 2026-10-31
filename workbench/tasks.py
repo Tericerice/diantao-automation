@@ -45,7 +45,7 @@ SCRIPT_IDS = {
     "淘金币任务.py": "diantao-coins",
     "点淘购物赚钱.py": "diantao-shopping",
     "点淘鸭摇一摇.py": "diantao-duck-shake",
-    "点淘鸭摇一摇额外元宝.py": "diantao-duck-extra",
+    "摇一摇.py": "diantao-shake",
     "点淘鸭钻石任务.py": "diantao-duck-diamond",
     "睡觉赚元宝.py": "diantao-sleep",
     "签到赢元宝.py": "diantao-signin",
@@ -68,10 +68,6 @@ TASKS["diantao-work-guard"] = entry(
     "打工守护", "打工任务.py",
     "持续守护：领取到期元宝并完成奖励任务，厨师每两小时开工，左侧领体力按独立倒计时领取；手动停止。",
 )
-TASKS["diantao-walk-sphere"] = entry(
-    "走路球体完成", "走路球体完成.py",
-    "进入走路赚元宝，依次点击步数档位，领取走路奖励并完成额外的浏览/直播任务。",
-)
 
 # Keep the common entries first, then follow the runner's actual sequence.
 # Entries with alternate arguments (such as WorkBuddy) stay with manual tasks.
@@ -81,8 +77,7 @@ _pinned_ids = (
     "diantao-one-click-tasks",
     "taobao-double11-energy",
     "diantao-work-speed",
-    "diantao-duck-extra",
-    "diantao-walk-sphere",
+    "diantao-shake",
     "diantao-coins",
     "diantao-work-guard",
 )

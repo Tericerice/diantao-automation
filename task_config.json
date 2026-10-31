@@ -48,8 +48,8 @@
     "checked": true
   },
   {
-    "name": "点淘鸭摇一摇额外元宝",
-    "file": "点淘鸭摇一摇额外元宝.py",
+    "name": "摇一摇",
+    "file": "摇一摇.py",
     "timeout": 600,
     "checked": true
   },

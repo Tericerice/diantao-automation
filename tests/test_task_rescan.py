@@ -8,7 +8,7 @@ def test_build_rescan_rounds_when_selected_tasks_include_targets() -> None:
     # Given: the selected tasks include targets and an explicitly excluded task.
     selected = [
         {"name": "签到赢元宝"},
-        {"name": "点淘鸭摇一摇额外元宝"},
+        {"name": "摇一摇"},
         {"name": "点淘鸭钻石任务"},
         {"name": "淘金币任务"},
     ]
@@ -47,7 +47,7 @@ def test_main_runs_only_target_tasks_in_two_rescan_rounds(
     tasks = [
         {"name": "淘金币任务", "file": "coins.py", "timeout": 1},
         {"name": "签到赢元宝", "file": "sign.py", "timeout": 1},
-        {"name": "点淘鸭摇一摇额外元宝", "file": "extra.py", "timeout": 1},
+        {"name": "摇一摇", "file": "extra.py", "timeout": 1},
     ]
     executed_names: list[str] = []
 
@@ -68,7 +68,7 @@ def test_main_runs_only_target_tasks_in_two_rescan_rounds(
     assert executed_names == [
         "淘金币任务",
         "签到赢元宝",
-        "点淘鸭摇一摇额外元宝",
+        "摇一摇",
         "签到赢元宝",
         "签到赢元宝",
     ]

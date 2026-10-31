@@ -116,7 +116,7 @@ def test_utilities_are_not_batch_tasks(filename):
 
 def test_explicit_business_and_external_tasks_remain_available():
     assert is_task_file("一键下滑.py")
-    assert is_task_file("点淘鸭摇一摇额外元宝.py")
+    assert is_task_file("摇一摇.py")
     assert is_task_file("..\\coin11-tb-main\\2026淘宝618活动.py")
 
 
