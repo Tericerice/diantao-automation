@@ -16,11 +16,13 @@ from utils import TB_APP, _cloud_ocr, connect_device
 
 d = None
 screen_width, screen_height = 0, 0
+_verify_seen_keys = set()
 ENTRY_TEXTS = ("去赚淘金币", "去赚金币")
 ACTION_TEXTS = ("去完成", "去浏览", "去观看", "去逛逛", "逛一逛", "去领取", "立即领取")
-CLAIM_TEXTS = ("去领取", "立即领取", "领取")
+CLAIM_TEXTS = ("去领取", "立即领取", "领取", "领取奖励")
+ROW_ACTION_TEXTS = ACTION_TEXTS + CLAIM_TEXTS
 MAX_ATTEMPTS = 2
-EMPTY_LIMIT = 3
+SCAN_VIEWS = 6
 
 
 def normalize(text):
@@ -32,12 +34,17 @@ def progress(text):
     return tuple(map(int, match.groups())) if match else None
 
 
+def key_text(text):
+    """任务名比较忽略进度、空格和标点，容忍 OCR 在轮换后改变标点。"""
+    return re.sub(r"[\W_]+", "", re.sub(r"\(\d+/\d+\)", "", normalize(text)))
+
+
 def task_key(task):
-    return re.sub(r"\(\d+/\d+\)", "", normalize(task["name"]))
+    return key_text(task["name"])
 
 
-def match_task_type(task_name):
-    """未知任务不默认执行，保留商品三次点击任务的统一屏蔽规则。"""
+def match_task_type(task_name, detail=""):
+    """未知任务不默认执行；标题无法判断时只接受明确的媒体说明。"""
     if is_blocked_boutique_task(task_name) or is_blacklisted(task_name):
         return "skip"
     if any(word in task_name for word in (
@@ -52,8 +59,18 @@ def match_task_type(task_name):
         return "video"
     if "任务到访" in task_name:
         return "visit"
-    if any(word in task_name for word in ("浏览", "逛", "精选好物", "商品都可抵", "签到")):
+    if any(word in task_name for word in (
+        "浏览", "逛", "精选好物", "商品都可抵", "签到", "看看", "瞧瞧",
+    )):
         return "browse"
+    # 活动会轮换任务标题（如“看看#固态硬盘”）；只按说明行中的明确时长类型兜底，
+    # 不使用“点击去逛”等泛化文案，避免把蚂蚁庄园等外部任务误判为浏览。
+    if re.search(r"(?:滑动)?浏览\s*\d+\s*秒", detail):
+        return "browse"
+    if re.search(r"看直播\s*\d*\s*秒?", detail):
+        return "live"
+    if re.search(r"看视频\s*\d*\s*秒?", detail):
+        return "video"
     return "skip"
 
 
@@ -61,11 +78,13 @@ def is_task_page(nodes):
     texts = [normalize(n["text"]) for n in nodes]
     if any("做任务赚能量" in text for text in texts):
         return False
-    return any(
-        ("今日速赚" in text and "淘金币" in text)
-        or text in ("赚淘金币", "做任务赚金币", "做任务赚淘金币")
-        for text in texts
-    )
+    # OCR 可能把标题拆成“今日速赚240”“淘金币”两个文本块，分开判断。
+    if any("今日速赚" in text for text in texts) and any("淘金币" in text for text in texts):
+        return True
+    if any(text in ("赚淘金币", "做任务赚金币", "做任务赚淘金币") for text in texts):
+        return True
+    # 标题滚出屏幕后，用面板特征或成组的操作按钮确认仍在任务列表。
+    return looks_like_task_panel(nodes)
 
 
 def click_node(node):
@@ -88,6 +107,21 @@ def read_page():
 
 def dismiss_notice(nodes):
     return click_unique(nodes, ("我知道了", "稍后再说", "暂不", "关闭弹窗"))
+
+
+def is_promo_modal(nodes):
+    """识别“消费券待使用”这类居中弹窗；底部常驻横幅不在此列。"""
+    texts = [normalize(n["text"]) for n in nodes]
+    return any(text == "消费券待使用" or "消费券快到期" in text for text in texts)
+
+
+def dismiss_promo_modal(nodes):
+    """弹窗没有可识别关闭文案时用返回键退出；底部横幅不会触发。"""
+    if not is_promo_modal(nodes):
+        return False
+    d.press("back")
+    time.sleep(2)
+    return True
 
 
 def home_entry(nodes):
@@ -148,10 +182,14 @@ def navigate_to_task_list():
         return False
     for _ in range(4):
         nodes = read_page()
-        if dismiss_notice(nodes):
+        if dismiss_notice(nodes) or dismiss_promo_modal(nodes):
             continue
         if click_unique(nodes, ENTRY_TEXTS):
             break
+        # 弹窗/返回键把页面带回首页时，重新点击【领淘金币】再试。
+        entry = home_entry(nodes)
+        if entry and click_node(entry):
+            continue
         time.sleep(2)
     else:
         print("  未找到唯一的【去赚淘金币 / 去赚金币】入口，停止")
@@ -205,7 +243,7 @@ def parse_task_list(nodes, include_skipped=False):
                            if n["cx"] < screen_width * .75
                            and 0 <= n["cy"] - title_y <= screen_height * .03)
         task_progress = progress(details)
-        kind = match_task_type(name)
+        kind = match_task_type(name, details)
         if task_progress and task_progress[0] >= task_progress[1]:
             kind = "skip"
         if kind != "skip" and button["text"] in CLAIM_TEXTS:
@@ -213,7 +251,8 @@ def parse_task_list(nodes, include_skipped=False):
         duration = re.search(r"(\d+)(秒|分钟)", details)
         seconds = int(duration[1]) * (60 if duration[2] == "分钟" else 1) if duration else 60
         task = dict(name=name, type=kind, cx=button["cx"], cy=button["cy"],
-                    progress=task_progress, seconds=seconds, click_text=button["text"])
+                    progress=task_progress, seconds=seconds, click_text=button["text"],
+                    detail=details)
         key = task_key(task)
         if key not in seen and (include_skipped or kind != "skip"):
             seen.add(key)
@@ -226,7 +265,9 @@ def exec_task(task_def):
     kind, name = task_def["type"], task_def["name"]
     if kind == "click_three" or is_blocked_boutique_task(name):
         return False
-    if kind not in ("browse", "live", "video", "claim", "visit") or match_task_type(name) == "skip":
+    if kind not in ("browse", "live", "video", "claim", "visit"):
+        return False
+    if match_task_type(name, task_def.get("detail", "")) == "skip":
         return False
     # 重新识别并定位，避免点击上一轮扫描留下的过期坐标。
     fresh = [task for task in parse_task_list(read_page())
@@ -263,30 +304,64 @@ def back_to_task_page():
     return False
 
 
+def row_action_buttons(nodes, title):
+    """返回任务标题同一行的奖励/操作按钮，用于复核领奖类任务。"""
+    return [n for n in nodes
+            if n["cx"] > screen_width * .7
+            and abs(n["cy"] - title["cy"]) < screen_height * .045
+            and (normalize(n["text"]) in ROW_ACTION_TEXTS
+                 or re.fullmatch(r"\+\d+", normalize(n["text"])))]
+
+
 def verify_task(before):
-    """仅有进度增长或同一任务行的明确完成状态才计入已确认。"""
-    for _ in range(2):
-        nodes = read_page()
+    """从列表顶部逐屏复核；屏幕滚动或任务轮换时才不会误判失败。"""
+    global _verify_seen_keys
+    _verify_seen_keys = set()
+    nodes = list_top()
+    key = task_key(before)
+    original_button = normalize(before.get("click_text", ""))
+    for view in range(SCAN_VIEWS):
         if not is_task_page(nodes):
             return False
+        _verify_seen_keys.update(key_text(n["text"]) for n in nodes)
         matches = [task for task in parse_task_list(nodes, include_skipped=True)
-                   if task_key(task) == task_key(before)]
+                   if task_key(task) == key]
         if len(matches) == 1:
             after = matches[0]["progress"]
             if before.get("progress") and after and after[0] > before["progress"][0]:
                 return True
-        title = [n for n in nodes
-                 if re.sub(r"\(\d+/\d+\)", "", normalize(n["text"])) == task_key(before)]
-        if len(title) == 1:
+        # 同一任务可能在主列表和“更多专享福利”重复展示，按全部同名标题复核。
+        titles = [n for n in nodes if key_text(n["text"]) == key]
+        if titles:
             # 完成后金币入口会消失，但标题仍显示 (2/2)，不能依赖可点击行解析。
-            after = progress(title[0]["text"])
-            if before.get("progress") and after and after[0] > before["progress"][0]:
+            if any(before.get("progress") and (after := progress(n["text"]))
+                   and after[0] > before["progress"][0] for n in titles):
                 return True
             if any(normalize(n["text"]) in ("已完成", "已领取")
                    and n["cx"] > screen_width * .7
-                   and abs(n["cy"] - title[0]["cy"]) < screen_height * .045 for n in nodes):
+                   and any(abs(n["cy"] - title["cy"]) < screen_height * .045 for title in titles)
+                   for n in nodes):
                 return True
-        time.sleep(2)
+            # 到访/领奖类任务领取成功后按钮会消失；原按钮文案不在任何同名行即视为到账。
+            if before.get("type") in ("claim", "visit"):
+                if original_button:
+                    remaining = [
+                        n for n in nodes
+                        if normalize(n["text"]) == original_button
+                        and any(abs(n["cy"] - title["cy"]) < screen_height * .045
+                                for title in titles)
+                    ]
+                else:
+                    remaining = [n for title in titles
+                                 for n in row_action_buttons(nodes, title)]
+                if not remaining:
+                    return True
+            # 已定位到任务行但没有进度增长，直接判定本次未到账。
+            return False
+        if view == SCAN_VIEWS - 1:
+            break
+        scroll_list()
+        nodes = read_page()
     return False
 
 
@@ -296,35 +371,81 @@ def scroll_list():
     time.sleep(2)
 
 
-def run_tasks(max_tasks=30):
-    attempts, finished = {}, set()
-    confirmed_progress = {}
-    total, confirmed, empty_times = 0, 0, 0
-    expanded = False
-    while total < max_tasks:
+def looks_like_task_panel(nodes):
+    """顶部标题滚出屏幕后仍能确认当前是金币任务面板。"""
+    texts = [normalize(n["text"]) for n in nodes]
+    if any(
+        "今日速赚" in text or "更多专享福利" in text
+        or "完成下方任务得额外金币" in text
+        or text in ("换一换", "更多金币等你赚")
+        for text in texts
+    ):
+        return True
+    # 列表深处可能只剩任务行；至少两个操作/奖励入口才判定为面板。
+    actions = [text for text in texts
+               if text in ROW_ACTION_TEXTS or re.fullmatch(r"\+\d+", text)]
+    return len(actions) >= 2
+
+
+def list_top():
+    """任务面板会因执行/轮换停在半屏；核验与选择前回到顶部基准。"""
+    nodes = read_page()
+    top_texts = ("今日速赚", "完成下方任务得额外金币")
+    for _ in range(SCAN_VIEWS - 1):
+        if any(marker in normalize(n["text"]) for marker in top_texts for n in nodes):
+            return nodes
+        # 未知页面禁止盲滑，交给调用方按“任务页丢失”停止。
+        if not looks_like_task_panel(nodes):
+            return nodes
+        d.swipe(screen_width // 2, int(screen_height * .32),
+                screen_width // 2, int(screen_height * .72), duration=.3)
+        time.sleep(1)
         nodes = read_page()
+    return nodes
+
+
+def next_task(attempts, finished, confirmed_progress, expanded):
+    """从顶部逐屏查找第一个未完成的白名单任务。"""
+    nodes = list_top()
+    for view in range(SCAN_VIEWS):
         if not is_task_page(nodes):
-            print("  当前页面无法确认为金币任务列表，停止")
-            break
+            return None, nodes, expanded
         tasks = [t for t in parse_task_list(nodes)
                  if task_key(t) not in finished
                  and attempts.get(task_key(t), 0) < MAX_ATTEMPTS
-                 and (not t["progress"] or t["progress"][0] >= confirmed_progress.get(task_key(t), 0))]
-        if not tasks:
-            empty_times += 1
-            if empty_times >= EMPTY_LIMIT:
-                break
-            if not expanded and any(normalize(n["text"]) == "更多专享福利" for n in nodes):
-                expand = [n for n in nodes if normalize(n["text"]) == "展开"
-                          and n["cy"] > screen_height * .5]
-                if len(expand) == 1 and click_node(expand[0]):
-                    expanded = True
-                    empty_times = 0
-                    continue
-            scroll_list()
-            continue
-        empty_times = 0
-        task = tasks[0]
+                 and (not t["progress"]
+                      or t["progress"][0] >= confirmed_progress.get(task_key(t), 0))]
+        if tasks:
+            return tasks[0], nodes, expanded
+        if not expanded and any(normalize(n["text"]) == "更多专享福利" for n in nodes):
+            # OCR 可能带出“展开v/展开∨”等后缀，按前缀匹配。
+            expand = [n for n in nodes if normalize(n["text"]).startswith("展开")
+                      and n["cy"] > screen_height * .5]
+            if len(expand) == 1 and click_node(expand[0]):
+                expanded = True
+                nodes = read_page()
+                continue
+        if view == SCAN_VIEWS - 1:
+            break
+        scroll_list()
+        nodes = read_page()
+    return None, nodes, expanded
+
+
+def run_tasks(max_tasks=30):
+    attempts, finished = {}, set()
+    confirmed_progress = {}
+    total, confirmed = 0, 0
+    expanded = False
+    while total < max_tasks:
+        task, nodes, expanded = next_task(
+            attempts, finished, confirmed_progress, expanded)
+        if task is None:
+            if not is_task_page(nodes):
+                print("  当前页面无法确认为金币任务列表，停止")
+            else:
+                print("  未再找到可执行的白名单任务，停止")
+            break
         key = task_key(task)
         attempts[key] = attempts.get(key, 0) + 1
         total += 1
@@ -344,8 +465,14 @@ def run_tasks(max_tasks=30):
             else:
                 attempts[key] = 0
         else:
-            print("  未确认进度或到账；同项最多尝试两次")
-    print(f"  共尝试 {total} 次，确认完成/进度增长 {confirmed} 次")
+            if key not in _verify_seen_keys:
+                # 任务被轮换离场时不能记作失败，否则它稍后带进度回来会被永久排除。
+                attempts[key] = 0
+                print("  任务已离开当前列表，稍后复查")
+            else:
+                print("  未确认进度或到账；同项最多尝试两次")
+    print(f"  共尝试 {total} 次，确认完成/进度增长 {confirmed} 次；"
+          "面板轮换或进度重置时以实际金币到账为准")
     return dict(attempted=total, confirmed=confirmed)
 
 

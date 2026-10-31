@@ -245,3 +245,126 @@ def test_stale_progress_after_confirmation_is_not_replayed(coins, monkeypatch):
     monkeypatch.setattr(coins, "scroll_list", Mock())
     assert coins.run_tasks() == {"attempted": 1, "confirmed": 1}
     execute.assert_called_once()
+
+
+def test_split_task_header_is_still_recognized(coins):
+    assert coins.is_task_page([node("今日速赚240", 300, 374), node("淘金币", 600, 374)])
+
+
+def test_watch_hashtag_task_is_browse(coins):
+    nodes = panel(node("看看#固态硬盘", 396, 1517), node("+30", 1105, 1551),
+                  node("浏览15秒", 316, 1590))
+    task, = coins.parse_task_list(nodes)
+    assert (task["name"], task["type"], task["seconds"]) == ("看看#固态硬盘", "browse", 15)
+
+
+def test_unknown_title_uses_media_detail(coins):
+    nodes = panel(node("神秘新任务", 400, 1000), node("去完成", 1100, 1040),
+                  node("浏览15秒", 316, 1080))
+    task, = coins.parse_task_list(nodes)
+    assert task["type"] == "browse"
+
+
+def test_more_panel_claim_and_browse_buttons(coins):
+    nodes = panel(
+        node("更多专享福利", 174, 800),
+        node("任务到访得金币(0/1)", 455, 1100), node("领取奖励", 1104, 1140),
+        node("每日来任务面板+10", 434, 1180),
+        node("双11来淘金币逛买更省(0/1)", 533, 1300), node("去完成", 1104, 1340),
+        node("点击去逛+20", 374, 1380),
+    )
+    tasks = {t["name"]: t for t in coins.parse_task_list(nodes)}
+    assert tasks["任务到访得金币(0/1)"]["type"] == "claim"
+    assert tasks["双11来淘金币逛买更省(0/1)"]["type"] == "browse"
+
+
+def test_claim_reward_disappearance_is_confirmed(coins, monkeypatch):
+    before = {"name": "任务到访得金币(0/1)", "type": "claim",
+              "progress": (0, 1), "seconds": 60, "detail": "每日来任务面板+10"}
+    monkeypatch.setattr(coins, "read_page", lambda: panel(
+        node("任务到访得金币(0/1)", 455, 1100)))
+    assert coins.verify_task(before)
+
+
+def test_remaining_action_prevents_claim_confirmation(coins, monkeypatch):
+    before = {"name": "任务到访得金币(0/1)", "type": "claim",
+              "progress": (0, 1), "seconds": 60, "detail": "每日来任务面板+10"}
+    monkeypatch.setattr(coins, "read_page", lambda: panel(
+        node("任务到访得金币(0/1)", 455, 1100), node("领取奖励", 1104, 1140)))
+    assert not coins.verify_task(before)
+
+
+def test_bottom_promo_banner_is_not_modal(coins):
+    nodes = [node("2张共580元消费券待使用", 632, 2600), node("去使用", 1100, 2600)]
+    assert not coins.is_promo_modal(nodes)
+
+
+def test_promo_modal_is_dismissed_before_clicking_entry(coins, monkeypatch):
+    monkeypatch.setattr(coins, "read_page", Mock(side_effect=[
+        [node("领淘金币", 250, 500)],
+        [node("消费券待使用", 632, 1100), node("去使用", 632, 1300)],
+        [node("去赚金币", 120, 1190), node("去赚能量", 1140, 1190)],
+        live_panel(),
+    ]))
+    assert coins.navigate_to_task_list()
+    coins.d.press.assert_called_once_with("back")
+    assert coins.d.click.call_args_list[-1].args == (120, 1190)
+
+
+def test_entry_reclicks_home_after_popup_returns_home(coins, monkeypatch):
+    monkeypatch.setattr(coins, "read_page", Mock(side_effect=[
+        [node("领淘金币", 250, 500)],
+        [node("消费券待使用", 632, 1100)],
+        [node("领淘金币", 260, 510)],
+        [node("去赚金币", 120, 1190)],
+        live_panel(),
+    ]))
+    assert coins.navigate_to_task_list()
+    assert [c.args for c in coins.d.click.call_args_list] == [
+        (250, 500), (260, 510), (120, 1190)]
+    coins.d.press.assert_called_once_with("back")
+
+
+def test_list_top_does_not_swipe_on_unknown_page(coins, monkeypatch):
+    nodes = [node("其他页面")]
+    monkeypatch.setattr(coins, "read_page", lambda: nodes)
+    assert coins.list_top() == nodes
+    coins.d.swipe.assert_not_called()
+
+
+def test_list_top_scrolls_back_to_panel_header(coins, monkeypatch):
+    scrolled = [node("换一换", 634, 735), node("更多专享福利", 174, 918)]
+    top = panel(node("任务到访得金币", 410, 812), node("+10", 1102, 845))
+    monkeypatch.setattr(coins, "read_page", Mock(side_effect=[scrolled, top]))
+    assert coins.list_top() == top
+    coins.d.swipe.assert_called_once()
+
+
+def test_task_key_ignores_punctuation_and_progress(coins):
+    assert coins.task_key({"name": "看看#固态硬盘(0/3)"}) == coins.task_key(
+        {"name": "看看固态硬盘(1/3)"})
+
+
+def test_duplicate_task_titles_confirm_progress_growth(coins, monkeypatch):
+    before = coins.parse_task_list(live_panel())[1]
+    nodes = panel(
+        node("逛清单，每15秒30金币(1/2)", 545, 1052),
+        node("更多专享福利", 174, 2391),
+        node("逛清单，每15秒30金币(1/2)", 545, 2518),
+    )
+    monkeypatch.setattr(coins, "read_page", lambda: nodes)
+    assert coins.verify_task(before)
+
+
+def test_expand_ocr_variant_is_clicked(coins, monkeypatch):
+    first = panel(node("更多专享福利", 174, 2200),
+                  node("更多金币等你赚", 399, 2400), node("展开v", 1100, 2546))
+    later = panel(node("任务到访得金币(0/1)", 455, 1800),
+                  node("领取奖励", 1104, 1840))
+    monkeypatch.setattr(coins, "read_page", Mock(side_effect=[first, later, later, later]))
+    execute = Mock(return_value=True)
+    monkeypatch.setattr(coins, "exec_task", execute)
+    monkeypatch.setattr(coins, "verify_task", lambda _: True)
+    assert coins.run_tasks(max_tasks=1) == {"attempted": 1, "confirmed": 1}
+    coins.d.click.assert_called_once_with(1100, 2546)
+    execute.assert_called_once()

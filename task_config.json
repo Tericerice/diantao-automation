@@ -68,7 +68,7 @@
   {
     "name": "淘金币任务",
     "file": "淘金币任务.py",
-    "timeout": 1200,
+    "timeout": 2400,
     "checked": true
   },
   {
