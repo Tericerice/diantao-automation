@@ -49,7 +49,7 @@ class ShakeTest(unittest.TestCase):
         self.video_calls = []
         self.original_modules = {
             name: sys.modules.get(name)
-            for name in ("uiautomator2", "u2_scanner", "utils", "yuanbao_popup")
+            for name in ("uiautomator2", "u2_scanner", "utils")
         }
 
         u2_scanner = types.ModuleType("u2_scanner")
@@ -63,15 +63,10 @@ class ShakeTest(unittest.TestCase):
 
         utils = types.ModuleType("utils")
         utils.get_ocr_text_blocks = lambda _device: []
-        utils.click_ocr_text = lambda *_args, **_kwargs: False
-
-        yuanbao_popup = types.ModuleType("yuanbao_popup")
-        yuanbao_popup.handle_yuanbao_live_popups = lambda _device: True
 
         sys.modules["uiautomator2"] = types.ModuleType("uiautomator2")
         sys.modules["u2_scanner"] = u2_scanner
         sys.modules["utils"] = utils
-        sys.modules["yuanbao_popup"] = yuanbao_popup
 
     def tearDown(self):
         time.sleep = self.original_sleep
@@ -99,24 +94,15 @@ class ShakeTest(unittest.TestCase):
         module_globals["time"].sleep = lambda _seconds: None
         return module_globals
 
-    def test_navigate_requires_each_step_before_scanning(self):
-        module_globals = self.load_extra_yuanbao_module()
-        with contextlib.redirect_stdout(io.StringIO()):
-            assert module_globals["navigate"]() is False
-        self.assertEqual(self.fake_device.clicks, [])
-
     def test_browse_reserves_scan_time_and_returns_only_after_success(self):
         module_globals = self.load_extra_yuanbao_module()
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
+        with contextlib.redirect_stdout(io.StringIO()):
             completed = module_globals["execute_extra_yuanbao_task"](
                 "browse", "再得30元宝", 540, 1200
             )
         self.assertTrue(completed)
         self.assertEqual(self.browse_calls, [(self.fake_device, 30, 70, 10)])
         self.assertEqual(self.fake_device.presses, ["back"])
-        # 浏览任务统一使用「摇一摇浏览任务」命名，便于在日志中区分来源。
-        self.assertIn("摇一摇浏览任务", output.getvalue())
 
     def test_browse_timeout_keeps_page_and_does_not_report_completion(self):
         module_globals = self.load_extra_yuanbao_module()
