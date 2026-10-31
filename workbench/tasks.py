@@ -68,6 +68,10 @@ TASKS["diantao-work-guard"] = entry(
     "打工守护", "打工任务.py",
     "持续守护：领取到期元宝并完成奖励任务，厨师每两小时开工，左侧领体力按独立倒计时领取；手动停止。",
 )
+TASKS["diantao-walk-sphere"] = entry(
+    "走路球体完成", "走路球体完成.py",
+    "进入走路赚元宝，依次点击步数档位，领取走路奖励并完成额外的浏览/直播任务。",
+)
 
 # Keep the common entries first, then follow the runner's actual sequence.
 # Entries with alternate arguments (such as WorkBuddy) stay with manual tasks.
@@ -78,6 +82,7 @@ _pinned_ids = (
     "taobao-double11-energy",
     "diantao-work-speed",
     "diantao-shake",
+    "diantao-walk-sphere",
     "diantao-coins",
     "diantao-work-guard",
 )
