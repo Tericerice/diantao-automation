@@ -1,0 +1,455 @@
+{
+  "schema": 1,
+  "version": "v0.3.1",
+  "worker_protocol": 1,
+  "files": {
+    ".env.example": {
+      "sha256": "a83dd057a8631017cac26b81af915a463a6cd3c98831ecc45597fedb91c6fd58",
+      "size": 457
+    },
+    ".gitattributes": {
+      "sha256": "3dfe4d23acbd80539919261a966b6a6ce831ac22d98c42c309320a4817bb1b56",
+      "size": 21
+    },
+    ".gitignore": {
+      "sha256": "eed3220ca8a307fd48e78f2426d36488a232c518ea707470719c874a5d20c5c7",
+      "size": 478
+    },
+    "618花花乐.py": {
+      "sha256": "9129cc5dfb38130b13735a1bd9be2dcd6fcd5027785820d5c10fd40fe708583f",
+      "size": 4973
+    },
+    "README.md": {
+      "sha256": "3511c561a9180574f86417ed0e023ef1eec4e0d7cab3b103c0c4235a4cf1a609",
+      "size": 19150
+    },
+    "VERSION.json": {
+      "sha256": "4489d57ba1b4537cab00b4e3a8f62b169162610f608335921920ec3f66e8dd46",
+      "size": 81
+    },
+    "calibrate.py": {
+      "sha256": "c6bc1e40cb309c55372e7d7de13c6c67228bc2a356283a3761e346488ed3fd1d",
+      "size": 6058
+    },
+    "cloud_ocr.py": {
+      "sha256": "4b2586bc459bdb40fe7d582ba4325cec58536fd2dd0379f14a11b0ef281e0193",
+      "size": 1708
+    },
+    "codebuddy_vision.py": {
+      "sha256": "270dcead837f7dc02099c166b839ddf3c701115804ecfaec91f8cfdbbf969afb",
+      "size": 16268
+    },
+    "deploy/diantao-ocr.service": {
+      "sha256": "c2715a88b183ebf3f0a80d97643f7e5aa3a8233985ea359f4f6e9fee307ed155",
+      "size": 732
+    },
+    "deploy/register_all_in_one.py": {
+      "sha256": "0ff30f8f259732c59231419c4fc68cbe8a4e9eea4b7803fd9afc08235fd112c6",
+      "size": 2386
+    },
+    "deploy/register_one_click.py": {
+      "sha256": "f208891f44690750415b9fedc9bd0d3417dfee73b9543d5931fd3226bed72bf8",
+      "size": 4336
+    },
+    "deploy/register_taobao_energy.py": {
+      "sha256": "e1c4d91d51977d14b36fe2efff3f141c0d9e2c725d8f910278317a3e7805527e",
+      "size": 1974
+    },
+    "deploy/register_work_guard.py": {
+      "sha256": "01087cd953af50e9f70d8f07e1fdf3fdb230449e4e53ca770234b485b15b0869",
+      "size": 2000
+    },
+    "device_connection.py": {
+      "sha256": "5d52c7f3c4683dda9c90a43b93f67aaad4cff470616cf9bf343623dad7a91b06",
+      "size": 652
+    },
+    "diantao_1024_auto.py": {
+      "sha256": "2cd05c88ffdb3130eb6de9098d7ad6fa79eab6244f5ede77c2665b38a09abd8e",
+      "size": 23700
+    },
+    "docs/code-audit-2026-09-06.md": {
+      "sha256": "026eec42864499b5883e59f58ac0aa4a04684bbfddb61c807a0965f5a06d00ad",
+      "size": 28858
+    },
+    "docs/modules/video_task_impl.md": {
+      "sha256": "b22ca815bb27f488813123c4a4b2a1d03fb85aacd62c86ffbf25b6839bbe955c",
+      "size": 1085
+    },
+    "docs/modules/video_task_theory.md": {
+      "sha256": "861cd1e8a1bbc3205bd7b712208da8f32f42ae62e39e023d030122076dd25091",
+      "size": 1955
+    },
+    "docs/project-consolidation.md": {
+      "sha256": "589eaadf8b097ba4133d1dfe453535d9c5459d6f87dd8c1a2cac38784ce245b4",
+      "size": 1092
+    },
+    "docs/taobao-coins.md": {
+      "sha256": "6bb4b82c58125bd9562869325df5d390068e964e478863c7bd769064deb22279",
+      "size": 1681
+    },
+    "docs/taobao-energy.md": {
+      "sha256": "f2b068c47101607db7279686ab98d205d911a0aefff20ee7e3dd9bbdb2e40691",
+      "size": 8820
+    },
+    "docs/workbuddy-vision.md": {
+      "sha256": "e8721a8fbe24e23780e64a8625f36cd7796d06b308ef7af0357f2097c07744ec",
+      "size": 5656
+    },
+    "guard_timer.py": {
+      "sha256": "793f666fa13ef7c494b316e639318bac88d1713ca8972f8b60d42a8b5080873c",
+      "size": 2520
+    },
+    "img/click_btn.png": {
+      "sha256": "2b5b25352ba7215938efec700284b03ee88860ace81fe6302bff959493e6c4f8",
+      "size": 50755
+    },
+    "lightrag_helper.py": {
+      "sha256": "d49d95c66744d411673298928f085419b1a156c0557cc60641df5ad7d2749346",
+      "size": 3056
+    },
+    "local_config.py": {
+      "sha256": "ab3beb711e631546b76968cff467d8f8ce82d74c93bc13b21b575a3421b65c60",
+      "size": 2214
+    },
+    "nav_rules.json": {
+      "sha256": "4130f747faff353fd57d9a7896be081594d6f27a3ff4d63a17f1dfd86007e9d7",
+      "size": 1783
+    },
+    "phone_control.py": {
+      "sha256": "829f509042fd381780d978c01386acab0396c14fd04b6ba675843baa56c4578a",
+      "size": 4813
+    },
+    "rag_client.py": {
+      "sha256": "19a2627cb7aa5a8a2104b1bb06e1b5bc8849bac02f1c61aa0dba7323da5e8074",
+      "size": 10091
+    },
+    "run_codebuddy_pipeline.py": {
+      "sha256": "3093ee1e906e31e104b9819a19f3ee028e1d99c52b2f57e64c5a31493842a1be",
+      "size": 5152
+    },
+    "run_signin_full.py": {
+      "sha256": "77b39ddb4bc11549d8e3525a10e61bcd25f7fde1ee6c7a9dddaa6e02b4a90a8c",
+      "size": 11149
+    },
+    "run_signin_standalone.py": {
+      "sha256": "944b0dfac97635cd5641760fda070c57ad2fb5d8095ba8db99ecb9a112fdbd42",
+      "size": 14657
+    },
+    "run_signin_tasks.py": {
+      "sha256": "cb93dad09da52ac96f2f70982a5070444990b1d9a428515eff38450738c4f2f7",
+      "size": 4315
+    },
+    "run_taobao_energy.cmd": {
+      "sha256": "868d548a0cb249606d2a884ddcab2508b8f4d1e29bc0acd8c728f7ff2125d1ba",
+      "size": 242
+    },
+    "run_taobao_energy_workbuddy.cmd": {
+      "sha256": "9aa06b52fda453977793c18d55b088c15e3bf8f155672ceefdc99c6154cad82c",
+      "size": 122
+    },
+    "smart_navigator.py": {
+      "sha256": "dd9fba65ee43cfd89427303eaafa5e576974657716423c32e52d2c9c589b6eb2",
+      "size": 9299
+    },
+    "smart_swipe_browse.py": {
+      "sha256": "afb691074daefdfa4f0de0c2d34b0679873c12218b64b25132e51f6954f18d30",
+      "size": 5236
+    },
+    "task_catalog.py": {
+      "sha256": "1f22cb67a939cb2092b9e749b2b25b798e5f991a3513d079dd16991248aa54da",
+      "size": 746
+    },
+    "task_checkpoint.py": {
+      "sha256": "8ccd6d3e011657c9e37badcfc34c695da1926b3e781f8a57b214e28235f9cd01",
+      "size": 3576
+    },
+    "task_config.json": {
+      "sha256": "82430856b6d5dadca56a083093f9a0ebb87176f70494d1914f43d946b52bf5c3",
+      "size": 2016
+    },
+    "task_exclusions.py": {
+      "sha256": "1b42731b8bfb750930fec4c52300d6aa38dc5197834a8b639f6449809d1692e5",
+      "size": 1020
+    },
+    "task_host.py": {
+      "sha256": "ab8cce4a1e8ad6f11f9ca457d3639194be087204357615468daf0a7f2091259d",
+      "size": 5739
+    },
+    "task_recheck.py": {
+      "sha256": "ceeee74b6da0e4f49ef89ce1b13e53c3329b0a89cf7a374ae281167fec876880",
+      "size": 519
+    },
+    "task_rescan.py": {
+      "sha256": "6488111e94badff8ccaaf3f8fa340d72931b68f3fe89c13c2bdaf829123749e1",
+      "size": 756
+    },
+    "task_runner.py": {
+      "sha256": "ec9da2a54af61642bf2d1fb378eb8b5b6cee84131ad62d1c93ec7a5bbe62cac8",
+      "size": 4920
+    },
+    "tools/analyze_screenshot.py": {
+      "sha256": "4bfb52b4376300782c27e19c09b90068b62c7f7c8af97ca1a287da48a1956e1c",
+      "size": 1105
+    },
+    "tools/analyze_scroll.py": {
+      "sha256": "fa79a4f0950597802f22c09815af53f78c0bcab5623f1ce3b0f3ef22579d9d57",
+      "size": 1545
+    },
+    "tools/build_release.py": {
+      "sha256": "a49df8c9a6479fabcb59b2c8eed3a2691a46a8bc09763dc2b0262b5e1a16aa33",
+      "size": 8413
+    },
+    "tools/calibrate.py": {
+      "sha256": "cff7420d6769ba78087ed06e548f0728d43ba185233144b994dcc98c4c7796c9",
+      "size": 5163
+    },
+    "tools/install_windows_shortcut.py": {
+      "sha256": "c3be2b05fefa4250d005122055075d6c27b0b417219834139f738c391142f0be",
+      "size": 1267
+    },
+    "tools/live_ocr.py": {
+      "sha256": "999f98ae8d3d2e1a59e9e9da7803386b364033bfd89c2fbe44d2767f1632ab43",
+      "size": 2686
+    },
+    "tools/ocr_compat_contract.py": {
+      "sha256": "e2658fbaded98073be56d9179d4a96677db30058cce7595925d8519a7e164c15",
+      "size": 3230
+    },
+    "tools/ocr_compat_server.py": {
+      "sha256": "70e0eeae01bc547e3eba636cd1c56a193c0cd7f1143312a2d3bb4399b0762158",
+      "size": 7521
+    },
+    "tools/ocr_scan_live.py": {
+      "sha256": "72e7e80d0f99b88897c06e9af40d882a0e8861510e6d2333e02af16d2589c007",
+      "size": 1507
+    },
+    "tools/run_taobao_energy.py": {
+      "sha256": "fd6fa88a96cd6b7a5f8e91af068a2272b893a4794e065b43c951cb552e019a95",
+      "size": 2269
+    },
+    "tools/taobao_energy.py": {
+      "sha256": "2150ee0c3797da9ed6fc445faa7f90c4a4b199a9a61505f0096c9ec93b8247f3",
+      "size": 43201
+    },
+    "tools/test_adb_screenshot.py": {
+      "sha256": "fc726654911da70943ea1eecef7bc90cdf0c02645368a0d4a4e2816a7902fc53",
+      "size": 5646
+    },
+    "tools/test_ocr_screenshot.py": {
+      "sha256": "13d684473b12757f6d5440e772461277e690c35d35e7af556333d688c589674f",
+      "size": 4299
+    },
+    "u2_scanner.py": {
+      "sha256": "d65ba4df44e35670383a6c7c18abd0713528125a9d7ace26f466e4751ec2a1e1",
+      "size": 53710
+    },
+    "utils.py": {
+      "sha256": "fcc41c2e93eba3637f47527e5964e99159e655a9e92f58e2da87f8aa0818b3de",
+      "size": 50019
+    },
+    "verify_all_tasks.py": {
+      "sha256": "0b311c5bacc5ccd93d76548929095eb42f3b8bc641fc2962063f1e3d947d7fba",
+      "size": 4398
+    },
+    "video_swipe_diagram.svg": {
+      "sha256": "37a554e4833f4e112df5d72afb3be595c7e59f9724cc85256513f15c92addcfd",
+      "size": 2483
+    },
+    "workbench/README.md": {
+      "sha256": "1ec82822212110af89c3e390a7c287bdef815f5ca68ff4eba49cbd77bebd4afa",
+      "size": 9197
+    },
+    "workbench/__init__.py": {
+      "sha256": "6e241297bce7b25316d33ea6bbe513bfd82d7a37389a5935b1b29a5f1a7c08f6",
+      "size": 59
+    },
+    "workbench/app.py": {
+      "sha256": "e9b1f35b4b0a2242efbcb5a40ca9ba92ee3673ab9e9a80de2b1e7834c7ed7c5c",
+      "size": 13586
+    },
+    "workbench/phone.py": {
+      "sha256": "71fed883e9bda59c7d7605053af24ac1e23b19c008c13e102766df25377c5480",
+      "size": 6945
+    },
+    "workbench/pyproject.toml": {
+      "sha256": "441dda1c5d7208fd3f6a55b8c94d3293422ccf497aac9ca3b0a16d045433745c",
+      "size": 565
+    },
+    "workbench/static/butler-logo.ico": {
+      "sha256": "8bdf22b7238010c380cf3193dab7f2cc655610f5e002029ca843cb2e9832b746",
+      "size": 70094
+    },
+    "workbench/static/butler-logo.png": {
+      "sha256": "b76a76e2a59924c135a25265507d0ecde5fa54af05e1302e852992cd50928220",
+      "size": 93206
+    },
+    "workbench/static/index.classic.html": {
+      "sha256": "db9cfceb4bc9553afd3756b65fd52b1a35288944fbbb3e3999e4b55572e1f484",
+      "size": 58028
+    },
+    "workbench/static/index.html": {
+      "sha256": "fa11289d0706ebe25df95027e5fef18748b57e1abddb65f7c1ea91ee63ff0200",
+      "size": 69038
+    },
+    "workbench/static/tearice-logo.ico": {
+      "sha256": "80e1192a31058b6d8b4a40842ae465e2e9d28ba27751ce6a884137d05f4b6b73",
+      "size": 39433
+    },
+    "workbench/static/tearice-logo.png": {
+      "sha256": "4a59689b18930aae7d3bea90539fe549f47adc53822c5ee52901d68320802db9",
+      "size": 29650
+    },
+    "workbench/static/tearice-logo.svg": {
+      "sha256": "d0fc8d99930dfa251f501f709c0644fe72c006ecd558e245c92e1393a4d3f7d1",
+      "size": 529
+    },
+    "workbench/tasks.py": {
+      "sha256": "4f08716f3c523026101e139034d821c635fc7d4b6b19c68a482ede4d0316d2cf",
+      "size": 4172
+    },
+    "workbench/update_worker.py": {
+      "sha256": "6bbfed24feb5ca8ccddb0febfd68a8cd111caba05f59c6382783895ad9a70d4b",
+      "size": 16012
+    },
+    "workbench/updater.py": {
+      "sha256": "10e7a9778510ea23cc6aafa5e4d2a5f33cb4c63fd788f6769f4b849c6e822155",
+      "size": 23697
+    },
+    "workbench/uv.lock": {
+      "sha256": "72c8f379ff2a1c32bba317f4d1bc5700a721e10a74f21b10f6be3ed80e5cda25",
+      "size": 201114
+    },
+    "workbuddy.example.json": {
+      "sha256": "b0b77e94adcfd87f5624553f180d5be2a8bfbcf37cab1cad7e1d772b83f49b82",
+      "size": 105
+    },
+    "workbuddy_vision.py": {
+      "sha256": "5213a950667bf8da491b78df00b7ac6df153a2af3d9b6a90d8b1a41fd0623ab5",
+      "size": 12859
+    },
+    "yuanbao_popup.py": {
+      "sha256": "8194979859964ddce5abef6d4babb4d1f985ee434508e3f15c44498f39b2d83b",
+      "size": 4228
+    },
+    "一键下滑.py": {
+      "sha256": "0300c11d3d22f920dd5b3fda544426f06022b582ec09171948251d28d4570e7b",
+      "size": 12336
+    },
+    "一键下滑_AI.py": {
+      "sha256": "89f5ba0ad816279487bbfae263a43e3d9500bdac3a269917d1470bc99627aef8",
+      "size": 16264
+    },
+    "一键下滑_新.py": {
+      "sha256": "24ff4e689d82861507b6949478de6dac878cf4cec84d093c7d9778203ef0a843",
+      "size": 13531
+    },
+    "一键任务执行.py": {
+      "sha256": "961b61e676f65be1cc3a030a7a39b0dea5a1185d91bdd211c43691cc324f5fae",
+      "size": 342
+    },
+    "一键全部执行.py": {
+      "sha256": "723b038606f272f31268c225bebf8e58a012b87abe747c60b58dcdcbe249ca9e",
+      "size": 6853
+    },
+    "一键顺序执行.py": {
+      "sha256": "39065d5a18f908de8c4911126c16b7e8b31aeae236e0fd1156035dd84e6e8ef9",
+      "size": 5260
+    },
+    "主播打卡粉丝礼.py": {
+      "sha256": "a79f4d8742d6e61deae3f30e44faa2c31977c3c42daafb924a02b160fbf78f76",
+      "size": 6143
+    },
+    "任务选择器.py": {
+      "sha256": "ede583d5b7388b844b5f659f89f17ffd540cd256e4e191a105f0d71c5cbcb325",
+      "size": 15272
+    },
+    "元宝中心小任务.py": {
+      "sha256": "1419484f5c68a6c71bee93af06972aeea208c1885e6d103c2b74c77620ea87fe",
+      "size": 12075
+    },
+    "全部执行.py": {
+      "sha256": "a349a6a29208958e5c3937d88c1ced9d6e9081b44c955d496b359730fe69de71",
+      "size": 9387
+    },
+    "养优惠.py": {
+      "sha256": "cba5455a041ca7826f7de898ee16fe5098181f02188a7b7009facd72d9e39023",
+      "size": 13145
+    },
+    "合成百元大红包.py": {
+      "sha256": "943897a2cf86887b3b94ee2c541de80681278d78fe94ceb42d8b7727a60afd9b",
+      "size": 13081
+    },
+    "启动大管家.cmd": {
+      "sha256": "03aae8e0fd707c91cb3086f2c73e54e997be0e99845d61e6f28a009721ad78ae",
+      "size": 61
+    },
+    "启动工作台.cmd": {
+      "sha256": "397b49681d1a279252c84170e41ef983c40e2b3f93c5addfc95b0b8f5bd11a05",
+      "size": 1396
+    },
+    "启动旧版大管家.cmd": {
+      "sha256": "c7606fa6d085978102f523634f2b97c9d948c170138c015849fb1a788ecf92c5",
+      "size": 85
+    },
+    "打工任务.py": {
+      "sha256": "d5542d7766e8c1c230b3a289c72cc4462b2b39c571418c82b55231e745a3b25a",
+      "size": 17480
+    },
+    "打工加速.py": {
+      "sha256": "29bbbd28a2dcc2c393a68e6477c24bb96c3f1fdea949335d5f1091196a1a8261",
+      "size": 8488
+    },
+    "打工得体力.py": {
+      "sha256": "4982d0d468b4f4ca0407c59cc31f66806ef271588b89731d4418457109ef8ae3",
+      "size": 14055
+    },
+    "淘金币任务.py": {
+      "sha256": "9889e0176f2ba44a64e54926683da402b1b3eca0cfe962794402bbf5d6560961",
+      "size": 15517
+    },
+    "点淘购物赚钱.py": {
+      "sha256": "15dfaa8ab10bb22ea9abcbc19fd209fb80871dfd6b7f70909736bdf0bb48957c",
+      "size": 23765
+    },
+    "点淘鸭摇一摇.py": {
+      "sha256": "11da6ebc813ca9454104c0058bb505737b83f034bd7df99b92df017e297aaa7e",
+      "size": 16031
+    },
+    "点淘鸭摇一摇额外元宝.py": {
+      "sha256": "635cad1ca9a91eef81deeb2f52c1f6d030bf882843e8467d5abb9d5b09f8f879",
+      "size": 3337
+    },
+    "点淘鸭钻石任务.py": {
+      "sha256": "15894d6d15dbff076b1e90d22f30538ee18002ccf2008ce0a52b116283bd8e3c",
+      "size": 17438
+    },
+    "睡觉赚元宝.py": {
+      "sha256": "aac1aed6ab501cda4a3186eb81becc90451c4c5490a8978d87d8e7a923e552d4",
+      "size": 10622
+    },
+    "签到赢元宝.py": {
+      "sha256": "a3570e7368a83b8650216def38a71186ea6bc799e720d56d953626cb849dd8ab",
+      "size": 22700
+    },
+    "赚钱卡.py": {
+      "sha256": "1a0883917023d534df53499c18e4d2d10b930c3d121dfbb2b34e8af5f6bfa2fa",
+      "size": 10577
+    },
+    "走路球体完成.py": {
+      "sha256": "c0166400159833e0cf2ac20d50b2d9bc44ab3cf922a63b2b0fb3f5e09894e15d",
+      "size": 7322
+    },
+    "走路赚元宝.py": {
+      "sha256": "8081b7630fcccce3e7a5b0d1695167b2610a20cfd8f161abba6d479b7f123621",
+      "size": 28324
+    },
+    "连通性脚本.py": {
+      "sha256": "9e9ac8076b7103b095eb7e0e38119a05e56bfbde394ea84ad9efa1c8b3221eef",
+      "size": 9240
+    },
+    "配置本机.cmd": {
+      "sha256": "03a2a90012b0fe7e26d58d21637186b31a5cde5ecbd90d8c46a4be1f1d2f3d25",
+      "size": 328
+    }
+  }
+}

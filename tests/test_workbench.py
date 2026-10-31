@@ -240,28 +240,17 @@ def test_qr_pairs_only_its_own_service_and_verifies_device_connection(client, mo
 def test_native_update_endpoints_and_health_version(client):
     health = client.get("/api/health").json()
     assert health["ok"] is True
-    assert health["version"] == desktop.CURRENT_VERSION
+    assert health["version"] == desktop.current_version(desktop.ROOT) == "0.3.1"
 
     status = client.get("/api/update/status").json()
-    assert status["simulation"] is True
-    assert status["update_mode"] == "simulation"
-    assert status["current_version"] == "0.3.0"
+    assert status["simulation"] is False
+    assert status["is_dev"] is False
+    assert status["current_version"] == "0.3.1"
+    assert "update_mode" not in status
 
-    check = client.post("/api/update/check").json()
-    assert check["ok"] is True
-    assert check["update"]["status"] == "available"
-
-    install = client.post("/api/update/install").json()
-    assert install["ok"] is True
-    assert install["update"]["status"] == "installing"
-
-    cancel = client.post("/api/update/cancel").json()
-    assert cancel["ok"] is True
-    assert cancel["update"]["status"] == "cancelled"
-
-    reset = client.post("/api/update/reset").json()
-    assert reset["ok"] is True
-    assert reset["update"]["status"] == "available"
+    # 真实更新器必须先检查并下载，不能直接从空闲状态安装。
+    assert client.post("/api/update/install").status_code == 409
+    assert client.post("/api/update/cancel").status_code == 409
 
 
 def test_qr_requires_adb_and_connect_does_not_trust_exit_code_zero(client, monkeypatch):
