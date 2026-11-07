@@ -604,14 +604,20 @@ def start_app(d, package_name, init=False):
 # 📱 应用状态检测
 # ========================================================
 def get_current_app(d):
-    """获取当前前台应用包名和Activity"""
+    """获取当前前台应用包名和 Activity，兼容不同 Android 焦点字段。"""
     try:
-        info = d.shell("dumpsys window | grep mCurrentFocus").output
-        match = re.search(r'mCurrentFocus=Window\{.*? u0 (.*?)/(.*?)\}', info)
+        info = d.shell("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'").output
+    except Exception:
+        return None, None
+    patterns = (
+        r'mCurrentFocus=Window\{.*? u0 ([^/\s}]+)/([^}\s]+)\}',
+        r'mFocusedApp=AppWindowToken\{.*? u0 ([^/\s}]+)/([^}\s]+)\}',
+        r'mFocusedApp=.*? u0 ([^/\s}]+)/([^}\s]+)',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, info or "")
         if match:
-            return match.group(1), match.group(2)
-    except:
-        pass
+            return match.group(1), match.group(2).rstrip("}")
     return None, None
 
 

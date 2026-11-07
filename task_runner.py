@@ -123,6 +123,8 @@ def _run_script(
             if line is None:
                 eof = True
             else:
+                if line.strip().startswith("FAILED_ROUNDS:"):
+                    reason = "轮次未完成：" + line.strip().split(":", 1)[1].strip()
                 on_line(line)
     finally:
         if proc.poll() is None:

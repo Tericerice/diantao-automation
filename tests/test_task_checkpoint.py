@@ -76,8 +76,9 @@ def test_failed_task_already_passed_by_sequence_is_not_repeated(session, monkeyp
 def test_changed_command_is_not_replayed_with_old_result(session):
     first = checkpoint.Checkpoint("1", "脚本", ["python", "old.py"])
     first.finish(True)
-    with pytest.raises(RuntimeError, match="定义已经变化"):
-        checkpoint.Checkpoint("1", "脚本", ["python", "new.py"])
+    changed = checkpoint.Checkpoint("1", "脚本", ["python", "new.py"])
+    assert changed.cached is None
+    assert not changed.done
 
 
 def test_kill_race_cannot_mark_interrupted_step_done_or_advance_following_step(session):

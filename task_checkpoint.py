@@ -23,8 +23,10 @@ class Checkpoint:
         digest = hashlib.sha256(self.scope.encode("utf-8")).hexdigest()
         self.path = self.directory / f"{digest}.json" if self.directory else None
         self.cached = read_json(self.path) if self.path else None
-        if self.cached and self.cached["signature"] != signature:
-            raise RuntimeError("当前任务定义已经变化，不能沿用此次断点")
+        if self.cached and self.cached.get("signature") != signature:
+            # 脚本或任务定义变化后，旧断点只作为历史记录，不得继续复用。
+            # 不删除用户文件；下一次 begin() 会用新签名写入 active 状态。
+            self.cached = None
 
     @property
     def done(self):
@@ -48,9 +50,22 @@ class Checkpoint:
         return {SCOPE_ENV: self.scope} if self.path else {}
 
 
+def _script_content_hash(filename):
+    """把入口脚本内容纳入缓存签名，避免脚本更新后沿用旧的成功断点。"""
+    try:
+        raw = Path(filename).read_bytes()
+        return hashlib.sha256(raw).hexdigest()
+    except OSError:
+        return None
+
+
 def script_checkpoint(filename, command):
+    signature = {
+        "command": list(command),
+        "script_sha256": _script_content_hash(filename),
+    }
     return Checkpoint(f"script-{next(_calls)}", Path(filename).name,
-                      signature=list(command))
+                      signature=signature)
 
 
 def run_step(key, checkpoint_label, function, *args, **kwargs):

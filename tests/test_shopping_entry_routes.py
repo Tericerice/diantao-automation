@@ -8,10 +8,10 @@ import pytest
 
 @pytest.mark.parametrize("filename, function_name, extra_args", [
     ("点淘购物赚钱.py", "enter_shopping_tasks", ()),
-    ("一键下滑.py", "_nav_to_shop", ()),
     ("连通性脚本.py", "_nav_to_shop", (1264, 2780)),
 ])
-def test_shopping_routes_click_fixed_card_without_requiring_entry_text(filename, function_name, extra_args):
+def test_legacy_shopping_routes_click_fixed_card_without_requiring_entry_text(filename, function_name, extra_args):
+    # e-diantao-71: 一键下滑.py 已改为 OCR 定位并校验落地页，不再参与此旧契约。
     tree = ast.parse((Path(__file__).resolve().parents[1] / filename).read_text(encoding="utf-8"))
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == function_name)
     ocr = Mock(side_effect=AssertionError("入口改名，不应依赖文字"))
@@ -24,6 +24,15 @@ def test_shopping_routes_click_fixed_card_without_requiring_entry_text(filename,
     namespace[function_name](*args)
     ocr.assert_not_called()
     device.click.assert_called_once_with(934, 1530)
+
+
+def test_one_click_swipe_shop_avoids_fixed_coordinates():
+    # e-diantao-71: fixed (934,1530) jumped to an adjacent ad/external app.
+    source = (Path(__file__).resolve().parents[1] / "一键下滑.py").read_text(encoding="utf-8")
+    assert "device.click(934, 1530)" not in source
+    assert "get_ocr_text_blocks" in source
+    assert "_expected_page_reached" in source
+    assert "press(\"back\")" in source
 
 
 def load_shopping_navigation(namespace):

@@ -6,7 +6,7 @@
   1. 打工赚元宝
   2. 睡觉赚元宝
   3. 签到赢元宝（OCR下滑找"今日签到"→"去看看"）
-  4. 购物赚钱（固定点击双11活动入口）
+  4. 购物赚钱（OCR 定位购物入口并校验落地页）
   5. 摇一摇（OCR定位点淘鸭家园 → 右滑2次 → OCR找去摇一摇）
   6. 走路赚元宝（OCR定位入口）
 
@@ -16,13 +16,15 @@
     - nav_func:     导航函数（接收 device 参数，负责进入对应页面）
 """
 import argparse
+import json
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 import random
+import re
 
 from u2_scanner import connect_device, DT_APP
-from utils import get_ocr_text_blocks
+from utils import get_ocr_text_blocks, get_current_app
 from task_checkpoint import run_step
 
 CENTER_OCR_PRE_SCAN_DELAY_SECONDS = 5
@@ -34,6 +36,25 @@ OCR_SCAN_ATTEMPTS = 5
 OCR_RETRY_DELAY_SECONDS = 3
 OCR_CLICK_WAIT_SECONDS = 5
 DUCK_OPEN_WAIT_SECONDS = 7
+
+# Trail e-diantao-151: 校验允许 OCR 抖动与页面滚动；只有离开应用才判跳页。
+PAGE_VALIDATION_ATTEMPTS = 4
+PAGE_VALIDATION_RETRY_DELAY_SECONDS = 1.5
+NAV_PAGE_MARKERS = {
+    "打工赚元宝": ("打工赚元宝", "做任务赚元宝", "每日开店赚元宝"),
+    "睡觉赚元宝": ("睡觉赚元宝", "睡觉", "做任务赚元宝"),
+    "签到赢元宝": ("签到赢元宝", "今日签到", "每日前进赚元宝", "做任务赚元宝"),
+    "购物赚钱": ("精选推荐", "做任务领元宝", "快速领", "购物赚钱", "精选宝"),
+    "摇一摇": ("摇一摇", "去摇一摇", "摇一摇PK赚元宝"),
+    "走路赚元宝": ("走路赚元宝", "做任务赚步数"),
+}
+
+# 避开 Android 底部手势区（0.80~1.00）和顶端状态栏，显式 duration 防止点击手势。
+SAFE_SWIPE_START_MIN_RATIO = 0.65
+SAFE_SWIPE_START_MAX_RATIO = 0.75
+SAFE_SWIPE_END_MIN_RATIO = 0.20
+SAFE_SWIPE_END_MAX_RATIO = 0.30
+SWIPE_DURATION_SECONDS = 0.25
 
 
 # ========================================================
@@ -47,6 +68,94 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 # ========================================================
 # 🧭 导航函数库（每个轮次使用不同的导航策略）
 # ========================================================
+
+def _normalize_ocr_text(value):
+    """OCR 文本归一化：忽略空白并统一大小写，兼容活动页文字微调。"""
+    return re.sub(r"\s+", "", str(value)).casefold()
+
+
+def _find_ocr_block(blocks, keywords, *, near=None, max_dy=None):
+    """在 OCR 文本块中按关键字查找；near 用于限制同一行的关联入口。"""
+    if isinstance(keywords, str):
+        keywords = (keywords,)
+    needles = tuple(_normalize_ocr_text(k) for k in keywords if str(k).strip())
+    for block in blocks or []:
+        text = _normalize_ocr_text(block.get("text", ""))
+        if not any(needle in text for needle in needles):
+            continue
+        if near is not None and max_dy is not None:
+            try:
+                cx, cy = int(block["cx"]), int(block["cy"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if abs(cx - near[0]) <= 50 or not (-20 <= cy - near[1] <= max_dy):
+                continue
+        return block
+    return None
+
+
+def _safe_back(device):
+    """一次安全回退；不重启应用、不连续按键，避免误操作其他页面。"""
+    print("  ↩️ 页面校验失败，执行 1 次安全返回")
+    try:
+        device.press("back")
+    except Exception as exc:
+        print(f"  ⚠️ 安全返回失败：{exc}")
+        return False
+    time.sleep(2)
+    return True
+
+
+def _expected_page_reached(device, markers, *, attempts=PAGE_VALIDATION_ATTEMPTS):
+    """确认仍在点淘；OCR 仅作辅助信号，短暂抖动不会把正常页面判成失败。
+
+    前台包名是最可靠的应用边界：同包 H5 容器切换 Activity（如
+    BrowserActivity → BrowserUpperActivity）属于正常页面变化。OCR 连续
+    失败或前台应用不可读时才返回失败，让外层真实看到 SKIPPED/FAILED。
+    """
+    package_ok = False
+    ocr_errors = 0
+    for attempt in range(1, attempts + 1):
+        try:
+            package, _ = get_current_app(device)
+        except Exception as exc:
+            print(f"  ⚠️ 页面校验读取前台应用失败：{exc}")
+            package = None
+        if package == DT_APP:
+            package_ok = True
+        elif package:
+            print(f"  ⚠️ 页面校验失败：前台应用为 {package!r}，预期 {DT_APP!r}")
+            return False
+        try:
+            blocks = get_ocr_text_blocks(device)
+            ocr_errors = 0
+        except Exception as exc:
+            ocr_errors += 1
+            print(f"  ⚠️ 页面校验 OCR 失败（{ocr_errors}/{attempts}）：{exc}")
+            blocks = []
+        matched = _find_ocr_block(blocks, markers)
+        if matched:
+            print(f"  ✅ OCR 确认预期页面：{matched.get('text', '')!r}")
+            return True
+        print(f"  ⚠️ 预期页面文字未命中（第 {attempt}/{attempts} 次）")
+        if attempt < attempts:
+            time.sleep(PAGE_VALIDATION_RETRY_DELAY_SECONDS)
+    print("  ⚠️ 页面标题可能已滚出屏幕，但仍在点淘；允许继续本轮")
+    return package_ok and ocr_errors < attempts
+
+
+def _navigate_and_verify(device, name, click_target):
+    """统一导航后校验：失败时一次安全回退，并让调用方跳过本轮。"""
+    if not click_target(device):
+        print(f"  ⚠️ 未能通过 OCR 进入【{name}】，跳过本轮")
+        return False
+    markers = NAV_PAGE_MARKERS.get(name, (name,))
+    if _expected_page_reached(device, markers):
+        return True
+    _safe_back(device)
+    print(f"  ⚠️ 导航后未确认【{name}】预期页面，跳过本轮")
+    return False
+
 
 def _is_yuanbao_center_ocr(device):
     """用 OCR 判断当前是否已在元宝中心页面。"""
@@ -114,13 +223,11 @@ def _ocr_click_target(device, keyword, label=None, attempts=OCR_SCAN_ATTEMPTS,
             blocks = []
             print(f"  ⚠️ OCR 扫描【{label}】失败：{exc}")
 
-        normalized_keyword = "".join(str(keyword).split()).casefold()
+        normalized_keyword = _normalize_ocr_text(keyword)
         target = next(
             (
                 b for b in blocks
-                if normalized_keyword in "".join(
-                    str(b.get("text", "")).split()
-                ).casefold()
+                if normalized_keyword in _normalize_ocr_text(b.get("text", ""))
             ),
             None,
         )
@@ -140,72 +247,111 @@ def _ocr_click_target(device, keyword, label=None, attempts=OCR_SCAN_ATTEMPTS,
 
 
 def _nav_to_dagong(device):
-    """OCR 查找并点击打工赚元宝入口。"""
-    _ocr_click_target(device, "打工赚元宝")
+    """OCR 查找并点击打工赚元宝入口，校验落地页。"""
+    return _navigate_and_verify(
+        device, "打工赚元宝",
+        lambda dev: _ocr_click_target(dev, "打工赚元宝"),
+    )
 
 
 def _nav_to_sleep(device):
-    """OCR 查找并点击睡觉赚元宝入口。"""
-    _ocr_click_target(device, "睡觉赚元宝")
+    """OCR 查找并点击睡觉赚元宝入口，校验落地页。"""
+    return _navigate_and_verify(
+        device, "睡觉赚元宝",
+        lambda dev: _ocr_click_target(dev, "睡觉赚元宝"),
+    )
 
 
 def _nav_to_signin(device):
-    """导航：元宝中心 → OCR 下滑查找今日签到并尝试进入一次。"""
+    """OCR 找今日签到 + 同行动作按钮；找不到按钮绝不盲点右侧广告。"""
     print("  📜 下滑找今日签到...")
     time.sleep(OCR_PRE_SCAN_DELAY_SECONDS)
 
-    for scan_index in range(1, 9):
-        try:
-            blocks = get_ocr_text_blocks(device)
-        except Exception as exc:
-            blocks = []
-            print(f"  ⚠️ 签到 OCR 扫描失败：{exc}")
+    def click_signin(dev):
+        for scan_index in range(1, 9):
+            try:
+                blocks = get_ocr_text_blocks(dev)
+            except Exception as exc:
+                blocks = []
+                print(f"  ⚠️ 签到 OCR 扫描失败：{exc}")
 
-        sign_block = next(
-            (b for b in blocks if "今日签到" in b.get("text", "")),
-            None,
-        )
-        if sign_block:
-            sign_x, sign_y = int(sign_block["cx"]), int(sign_block["cy"])
-            go_block = next(
-                (
-                    b for b in blocks
-                    if "去看看" in b.get("text", "")
-                    and abs(int(b["cx"]) - sign_x) > 50
-                    and -20 <= int(b["cy"]) - sign_y <= 200
-                ),
-                None,
-            )
-            if go_block:
+            sign_block = _find_ocr_block(blocks, "今日签到")
+            if sign_block:
+                sign_x, sign_y = int(sign_block["cx"]), int(sign_block["cy"])
+                go_block = _find_ocr_block(
+                    blocks, ("去看看", "去签到", "立即签到"),
+                    near=(sign_x, sign_y), max_dy=200,
+                )
+                if not go_block:
+                    print("  ⚠️ 找到【今日签到】但未找到同行动作按钮，跳过本轮")
+                    return False
                 target_x, target_y = int(go_block["cx"]), int(go_block["cy"])
-                print(f"  🎯 OCR 点击【去看看】@({target_x},{target_y})")
-            else:
-                target_x, target_y = sign_x + 200, sign_y
-                print(f"  🎯 OCR 定位签到标题并点击右侧入口@({target_x},{target_y})")
+                print(f"  🎯 OCR 点击【{go_block.get('text', '')}】@({target_x},{target_y})")
+                dev.click(target_x, target_y)
+                time.sleep(OCR_CLICK_WAIT_SECONDS)
+                return True
 
-            device.click(target_x, target_y)
-            time.sleep(OCR_CLICK_WAIT_SECONDS)
-            return
+            print(f"  ⚠️ OCR 未找到【今日签到】（第 {scan_index}/8 次）")
+            dev.swipe(screen_width // 2, int(screen_height * 0.70),
+                      screen_width // 2, int(screen_height * 0.25),
+                      duration=SWIPE_DURATION_SECONDS)
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
 
-        print(f"  ⚠️ OCR 未找到【今日签到】（第 {scan_index}/8 次）")
-        device.swipe(screen_width // 2, int(screen_height * 0.85),
-                     screen_width // 2, int(screen_height * 0.2))
-        time.sleep(OCR_RETRY_DELAY_SECONDS)
+        print("  ⚠️ 未找到今日签到")
+        return False
 
-    print("  ⚠️ 未找到今日签到")
+    return _navigate_and_verify(device, "签到赢元宝", click_signin)
 
 
 def _nav_to_shop(device):
-    """固定点击元宝中心购物卡片，兼容双11活动改名。"""
-    # 有/无“额外福利”横条时，购物卡片的共同覆盖区域。
-    print("  🎯 固定点击购物入口 @(934,1530)")
-    device.click(934, 1530)
-    time.sleep(OCR_CLICK_WAIT_SECONDS)
+    """OCR 定位购物入口并校验落地页，替代会命中广告的固定坐标。"""
+    print("  🔍 OCR 查找购物入口...")
+
+    def click_shop(dev):
+        for attempt in range(1, OCR_SCAN_ATTEMPTS + 1):
+            try:
+                blocks = get_ocr_text_blocks(dev)
+            except Exception as exc:
+                blocks = []
+                print(f"  ⚠️ 购物入口 OCR 扫描失败：{exc}")
+
+            # 当前活动页实测文字：额外福利 / 查看3个精选宝贝 / 去完成；
+            # 历史/回退文案：购物赚钱、做任务领元宝。优先匹配入口文本，
+            # 并只点击与入口同一行的动作按钮，绝不点击固定坐标。
+            entry = _find_ocr_block(
+                blocks, ("购物赚钱", "查看3个精选", "精选宝", "做任务领元宝"))
+            action = _find_ocr_block(blocks, ("去完成", "去逛逛", "去购物"))
+            if entry and action:
+                try:
+                    ex, ey = int(entry["cx"]), int(entry["cy"])
+                    ax, ay = int(action["cx"]), int(action["cy"])
+                except (KeyError, TypeError, ValueError):
+                    print("  ⚠️ 购物入口 OCR 坐标无效，跳过本轮")
+                    return False
+                if abs(ay - ey) > 180:
+                    print("  ⚠️ 购物入口与动作按钮不在同一区域，跳过本轮")
+                    return False
+                print(f"  🎯 OCR 购物入口【{entry.get('text', '')}】@({ex},{ey})")
+                print(f"  🎯 OCR 点击【{action.get('text', '')}】@({ax},{ay})")
+                dev.click(ax, ay)
+                time.sleep(OCR_CLICK_WAIT_SECONDS)
+                return True
+
+            print(f"  ⚠️ OCR 未找到购物入口（第 {attempt}/{OCR_SCAN_ATTEMPTS} 次）")
+            if attempt < OCR_SCAN_ATTEMPTS:
+                time.sleep(OCR_RETRY_DELAY_SECONDS)
+        print("  ⚠️ 未能通过 OCR 进入购物赚钱")
+        return False
+
+    return _navigate_and_verify(device, "购物赚钱", click_shop)
 
 
 def _nav_to_walk(device):
-    """OCR 查找并点击走路赚元宝入口。"""
-    _ocr_click_target(device, "走路赚元宝")
+    """OCR 查找并点击走路赚元宝入口，校验落地页。"""
+    return _navigate_and_verify(
+        device, "走路赚元宝",
+        lambda dev: _ocr_click_target(dev, "走路赚元宝"),
+    )
 
 
 def _nav_to_yaoyiyao(device):
@@ -214,29 +360,45 @@ def _nav_to_yaoyiyao(device):
     （复用点淘鸭摇一摇.py 的导航逻辑，5次 OCR 重试）
     """
     # Step 1: OCR 定位并点击点淘鸭家园
-    if not _ocr_click_target(device, "点淘鸭家园", click_wait=7):
-        return
+    if not _ocr_click_target(device, "点淘鸭家园", "点淘鸭家园"):
+        print("  ⚠️ 未能进入点淘鸭家园，跳过该轮")
+        return False
 
-    # Step 2: 右滑2次到最右边
-    print("  右滑2次到最右边...")
+    print(f"  ⏳ 等待家园加载 {DUCK_OPEN_WAIT_SECONDS}s...")
+    time.sleep(DUCK_OPEN_WAIT_SECONDS)
+
+    # Step 2: 右滑2次找摇一摇入口
     for i in range(2):
-        sx = int(screen_width * 0.15)
-        ex = int(screen_width * 0.85)
-        sy = int(screen_height * 0.50)
-        device.swipe(sx, sy, ex, sy, duration=0.3)
-        print(f"    第 {i+1}/2 次右滑")
-        time.sleep(OCR_RETRY_DELAY_SECONDS)
-    print("  ✅ 已右滑到最右边")
+        print(f"  👉 第 {i+1} 次右滑找摇一摇...")
+        device.swipe(int(screen_width * 0.2), int(screen_height * 0.5),
+                     int(screen_width * 0.8), int(screen_height * 0.5),
+                     duration=SWIPE_DURATION_SECONDS)
+        time.sleep(2)
 
-    # Step 3: OCR找"去摇一摇"并点击（5次重试）
-    entered = _ocr_click_target(device, "去摇一摇")
+    for attempt in range(1, 6):
+        try:
+            blocks = get_ocr_text_blocks(device)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ 摇一摇 OCR 扫描失败：{exc}")
 
-    if not entered:
-        print("  ⚠️ 未能进入摇一摇页面，跳过该轮")
+        target = _find_ocr_block(blocks, ("去摇一摇", "摇一摇"))
+        if target:
+            target_x, target_y = int(target["cx"]), int(target["cy"])
+            print(f"  🎯 OCR 点击【{target.get('text', '')}】@({target_x},{target_y})")
+            device.click(target_x, target_y)
+            time.sleep(OCR_CLICK_WAIT_SECONDS)
+            return _navigate_and_verify(device, "摇一摇", lambda dev: True)
+
+        print(f"  ⚠️ OCR 未找到【去摇一摇】（第 {attempt}/5 次）")
+        if attempt < 5:
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
+
+    print("  ⚠️ 未能进入摇一摇页面，跳过该轮")
+    _safe_back(device)
+    return False
 
 
-# ========================================================
-# 📋 轮次配置（每个轮次独立设置）
 # ========================================================
 # ✨ 修改以下配置即可调整每步的行为：
 #   - swipe_seconds: 下滑浏览秒数
@@ -284,22 +446,66 @@ ROUNDS_CONFIG = [
 # ========================================================
 # 下滑浏览
 # ========================================================
-def swipe_browse(seconds):
-    """纯下滑浏览"""
+def swipe_browse(seconds, expected_markers=None):
+    """安全下滑浏览；每次滑动后检查页面，误跳即一次回退并跳过本轮。"""
     if seconds <= 0:
         print("  ⏭️ 跳过下滑（swipe_seconds <= 0）")
-        return
+        return True
 
     print(f"  📋 下滑浏览 {seconds}s")
     sw, sh = screen_width, screen_height
+    expected_package, expected_activity = None, None
+    for attempt in range(3):
+        try:
+            expected_package, expected_activity = get_current_app(d)
+        except Exception as exc:
+            print(f"  ⚠️ 下滑前页面校验失败：{exc}")
+            break
+        if expected_package:
+            break
+        time.sleep(1)
+    if expected_package != DT_APP:
+        print("  ⚠️ 下滑前未确认点淘页面，跳过本轮")
+        return False
+
     start = time.time()
     count = 0
     while time.time() - start < seconds + 10:
-        d.swipe(int(sw * 0.5), random.randint(int(sh * 0.80), int(sh * 0.90)),
-                int(sw * 0.5), random.randint(int(sh * 0.15), int(sh * 0.25)))
+        start_y = random.randint(
+            int(sh * SAFE_SWIPE_START_MIN_RATIO),
+            int(sh * SAFE_SWIPE_START_MAX_RATIO))
+        end_y = random.randint(
+            int(sh * SAFE_SWIPE_END_MIN_RATIO),
+            int(sh * SAFE_SWIPE_END_MAX_RATIO))
+        d.swipe(int(sw * 0.5), start_y,
+                int(sw * 0.5), end_y,
+                duration=SWIPE_DURATION_SECONDS)
         count += 1
         time.sleep(random.uniform(2, 4))
+
+        # 前台包名决定应用边界；同包 H5 容器切换 Activity 是正常页面变化。
+        package, activity = None, None
+        for attempt in range(2):
+            try:
+                package, activity = get_current_app(d)
+            except Exception as exc:
+                print(f"  ⚠️ 下滑后页面校验失败：{exc}")
+                break
+            if package:
+                break
+            if attempt == 0:
+                time.sleep(1)
+        if package != expected_package:
+            print(
+                f"  ⚠️ 下滑后前台应用变为 {package!r}，预期 {expected_package!r}，"
+                "停止本轮下滑")
+            _safe_back(d)
+            return False
+        if activity != expected_activity:
+            print(f"  ↪️ 同包页面切换：{activity!r}（继续下滑）")
+
     print(f"  ✅ 浏览完成 ({count}次下滑)")
+    return True
 
 
 # ========================================================
@@ -320,15 +526,27 @@ def run_round(label, name, swipe_seconds, nav_func):
     # Step 2: 进入元宝中心
     if not _enter_yuanbao_center_ocr(d):
         print("  ⚠️ 元宝中心导航或活动弹窗未完成，停止本轮")
-        return
+        return False
 
     # Step 3: 使用该轮次自己的导航函数进入目标页面
-    nav_func(d)
+    if not nav_func(d):
+        reason = f"第 {label} 轮【{name}】导航未确认"
+        print(f"  ⚠️ {reason}，跳过本轮下滑")
+        print(json.dumps({"event": "round_skipped", "round": label,
+                          "name": name, "reason": reason}, ensure_ascii=False), flush=True)
+        return False
 
-    # Step 4: 下滑浏览
-    swipe_browse(swipe_seconds)
+    # Step 4: 下滑浏览（携带本轮预期页面标记，误跳立即停止）
+    result = swipe_browse(swipe_seconds, NAV_PAGE_MARKERS.get(name, (name,)))
+    if not result:
+        reason = f"第 {label} 轮【{name}】下滑未完成"
+        print(f"  ⚠️ {reason}，不计为成功")
+        print(json.dumps({"event": "round_failed", "round": label,
+                          "name": name, "reason": reason}, ensure_ascii=False), flush=True)
+        return False
 
     print(f"  ✅ 第 {label} 轮完成")
+    return True
 
 
 # ========================================================
@@ -363,28 +581,19 @@ def main():
         print(f"     {r['label']}. {r['name']}: 下滑 {r['swipe_seconds']}s")
     print("=" * 60)
 
+    failed_rounds = []
     for r in rounds:
-        run_step(
-            f"swipe-{r['label']}", r["name"], run_round,
-            label=r["label"],
-            name=r["name"],
-            swipe_seconds=r["swipe_seconds"],
-            nav_func=r["nav_func"],
+        ok = run_step(
+            f"swipe-{r['label']}", r["name"],
+            run_round,
+            r["label"], r["name"], r["swipe_seconds"], r["nav_func"],
         )
-
-    print(f"\n{'='*60}")
-    print(" ✅ 所选轮次执行完成！" if args.round is not None else " ✅ 全部完成！")
-    print(f"{'='*60}")
+        if not ok:
+            failed_rounds.append(f"{r['label']}={r['name']}")
+    if failed_rounds:
+        print(f"FAILED_ROUNDS: {','.join(failed_rounds)}", flush=True)
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n⚠️ 中断")
-    except Exception as e:
-        print(f"\n❌ {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        print(" 👋")
+    main()
