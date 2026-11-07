@@ -22,12 +22,12 @@ from codebuddy_vision import vision_engine, MODEL_FLASH, MODEL_DEEPSEEK
 from u2_scanner import (
     connect_device,
     DT_APP,
-    click_u2_control,
     execute_browse_task,
     execute_live_task,
     handle_open_allow_popup,
 )
 from utils import (
+    click_ocr_text,
     get_ocr_text_blocks,
     find_text_by_paddleocr,
     find_ui_element,
@@ -49,31 +49,13 @@ def navigate_to_money_card() -> bool:
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
 
-    # 1. 点击底部/主页“元宝中心”
-    found_yuanbao = False
-    for _ in range(8):
-        for text in ["元宝中心", "赚元宝"]:
-            btn = d(textContains=text)
-            if btn.exists(timeout=2):
-                click_u2_control(d, btn, text)
-                time.sleep(3)
-                found_yuanbao = True
-                break
-        if found_yuanbao:
-            break
-        time.sleep(1)
-
-    if not found_yuanbao:
-        # 尝试通过 CodeBuddy 语义定位元宝中心图标
-        pos = find_ui_element(d, "底部导航栏的元宝中心或赚元宝")
-        if pos:
-            d.click(pos[0], pos[1])
-            time.sleep(3)
-        else:
-            # 屏幕底部经验点击
-            d.click(int(screen_width * 0.7), int(screen_height * 0.93))
-            time.sleep(3)
-
+    # 1. OCR 点击主页“元宝中心”
+    if not click_ocr_text(
+        d, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    ):
+        return False
+    time.sleep(3)
     if not handle_yuanbao_live_popups(d):
         return False
 
@@ -82,19 +64,18 @@ def navigate_to_money_card() -> bool:
     # 2. 下滑寻找“赚钱卡”入口
     print("🔍 [赚钱卡] 正在下滑寻找【赚钱卡】入口...")
     for swipe_i in range(10):
-        # 先用 U2 文字检测
-        card_btn = d(textContains="赚钱卡")
-        if card_btn.exists(timeout=1):
-            print("  🎯 找到【赚钱卡】入口，正在进入...")
-            click_u2_control(d, card_btn, "赚钱卡")
-            time.sleep(4)
-            return True
-
-        # 用 CodeBuddy 多模态视觉检索入口
-        pos = find_ui_element(d, "赚钱卡")
-        if pos:
-            print(f"  🎯 CodeBuddy 视觉找到【赚钱卡】入口: {pos}")
-            d.click(pos[0], pos[1])
+        blocks = get_ocr_text_blocks(d, retries=0)
+        card_block = next(
+            (block for block in blocks if "赚钱卡" in block.get("text", "")),
+            None,
+        )
+        if card_block:
+            cx, cy = int(card_block.get("cx", 0)), int(card_block.get("cy", 0))
+            if not (0 < cx < screen_width and 0 < cy < screen_height):
+                print(f"  ⚠️ OCR 识别到赚钱卡，但坐标无效：({cx},{cy})")
+                continue
+            print(f"  🎯 OCR 找到【赚钱卡】入口，点击 @({cx},{cy})")
+            d.click(cx, cy)
             time.sleep(4)
             return True
 

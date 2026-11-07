@@ -302,5 +302,6 @@ if __name__ == "__main__":
         print(f"\n❌ 连通性脚本启动失败：{exc}")
         import traceback
         traceback.print_exc()
+        raise SystemExit(1)
     finally:
         print("👋 连通性排障结束")

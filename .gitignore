@@ -26,4 +26,5 @@ ocr_debug/
 workbench/.venv/
 .runtime/workbench/
 .runtime/dagong_guard/
+.runtime/task_control/
 dist/

@@ -14,12 +14,12 @@ from yuanbao_popup import handle_yuanbao_live_popups
 import sys
 import re
 
-from u2_scanner import connect_device, DT_APP, click_u2_control
+from u2_scanner import connect_device, DT_APP
 from u2_scanner import (
     execute_browse_task, execute_live_task, execute_video_task,
     handle_guess_price_game,
 )
-from utils import get_ocr_text_blocks, show_today_summary
+from utils import click_ocr_text, get_ocr_text_blocks, show_today_summary
 
 # ========================================================
 # 全局变量
@@ -61,52 +61,35 @@ def navigate():
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
 
-    for _ in range(10):
-        for text in ["元宝中心", "赚元宝"]:
-            btn = d(textContains=text)
-            if btn.exists(timeout=2):
-                click_u2_control(d, btn, text)
-                time.sleep(4)
-                break
-        else:
-            time.sleep(2)
-            continue
-        break
-    else:
-        d.click(int(screen_width * 0.7), int(screen_height * 0.93))
-        time.sleep(4)
-
+    if not click_ocr_text(
+        d, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    ):
+        return False
+    time.sleep(4)
     if not handle_yuanbao_live_popups(d):
         return False
 
     # 下滑找合成百元大红包 → 点去合成
     print("🔄 下滑找合成百元大红包...")
     for _ in range(MAX_SCROLL):
-        target = d(textContains="合成百元大红包")
-        if target.exists(timeout=2):
-            try:
-                tx, ty = target.center()
-                tx, ty = int(tx), int(ty)
-            except:
-                tx, ty = 0, 0
-
-            go_btn = d(textContains="去合成")
-            if go_btn.exists(timeout=1):
-                try:
-                    gx, gy = go_btn.center()
-                    gx, gy = int(gx), int(gy)
-                except:
-                    gx, gy = 0, 0
-                if abs(gx - tx) > 50 and -20 <= gy - ty <= 200:
-                    d.click(gx, gy)
-                    print(f"  ✅ 点击去合成")
-                    time.sleep(4)
-                    return True
-
-            # 兜底：点合成百元大红包右侧（盲点）
-            d.click(tx + 200, ty)
-            time.sleep(4)
-            return True
+        blocks = get_ocr_text_blocks(d, retries=0)
+        targets = [b for b in blocks if "合成百元大红包" in b.get("text", "")]
+        if targets:
+            target = targets[0]
+            go_buttons = [
+                b for b in blocks
+                if "去合成" in b.get("text", "")
+                and b.get("cx", 0) > target.get("cx", 0)
+                and abs(b.get("cy", 0) - target.get("cy", 0)) <= 120
+            ]
+            if go_buttons:
+                go_btn = min(go_buttons, key=lambda b: abs(b["cy"] - target["cy"]))
+                d.click(int(go_btn["cx"]), int(go_btn["cy"]))
+                print(f"  ✅ OCR 点击去合成 @({go_btn['cx']},{go_btn['cy']})")
+                time.sleep(4)
+                return True
+            print("  🔎 OCR 找到目标标题，但同一行未识别到【去合成】，继续扫描")
 
         d.swipe(screen_width // 2, int(screen_height * 0.7),
                 screen_width // 2, int(screen_height * 0.2))
@@ -119,19 +102,11 @@ def navigate():
 def click_scan_energy():
     """点击右下角「扫描赚能量」展开任务列表（首次需要）"""
     print("🔄 查找扫描赚能量...")
-    # 方式1：U2 文本匹配
-    for text in ["扫描赚能量", "赚能量"]:
-        btn = d(textContains=text)
-        if btn.exists(timeout=2):
-            click_u2_control(d, btn, text)
-            time.sleep(3)
-            return True
-
-    # 方式2：OCR 扫描（限制屏幕下25%区域）
+    # OCR 扫描（限制屏幕下25%区域）
     time.sleep(2)
-    blocks = get_ocr_text_blocks(d)
+    blocks = get_ocr_text_blocks(d, retries=0)
     for b in blocks:
-        if "赚能量" in b["text"] and b["cy"] > screen_height * 0.75:
+        if any(k in b["text"] for k in ["扫描赚能量", "赚能量"]) and b["cy"] > screen_height * 0.75:
             d.click(b["cx"], b["cy"])
             print(f"  ✅ OCR点击赚能量 @({b['cx']},{b['cy']})")
             time.sleep(3)

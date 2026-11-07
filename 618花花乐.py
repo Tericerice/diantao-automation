@@ -7,7 +7,7 @@ import sys
 
 from u2_scanner import connect_device, DT_APP
 from utils import (
-    get_ocr_text_blocks, execute_live_task, handle_guess_price_game,
+    get_ocr_text_blocks, has_ocr_text, execute_live_task, handle_guess_price_game,
     check_can_open, log_task_completed, show_today_summary,
     any_match, is_blacklisted, back_to_task, show_dev_guide,
     BLACKLIST_KEYWORDS, LIVE_KW, TASK_BTN_KW,
@@ -45,7 +45,7 @@ def navigate():
     d.click(1126, 1620)
     print("  ✅ 点击集元气(1126,1620)")
     time.sleep(3)
-    if d(textContains="去完成").exists(timeout=2):
+    if has_ocr_text(d, "去完成", attempts=1):
         print("  ✅ 弹窗已打开")
         return True
     print("  ⚠️ 集元气弹窗打开失败")
@@ -100,8 +100,7 @@ def do_task(btn_cx, btn_cy, task_name):
         check_can_open(d)
         time.sleep(BROWSE_TIME)
         for _ in range(15):
-            if d(textContains="恭喜完成任务").exists(timeout=1) or \
-               d(textContains="任务完成").exists(timeout=1):
+            if has_ocr_text(d, ["恭喜完成任务", "任务完成"], attempts=1):
                 break
             time.sleep(1)
         # 退出浏览，按一次返回回到任务列表

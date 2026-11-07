@@ -9,7 +9,7 @@ import sys
 from task_recheck import report_task_found, report_round_finished
 import re
 
-from u2_scanner import connect_device, DT_APP, click_u2_control
+from u2_scanner import connect_device, DT_APP
 from u2_scanner import handle_guess_price_game, execute_live_task, execute_video_task
 from u2_scanner import click_three_selected_items, is_search_low_price_task
 from u2_scanner import execute_browse_task
@@ -25,6 +25,10 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 MAX_SCROLL = 9
 NAME_ABOVE_GAP = 200  # 任务名在"去完成"上方，最大垂直间距
 NAME_H_OFFSET = 50    # 任务名与"去完成"水平方向最大偏移（缩小防误抓邻近文本）
+APP_READY_WAIT_SECONDS = 8
+OCR_PRE_SCAN_DELAY_SECONDS = 3
+OCR_RETRY_DELAY_SECONDS = 3
+MAX_OCR_LOG_BLOCKS = 30
 
 # 黑名单关键词（避免误点元宝商城下单、邀请等危险任务）
 BLACKLIST_KEYWORDS = [
@@ -42,61 +46,137 @@ BLACKLIST_KEYWORDS = [
 DONE_BTN_KEYWORDS = ["去完成", "去浏览", "去观看", "去参与", "去领取", "去签到", "立即参与", "立即领取"]
 
 
+def _log_ocr_blocks(stage, blocks):
+    """输出本次导航扫描实际识别到的文字、置信度和坐标。"""
+    print(f"  🔎 OCR【{stage}】：有效文字块 {len(blocks)} 条")
+    if not blocks:
+        print("    （未返回可用文字块；请查看上方截图、OCR请求或解析日志）")
+        return
+
+    for index, block in enumerate(blocks[:MAX_OCR_LOG_BLOCKS], 1):
+        text = str(block.get("text", ""))[:60]
+        confidence = float(block.get("conf", 0) or 0)
+        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
+        print(
+            f"    [{index:02d}] {text!r} conf={confidence:.3f} "
+            f"center=({cx},{cy})"
+        )
+    if len(blocks) > MAX_OCR_LOG_BLOCKS:
+        print(f"    ……另有 {len(blocks) - MAX_OCR_LOG_BLOCKS} 条未展开")
+
+
 def navigate():
-    """进点淘 → 元宝中心"""
+    """进点淘 → 用 OCR 定位元宝中心。"""
     print("🔄 导航到元宝中心...")
     d.app_start(DT_APP, stop=True)
-    time.sleep(5)
+    print(f"  ⏳ 等待点淘首页稳定 {APP_READY_WAIT_SECONDS} 秒...")
+    time.sleep(APP_READY_WAIT_SECONDS)
 
-    for _ in range(10):
-        for text in ["元宝中心", "赚元宝"]:
-            btn = d(textContains=text)
-            if btn.exists(timeout=2):
-                click_u2_control(d, btn, text)
-                time.sleep(4)
-                return handle_yuanbao_live_popups(d)
-        time.sleep(2)
+    for scan_index in range(1, 6):
+        if scan_index > 1:
+            print(f"  ⏳ 等待 {OCR_RETRY_DELAY_SECONDS} 秒后重扫元宝中心...")
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
+        try:
+            blocks = get_ocr_text_blocks(d, log_low_confidence=True)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ 元宝中心 OCR 第 {scan_index}/5 次异常：{exc}")
 
-    d.click(int(screen_width * 0.7), int(screen_height * 0.93))
-    time.sleep(4)
+        _log_ocr_blocks(f"元宝中心入口 {scan_index}/5", blocks)
+        target = next(
+            (block for block in blocks if "元宝中心" in block.get("text", "")),
+            None,
+        )
+        if target is None:
+            target = next(
+                (block for block in blocks if "赚元宝" in block.get("text", "")),
+                None,
+            )
+
+        if target:
+            target_x, target_y = int(target["cx"]), int(target["cy"])
+            print(
+                f"  🎯 OCR 点击元宝中心候选【{target['text']}】"
+                f"conf={float(target.get('conf', 0) or 0):.3f} "
+                f"@({target_x},{target_y})"
+            )
+            d.click(target_x, target_y)
+            time.sleep(5)
+            print("  ✅ 已点击 OCR 识别到的元宝中心入口")
+            return handle_yuanbao_live_popups(d)
+
+        print(f"  ⚠️ 第 {scan_index}/5 次 OCR 结果中没有元宝中心入口")
+
+    print("  ❌ 连续 5 次 OCR 均未识别到元宝中心/赚元宝，未执行固定坐标点击")
     return False
 
 
 def find_sign():
-    """下滑找今日签到 → 点去看看（U2 textContains）"""
+    """下滑后用 OCR 查找今日签到，并点击同一行的去看看入口。"""
     print("🔄 下滑找今日签到...")
-    for _ in range(MAX_SCROLL):
-        sign_btn = d(textContains="今日签到")
-        if sign_btn.exists(timeout=2):
-            try:
-                sign_cx, sign_cy = sign_btn.center()
-                sign_cx, sign_cy = int(sign_cx), int(sign_cy)
-            except:
-                continue
+    for scan_index in range(1, MAX_SCROLL + 1):
+        print(f"  ⏳ 等待页面稳定 {OCR_PRE_SCAN_DELAY_SECONDS} 秒，准备第 {scan_index}/{MAX_SCROLL} 次扫描")
+        time.sleep(OCR_PRE_SCAN_DELAY_SECONDS)
+        try:
+            blocks = get_ocr_text_blocks(d, log_low_confidence=True)
+        except Exception as exc:
+            blocks = []
+            print(f"  ⚠️ 今日签到 OCR 第 {scan_index}/{MAX_SCROLL} 次异常：{exc}")
 
-            go_btn = d(textContains="去看看")
-            if go_btn.exists(timeout=1):
-                try:
-                    gx, gy = go_btn.center()
-                    gx, gy = int(gx), int(gy)
-                except:
-                    gx, gy = 0, 0
-                if abs(gx - sign_cx) > 50 and -20 <= gy - sign_cy <= 200:
-                    d.click(gx, gy)
-                    print(f"  ✅ 点击去看看")
-                    time.sleep(4)
-                    return True
-
-            # 兜底：点签到右侧（盲点）
-            d.click(sign_cx + 200, sign_cy)
-            time.sleep(4)
+        _log_ocr_blocks(f"今日签到第 {scan_index}/{MAX_SCROLL} 屏", blocks)
+        sign_block = next(
+            (
+                block for block in blocks
+                if any(keyword in block.get("text", "") for keyword in ("今日签到", "每日签到"))
+            ),
+            None,
+        )
+        if sign_block:
+            sign_x, sign_y = int(sign_block["cx"]), int(sign_block["cy"])
+            print(
+                f"  ✅ OCR 命中签到标题【{sign_block['text']}】"
+                f"conf={float(sign_block.get('conf', 0) or 0):.3f} "
+                f"@({sign_x},{sign_y})"
+            )
+            go_block = next(
+                (
+                    block for block in blocks
+                    if "去看看" in block.get("text", "")
+                    and abs(int(block["cx"]) - sign_x) > 50
+                    and -20 <= int(block["cy"]) - sign_y <= 200
+                ),
+                None,
+            )
+            if go_block:
+                target_x, target_y = int(go_block["cx"]), int(go_block["cy"])
+                print(
+                    f"  🎯 OCR 点击【{go_block['text']}】"
+                    f"conf={float(go_block.get('conf', 0) or 0):.3f} "
+                    f"@({target_x},{target_y})"
+                )
+            else:
+                target_x, target_y = sign_x + 200, sign_y
+                print(
+                    f"  ⚠️ OCR 未识别到同一行的【去看看】，"
+                    f"按签到标题坐标偏移点击 @({target_x},{target_y})"
+                )
+            d.click(target_x, target_y)
+            time.sleep(5)
+            print("  ✅ 已执行签到入口 OCR 坐标点击")
             return True
 
-        d.swipe(screen_width // 2, int(screen_height * 0.85),
-                screen_width // 2, int(screen_height * 0.2))
-        time.sleep(2)
+        if scan_index < MAX_SCROLL:
+            start_x = screen_width // 2
+            start_y = int(screen_height * 0.85)
+            end_y = int(screen_height * 0.2)
+            print(
+                f"  ↕️ 本屏未识别签到标题，向下滑动"
+                f"({start_x},{start_y})→({start_x},{end_y})"
+            )
+            d.swipe(start_x, start_y, start_x, end_y)
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
 
-    print("  ⚠️ 未找到今日签到")
+    print(f"  ❌ 已扫描 {MAX_SCROLL} 屏，仍未找到今日签到；请查看上方逐屏 OCR 结果")
     return False
 
 
@@ -106,22 +186,26 @@ def find_sign():
 
 
 def find_money_card() -> bool:
-    """在元宝中心下滑查找赚钱卡，优先 U2，随后 OCR。"""
-    for _ in range(MAX_SCROLL):
-        entry = d(text="赚钱卡")
-        if entry.exists(timeout=2):
-            click_u2_control(d, entry, "赚钱卡")
-            time.sleep(4)
+    """在元宝中心下滑，用 OCR 查找并点击赚钱卡入口。"""
+    for scan_index in range(1, MAX_SCROLL + 1):
+        time.sleep(OCR_PRE_SCAN_DELAY_SECONDS)
+        blocks = get_ocr_text_blocks(d, log_low_confidence=True)
+        _log_ocr_blocks(f"赚钱卡第 {scan_index}/{MAX_SCROLL} 屏", blocks)
+        entry = next(
+            (block for block in blocks if "赚钱卡" in block.get("text", "")),
+            None,
+        )
+        if entry:
+            target_x, target_y = int(entry["cx"]), int(entry["cy"])
+            print(f"  🎯 OCR 点击赚钱卡【{entry['text']}】@({target_x},{target_y})")
+            d.click(target_x, target_y)
+            time.sleep(5)
             return True
-        for block in get_ocr_text_blocks(d) or []:
-            if block["text"].strip() == "赚钱卡":
-                d.click(int(block["cx"]), int(block["cy"]))
-                time.sleep(4)
-                return True
-        d.swipe(screen_width // 2, int(screen_height * 0.85),
-                screen_width // 2, int(screen_height * 0.2))
-        time.sleep(2)
-    print("未找到赚钱卡入口")
+        if scan_index < MAX_SCROLL:
+            d.swipe(screen_width // 2, int(screen_height * 0.85),
+                    screen_width // 2, int(screen_height * 0.2))
+            time.sleep(OCR_RETRY_DELAY_SECONDS)
+    print(f"❌ 已扫描 {MAX_SCROLL} 屏，仍未找到赚钱卡入口")
     return False
 
 
@@ -493,8 +577,12 @@ def main(entry_name: str = "签到赢元宝") -> None:
     print("=" * 50)
 
     navigated = navigate()
+    if not navigated:
+        print("\n⚠️ 未能通过 OCR 确认进入元宝中心，停止后续入口扫描")
+        return
+
     if entry_name == "赚钱卡":
-        if not navigated or not find_money_card():
+        if not find_money_card():
             raise RuntimeError("未能进入赚钱卡页面")
     elif not find_sign():
         print("\n⚠️ 未能进入签到页面")

@@ -59,16 +59,19 @@ CENTER_ACTIVE = ["开启晚睡", "开始睡觉", "收下元宝"]
 def check_center_btn():
     """检测中央睡觉按钮"""
     print("  检测中央按钮...")
+    blocks = get_ocr_text_blocks(d, retries=0, height_ratio=0.5)
+    for index, block in enumerate(blocks[:30], 1):
+        print(f"    OCR[{index:02d}] {block.get('text', '')!r} @({block.get('cx', 0)},{block.get('cy', 0)})")
     # 倒计时中
     for kw in CENTER_WAITING:
-        if d(textContains=kw).exists(timeout=1):
+        if any(kw in block.get("text", "") for block in blocks):
             print(f"    倒计时中: {kw}")
             return "waiting"
     # 可点击
     for kw in CENTER_ACTIVE:
-        btn = d(textContains=kw)
-        if btn.exists(timeout=1):
-            click_u2_control(d, btn, kw)
+        block = next((b for b in blocks if kw in b.get("text", "")), None)
+        if block:
+            d.click(int(block["cx"]), int(block["cy"]))
             print(f"    点击 {kw}")
             time.sleep(3)
             return "clicked"
@@ -109,18 +112,15 @@ def find_bubble(blocks=None):
         print(f"    [白名单精确匹配] {live['name']} @({live['cx']},{live['cy']})")
         return live
     for kw in TASK_KW:
-        btn = d(textContains=kw)
-        if btn.exists(timeout=1):
-            text = btn.get_text().strip()
-            if any(kw_blocked in text for kw_blocked in BLOCKED_TASK_KEYWORDS):
-                continue
+        for block in blocks:
+            text = str(block.get("text", "")).strip()
             if "直播" in text:
                 continue
-            try:
-                cx, cy = btn.center()
-                cx, cy = int(cx), int(cy)
-            except:
+            if any(kw_blocked in text for kw_blocked in BLOCKED_TASK_KEYWORDS):
                 continue
+            if kw not in text:
+                continue
+            cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
             # 气泡按钮在屏幕 15%~50% 范围内才接受
             if cy < int(screen_height * 0.15) or cy > int(screen_height * 0.50):
                 continue
@@ -285,7 +285,9 @@ def main():
     print(" 睡觉赚元宝")
     print("=" * 50)
 
-    navigate_to_sleep_page(d)
+    if not navigate_to_sleep_page(d):
+        print("⚠️ OCR 导航未完成，停止睡觉赚元宝任务")
+        return
     scan_and_collect()
 
     try:

@@ -15,9 +15,8 @@ from u2_scanner import (
     execute_browse_task, execute_live_task,
     is_stale_no_buttons,
     click_three_selected_items,
-    click_u2_control,
 )
-from utils import get_ocr_text_blocks
+from utils import click_ocr_text, get_ocr_text_blocks
 
 # ========================================================
 # 全局变量
@@ -25,10 +24,6 @@ from utils import get_ocr_text_blocks
 d = connect_device()
 screen_width, screen_height = d.window_size()
 print(f"屏幕分辨率: {screen_width} x {screen_height}")
-
-# 点淘鸭家园入口固定坐标（1264×2780 实测）
-DUCK_ENTRY_X = 824
-DUCK_ENTRY_Y = 1771
 
 # 按钮关键词（参照其他任务的匹配方式）
 BTN_KEYWORDS = ["去完成", "去浏览", "去观看", "去参与"]
@@ -75,24 +70,23 @@ def navigate():
     time.sleep(5)
 
     print("  Step 1: 进入【元宝中心】...")
-    btn = d(textContains="元宝中心")
-    if btn.exists(timeout=3):
-        click_u2_control(d, btn, "元宝中心")
-    else:
-        print("    ⚠️ 未找到元宝中心文字，点击底部右侧区域...")
-        d.click(int(screen_width * 0.7), int(screen_height * 0.93))
+    if not click_ocr_text(
+        d, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    ):
+        return False
     time.sleep(4)
     if not handle_yuanbao_live_popups(d):
         return False
 
-    duck_btn = d(textContains="点淘鸭家园")
-    if duck_btn.exists(timeout=3):
-        click_u2_control(d, duck_btn, "点淘鸭家园")
-    else:
-        print(f"  ⚠️ 未找到点淘鸭家园文字，使用固定坐标 @({DUCK_ENTRY_X},{DUCK_ENTRY_Y})...")
-        d.click(DUCK_ENTRY_X, DUCK_ENTRY_Y)
+    if not click_ocr_text(
+        d, "点淘鸭家园", settle_seconds=2.5,
+        attempts=3, log=True,
+    ):
+        return False
     time.sleep(5)
     print("  ✅ 已进入点淘鸭家园页面")
+    return True
 
 
 def swipe_right_one():
@@ -292,7 +286,8 @@ def test_mode():
     print("    仅展示页面内容，不执行任何点击操作")
     print("=" * 60)
 
-    if navigate() is False:
+    if not navigate():
+        print("  ⚠️ OCR 导航未完成，停止测试扫描")
         return
     swipe_to_rightmost()
     time.sleep(2)
@@ -323,7 +318,8 @@ def run_mode():
     print(f"    白名单: {' | '.join(TASK_WHITELIST)}")
     print("=" * 60)
 
-    if navigate() is False:
+    if not navigate():
+        print("  ⚠️ OCR 导航未完成，停止任务执行")
         return
     swipe_to_rightmost()
     time.sleep(2)

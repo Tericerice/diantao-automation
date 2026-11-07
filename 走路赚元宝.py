@@ -8,7 +8,13 @@
 import time
 import sys
 import re
+import datetime
+import hashlib
+import os
+import subprocess
+from pathlib import Path
 from task_recheck import report_task_found, report_round_finished
+from phone_control import control_dir, read_json, write_json
 from utils import (
     connect_device, get_ocr_text_blocks, check_can_open,
     log_task_completed, show_today_summary,
@@ -28,6 +34,163 @@ print(f"屏幕分辨率: {screen_width} x {screen_height}")
 
 MAX_SCROLL = 12
 MAX_TASK_ATTEMPTS = 3
+STOP_BY_STEP_CAP = object()
+WALK_STEP_LIMIT = 20000
+STATE_ENV = "DIANTAO_WALK_CAP_DIR"
+STATE_NAME = "walk-step-cap.json"
+DEVICE_ENV = "DIANTAO_DEVICE_SERIAL"
+ACCOUNT_ENV = "DIANTAO_WALK_ACCOUNT_ID"
+ADB_ENV = "DIANTAO_ADB_PATH"
+_serial_cache = None
+
+
+def _configured_adb_path():
+    """仅读取 ADB 路径配置，避免为状态查询加载 OCR/设备依赖。"""
+    explicit = os.environ.get(ADB_ENV, "").strip()
+    if explicit:
+        return explicit
+    config_file = os.environ.get("DIANTAO_CONFIG_FILE", "").strip()
+    if config_file:
+        path = Path(config_file).expanduser()
+    else:
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".config")
+        path = Path(base) / "DianTao" / "config.env"
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key.strip() == ADB_ENV:
+                return value.strip().strip("'\"") or "adb"
+    except OSError:
+        pass
+    return "adb"
+
+
+def _adb_devices(adb):
+    result = subprocess.run([adb, "devices"], capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=10)
+    return [
+        line.split()[0] for line in (result.stdout or "").splitlines()[1:]
+        if line.strip() and "\tdevice" in line
+    ]
+
+
+def configured_device_identity():
+    """无设备对象时按唯一 ADB 设备读取 ro.serialno；不启动应用或任务。"""
+    global _serial_cache
+    serial = os.environ.get(DEVICE_ENV, "").strip()
+    if serial:
+        return serial, "config"
+    if _serial_cache:
+        return _serial_cache
+    try:
+        adb = _configured_adb_path()
+        devices = _adb_devices(adb)
+        if len(devices) != 1:
+            return "", "unknown"
+        result = subprocess.run(
+            [adb, "-s", devices[0], "shell", "getprop", "ro.serialno"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=10,
+        )
+        serial = (result.stdout or "").strip()
+    except Exception:
+        return "", "unknown"
+    if not serial:
+        return "", "unknown"
+    _serial_cache = (serial, "adb-serialno")
+    return _serial_cache
+
+
+def cap_state_path():
+    directory = os.environ.get(STATE_ENV)
+    return (Path(directory) if directory else control_dir()) / STATE_NAME
+
+
+def local_day(now=None):
+    return (now or datetime.datetime.now().astimezone()).date().isoformat()
+
+
+def account_key(device):
+    """以物理设备序列号 + 可选账号 ID 隔离；不缓存跨账号状态。"""
+    serial, _source = configured_device_identity()
+    if serial.startswith("<MagicMock") or " object at " in serial:
+        serial = ""
+    if not serial:
+        serial = getattr(device, "_serial", None) or getattr(device, "serial", None)
+        if callable(serial):
+            serial = None
+        if not serial:
+            try:
+                result = device.shell("getprop ro.serialno")
+                serial = getattr(result, "output", "").strip()
+            except Exception:
+                serial = None
+        serial = str(serial or "").strip()
+    account = os.environ.get(ACCOUNT_ENV, "").strip()
+    identity = f"{serial or 'unknown-device'}|{account}" if account else (serial or "unknown-device")
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:24]
+
+
+def cap_reached(device, now=None):
+    """仅查询上限状态，不启动应用、不读取 OCR；供同日重入时跳过走路。"""
+    today = local_day(now)
+    data = read_json(cap_state_path())
+    key = account_key(device)
+    return bool(
+        isinstance(data, dict)
+        and data.get("date") == today
+        and isinstance(data.get("accounts"), dict)
+        and isinstance(data["accounts"].get(key), dict)
+        and data["accounts"][key].get("reached") is True
+        and isinstance(data["accounts"][key].get("steps"), int)
+        and data["accounts"][key]["steps"] >= WALK_STEP_LIMIT
+    )
+
+
+def mark_cap_reached(device, steps, now=None):
+    """只在确认累计步数 >= 20000 后记录一次当日上限。"""
+    if not isinstance(steps, int) or isinstance(steps, bool) or steps < WALK_STEP_LIMIT:
+        return False
+    path = cap_state_path()
+    today = local_day(now)
+    data = read_json(path)
+    if not isinstance(data, dict) or data.get("date") != today:
+        data = {"date": today, "accounts": {}}
+    if not isinstance(data.get("accounts"), dict):
+        data["accounts"] = {}
+    data["accounts"][account_key(device)] = {
+        "reached": True,
+        "steps": steps,
+        "time": (now or datetime.datetime.now().astimezone()).isoformat(timespec="seconds"),
+    }
+    write_json(path, data)
+    return True
+
+
+def read_cumulative_steps(blocks, keyword="今日已走"):
+    """读取走路页累计步数；标签/相邻数字均无法确认时返回 None。
+
+    只接受累计步数标签所在行/其正下方的数值，避免误读奖励、目标档位、可走步数
+    或签到任务的「前进步数」。
+    """
+    for label in blocks:
+        text = label.get("text", "")
+        if keyword not in text:
+            continue
+        match = re.search(re.escape(keyword) + r"\s*步?\s*([\d,，]+)", text)
+        if match:
+            return int(re.sub(r"[,，]", "", match[1]))
+        nearby = [
+            b for b in blocks
+            if abs(b["cx"] - label["cx"]) < screen_width * .12
+            and 0 < b["cy"] - label["cy"] < screen_height * .06
+            and re.fullmatch(r"[\d,，]+\s*步?", b["text"].strip())
+        ]
+        if nearby:
+            number = min(nearby, key=lambda b: b["cy"] - label["cy"])
+            return int(re.sub(r"[,，步\s]", "", number["text"].strip()))
+    return None
+
 
 # 黑名单关键词
 BLACKLIST_KEYWORDS = [
@@ -198,6 +361,21 @@ def read_step_counter(blocks, keyword):
     return None
 
 
+def read_today_steps(blocks):
+    """只读取累计步数「今日已走」，不误用现在可走、奖励、档位或签到前进步数。"""
+    return read_cumulative_steps(blocks, "今日已走")
+
+
+def check_step_cap(blocks):
+    """读到 >= 20000 步即记录并停止走路；识别失败保持未知，沿用原有有界错误处理。"""
+    steps = read_today_steps(blocks)
+    if steps is not None and steps >= WALK_STEP_LIMIT:
+        mark_cap_reached(d, steps)
+        print(f"已达20000步上限，跳过走路任务（今日已走 {steps} 步）")
+        return True
+    return False
+
+
 def prepare_walk_steps():
     """先扫描上传入口，再点击出发；每次点击后重扫，验证步数确实减少。"""
     blocks = get_ocr_text_blocks(d)
@@ -213,7 +391,9 @@ def prepare_walk_steps():
         if not is_walk_map(blocks):
             print("  ⚠️ 上传后未返回走路页，停止")
             return False
-    else:
+    if check_step_cap(blocks):
+        return STOP_BY_STEP_CAP
+    if not upload:
         print("  扫描完成，页面没有独立上传入口，读取当前可走步数")
     previous = None
     for _ in range(8):
@@ -237,6 +417,8 @@ def prepare_walk_steps():
         for _ in range(5):
             time.sleep(2)
             blocks = get_ocr_text_blocks(d)
+            if check_step_cap(blocks):
+                return STOP_BY_STEP_CAP
             current = read_available_steps(blocks)
             walked_after = read_step_counter(blocks, "今日已走")
             if (is_walk_reward(blocks) and walked_before is not None
@@ -283,6 +465,8 @@ def restore_walk_task_list(blocks):
         if is_walk_task_list(blocks):
             return True
         if is_walk_map(blocks) or is_walk_reward(blocks):
+            if check_step_cap(blocks):
+                return STOP_BY_STEP_CAP
             return open_walk_task_list(blocks)
         if attempt < 3:
             d.press("back")
@@ -618,6 +802,16 @@ def execute_task(task_type, task_name, btn_cx, btn_cy):
     return True
 
 
+def finish_walk_round(total_all=0, log=None):
+    """走路正常结束或达上限：给调度器稳定的一轮完成反馈。"""
+    print(f"\n📊 共执行 {total_all} 个任务")
+    report_round_finished()
+    try:
+        (log or show_today_summary)()
+    except Exception:
+        pass
+
+
 def main():
     if sys.stdout.encoding == 'gbk':
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
@@ -628,11 +822,19 @@ def main():
     print(" 🟢 白名单自读模式已启用")
     print(f"   白名单: {' | '.join(WHITELIST)}")
     print("=" * 50)
+    if cap_reached(d):
+        print("已达20000步上限，跳过走路任务")
+        finish_walk_round()
+        return
 
     if not navigate_to_walk_page(d):
         print("⚠️ 导航未确认到达走路页，停止")
         return
-    if not prepare_walk_steps():
+    preparation = prepare_walk_steps()
+    if preparation is STOP_BY_STEP_CAP:
+        finish_walk_round()
+        return
+    if not preparation:
         print("⚠️ 步数上传/转换未确认完成，停止")
         return
     if not open_walk_task_list():
@@ -678,7 +880,11 @@ def main():
 
         ocr_empty_retries = 0
         if not is_walk_task_list(blocks):
-            if not restore_walk_task_list(blocks):
+            restored = restore_walk_task_list(blocks)
+            if restored is STOP_BY_STEP_CAP:
+                finish_walk_round(total_all)
+                return
+            if not restored:
                 print("  ⚠️ 无法恢复走路任务列表，停止")
                 return
             continue
@@ -718,13 +924,7 @@ def main():
         total_all += 1
         print(f"  已执行: {total_all} 个任务")
 
-    print(f"\n📊 共执行 {total_all} 个任务")
-    report_round_finished()
-
-    try:
-        show_today_summary()
-    except:
-        pass
+    finish_walk_round(total_all)
 
 
 if __name__ == "__main__":

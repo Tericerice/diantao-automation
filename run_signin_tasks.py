@@ -17,33 +17,21 @@ import sys
 import time
 import re
 import random
-import uiautomator2 as u2
 from guess_price_codebuddy import run_guess_price
+from utils import click_ocr_text, has_ocr_text
 
 
 def dismiss_milestone_popups(d) -> bool:
     """
     自愈检查：关闭【前进步数奖励/继续做任务】或遮罩弹窗
     """
-    # 优先原生查找【继续做任务】
-    btn = d(textContains="继续做任务")
-    if btn.exists(timeout=1):
-        print("  🎯 [自愈] 发现【继续做任务】弹窗，点击消除...")
-        btn.click()
+    if click_ocr_text(d, "继续做任务", settle_seconds=0.5, attempts=1, log=True):
+        print("  🎯 [自愈] OCR 发现并点击【继续做任务】弹窗...")
         time.sleep(2)
         return True
 
-    # 兜底：若前进步数弹窗遮挡，直接点击中心偏下方区域
-    try:
-        xml = d.dump_hierarchy()
-        if "前进步数奖励" in xml or "恭喜获得" in xml or "步数奖励" in xml:
-            sw, sh = d.window_size()
-            print(f"  🛡️ 检测到前进步数奖励遮罩，点击【继续做任务】 @({sw//2}, {int(sh*0.73)})...")
-            d.click(sw // 2, int(sh * 0.73))
-            time.sleep(2)
-            return True
-    except Exception:
-        pass
+    if has_ocr_text(d, ["前进步数奖励", "恭喜获得", "步数奖励"], settle_seconds=0.3, attempts=1, log=True):
+        print("  ⚠️ OCR 检测到奖励遮罩，但未识别到安全按钮，不进行盲点")
 
     return False
 
@@ -70,7 +58,8 @@ def run_signin_loop():
     if sys.stdout.encoding and sys.stdout.encoding.lower() == 'gbk':
         sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
-    d = u2.connect()
+    from u2_scanner import connect_device
+    d = connect_device()
     sw, sh = d.window_size()
     print("=" * 60)
     print("🚀 启动【签到赢元宝】全新双退出标准版全自动调度")

@@ -30,3 +30,4 @@ def test_scanner_skips_quiz_and_continues_to_browse_task(monkeypatch):
     title, _ = task.next_task(phone, nodes, set(), datetime.now(timezone.utc) + timedelta(minutes=1))
     assert title == "好物沉浸看"
     phone.click.assert_not_called()
+    phone.swipe.assert_not_called()

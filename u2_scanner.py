@@ -14,7 +14,7 @@ import os
 import cv2
 import numpy as np
 import uiautomator2 as u2
-from utils import click_u2_control
+from utils import ADB_PATH, click_u2_control
 from utils import (
     click_ocr_text, find_ocr_text_block, get_ocr_text_blocks, has_ocr_text,
 )
@@ -33,7 +33,13 @@ DT_APP = "com.taobao.live"
 def get_connected_devices():
     import subprocess
     try:
-        result = subprocess.run(["adb", "devices"], capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            [ADB_PATH, "devices"],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
         output = result.stdout
         devices = []
         for line in output.splitlines():
@@ -43,7 +49,8 @@ def get_connected_devices():
             if match:
                 devices.append(match.group(1))
         return devices
-    except:
+    except Exception as exc:
+        print(f"  ⚠️ ADB 设备发现失败: {exc}")
         return []
 
 

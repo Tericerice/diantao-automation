@@ -50,6 +50,7 @@ except Exception as _cb_err:
     print(f"⚠️ [CodeBuddy] 初始化失败，将启用云端 OCR 后备: {_cb_err}")
     HAS_CODEBUDDY_VISION = False
 
+# 用户自行部署或选择OCR服务；实际地址只从本机配置读取。
 from local_config import load_config
 
 load_config()
@@ -129,7 +130,7 @@ def _cloud_ocr(img, retries=1, log_low_confidence=False):
     return []
 
 
-def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
+def get_ocr_text_blocks(device, retries=2, log_low_confidence=False, height_ratio=1.0):
     """
     全屏 OCR（云端 PaddleOCRv4），返回文本块列表 [{"text", "cx", "cy", "conf"}]
     参数:
@@ -165,7 +166,11 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
             img = img.crop((0, 0, img.width, int(img.height * height_ratio)))
 
         # OCR
-        blocks = _cloud_ocr(img, retries=0)
+        blocks = _cloud_ocr(
+            img,
+            retries=0,
+            log_low_confidence=log_low_confidence,
+        )
         if blocks:
             return blocks
 
@@ -175,6 +180,70 @@ def get_ocr_text_blocks(device, retries=2, height_ratio=1.0):
             time.sleep(1.5)
 
     return []
+
+
+def find_ocr_text_block(device, keywords, *, settle_seconds=0, attempts=1,
+                        exact=False, log=False):
+    """OCR 查找文字块；不读取 UIAutomator 控件树。"""
+    if isinstance(keywords, str):
+        keywords = [keywords]
+    keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
+    if not keywords:
+        return None
+
+    normalized_keywords = [re.sub(r"\s+", "", keyword).casefold() for keyword in keywords]
+    for attempt in range(max(1, int(attempts))):
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
+        blocks = get_ocr_text_blocks(device, retries=0, log_low_confidence=log)
+        if log:
+            print(f"  🔎 OCR 第{attempt + 1}/{max(1, int(attempts))}次识别：{len(blocks)}个文本块")
+            for index, block in enumerate(blocks[:40], 1):
+                print(
+                    f"    OCR[{index:02d}] {block.get('text', '')!r} "
+                    f"conf={block.get('conf', 0):.3f} "
+                    f"center=({block.get('cx', 0)},{block.get('cy', 0)})"
+                )
+        for keyword in normalized_keywords:
+            for block in blocks:
+                text = re.sub(r"\s+", "", str(block.get("text", ""))).casefold()
+                matched = text == keyword if exact else keyword in text
+                if matched:
+                    return block
+    return None
+
+
+def has_ocr_text(device, keywords, *, settle_seconds=0, attempts=1, exact=False, log=False):
+    """OCR 判断当前画面是否包含任一目标文字。"""
+    return find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    ) is not None
+
+
+def click_ocr_text(device, keywords, *, settle_seconds=2.5, attempts=2,
+                   exact=False, log=True):
+    """通过 OCR 文本块坐标点击；找不到时返回 False，不使用 U2 或盲坐标兜底。"""
+    block = find_ocr_text_block(
+        device, keywords, settle_seconds=settle_seconds,
+        attempts=attempts, exact=exact, log=log,
+    )
+    if not block:
+        print(f"  ⚠️ OCR 未找到目标文字：{keywords}")
+        return False
+
+    try:
+        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
+        width, height = device.window_size()
+        if not (0 < cx < width and 0 < cy < height):
+            print(f"  ⚠️ OCR 坐标越界，拒绝点击：({cx},{cy}) / ({width},{height})")
+            return False
+        device.click(cx, cy)
+        print(f"  ✅ OCR 点击【{block.get('text', '')}】@({cx},{cy})")
+        return True
+    except Exception as exc:
+        print(f"  ⚠️ OCR 点击失败：{exc}")
+        return False
 
 
 # ========================================================
@@ -401,7 +470,7 @@ def get_connected_devices():
     """通过ADB获取所有连接的安卓设备序列号"""
     try:
         result = subprocess.run(
-            ["adb", "devices"],
+            [ADB_PATH, "devices"],
             capture_output=True,
             text=True,
             check=True,
@@ -416,7 +485,8 @@ def get_connected_devices():
             if match:
                 devices.append(match.group(1))
         return devices
-    except:
+    except Exception as exc:
+        print(f"  ⚠️ ADB 设备发现失败: {exc}")
         return []
 
 
@@ -454,21 +524,14 @@ def select_device():
 
 def setup_global_watcher(d):
     """
-    启动 U2 全局弹窗监控（watch_context 后台线程）
-    所有常见弹窗自动关闭，避免干扰 OCR 主流程
+    启动 Android 系统权限弹窗监控。
+    点淘页面弹窗由任务内 OCR 识别，避免用 U2 读取 WebView 文本。
     """
     ctx = d.watch_context()
-    ctx.when("确认").click()
-    ctx.when("确定").click()
-    ctx.when("关闭").click()
-    ctx.when("刷新").click()
-    ctx.when("点击刷新").click()
-    ctx.when("领取今日奖励").click()
-    ctx.when(xpath="//android.app.Dialog//android.widget.Button[@text='关闭']").click()
-    ctx.when(xpath="//android.widget.Image[@text='关闭']").click()
-    ctx.when(xpath="//android.widget.FrameLayout[@resource-id='com.taobao.taobao:id/poplayer_native_state_center_layout_frame_id']//android.widget.ImageView[@content-desc='关闭按钮']").click()
+    for label in ["打开", "允许", "始终允许"]:
+        ctx.when(xpath=f"//android.widget.Button[@text='{label}']").click()
     ctx.start()
-    print("🛡️ U2 全局弹窗监控已启动（watch_context 后台线程）")
+    print("🛡️ Android 系统权限弹窗监控已启动")
     return ctx
 
 
@@ -514,10 +577,10 @@ def start_app(d, package_name, init=False):
             print(f"启动应用: {package_name}, stop: {stop}")
             d.app_start(package_name, stop=stop, use_monkey=use_monkey)
             time.sleep(5 if stop else 2)
-            cancel_btn = d(className="android.widget.FrameLayout",
-                           resourceId="com.taobao.taobao:id/uik_fl_textview_container_2")
-            if cancel_btn.exists:
-                click_u2_control(d, cancel_btn, "取消弹窗")
+            if package_name == DT_APP and click_ocr_text(
+                d, "取消", settle_seconds=0.3, attempts=1, log=True,
+            ):
+                print("  ✅ OCR 点击点淘启动弹窗【取消】")
                 time.sleep(2)
             current_package, _ = get_current_app(d)
             if current_package == package_name:
@@ -568,14 +631,12 @@ def ensure_app(d, package_name):
 # ========================================================
 def check_verify(d):
     """检测并处理验证码滑块"""
-    verify_view = d(className="android.webkit.WebView", text="验证码拦截")
-    if verify_view.exists:
+    if has_ocr_text(d, "验证码拦截", attempts=1):
         while True:
             print("存在验证码的情况")
             d.shell("input swipe 150 1700 1180 1700 500")
             time.sleep(3)
-            verify_view = d(className="android.webkit.WebView", text="验证码拦截")
-            if verify_view.exists:
+            if has_ocr_text(d, "验证码拦截", attempts=1):
                 d.click(500, 1700)
                 time.sleep(3)
             else:
@@ -608,25 +669,19 @@ def click_u2_control(device, control, label="控件"):
 
 
 def click_text(d, text, timeout=10):
-    """等待并点击指定文本"""
-    end_time = time.time() + timeout
-    while time.time() < end_time:
-        obj = d(text=text)
-        if obj.exists:
-            return click_u2_control(d, obj, text)
-        time.sleep(0.5)
-    return False
+    """通过 OCR 等待并点击指定文本。"""
+    return click_ocr_text(
+        d, text, settle_seconds=1.5,
+        attempts=max(1, int(timeout / 3)), exact=True, log=True,
+    )
 
 
 def click_text_contains(d, text, timeout=10):
-    """等待并点击包含指定文本的元素"""
-    end_time = time.time() + timeout
-    while time.time() < end_time:
-        obj = d(textContains=text)
-        if obj.exists:
-            return click_u2_control(d, obj, text)
-        time.sleep(0.5)
-    return False
+    """通过 OCR 等待并点击包含指定文本的文字块。"""
+    return click_ocr_text(
+        d, text, settle_seconds=1.5,
+        attempts=max(1, int(timeout / 3)), log=True,
+    )
 
 
 def scroll_down(d, fraction=0.3):
@@ -777,11 +832,9 @@ def browse_task(device, min_duration=0, max_wait=120, extra_seconds=5):
             elapsed = int(time.time() - start)
             # 实时检测完成提示
             try:
-                if time.time() - browse_start >= fixed_duration and (
-                    device(textContains="恭喜完成任务").exists
-                    or device(textContains="恭喜完成").exists
-                    or device(textContains="任务完成").exists
-                    or device(textContains="获得奖励").exists
+                if time.time() - browse_start >= fixed_duration and has_ocr_text(
+                    device, ["恭喜完成任务", "恭喜完成", "任务完成", "获得奖励"],
+                    attempts=1,
                 ):
                     print(f"  ✅ 检测到完成提示！(已过{elapsed}s)")
                     # 多下滑4次确保任务提交
@@ -1120,13 +1173,9 @@ def back_to_task(device, target_keywords=None, nav_func=None, max_attempts=8):
         target_keywords = TASK_BTN_KW
 
     for attempt in range(max_attempts):
-        # 检测是否已在任务页
-        for kw in target_keywords:
-            try:
-                if device(textContains=kw).exists(timeout=0.5):
-                    return True
-            except:
-                pass
+        # OCR 检测是否已在任务页
+        if has_ocr_text(device, target_keywords, attempts=1):
+            return True
 
         # OCR 兜底检测
         try:
@@ -1267,68 +1316,4 @@ def check_rag_service() -> bool:
     except Exception as e:
         print(f"  ⚠️ LightRAG 服务未启动: {e}")
         print(f"  💡 启动命令: cd /d D:\\WORKBUDDY && python -m lightrag-hku --env-file C:\\... ")
-        return False
-
-
-def find_ocr_text_block(device, keywords, *, settle_seconds=0, attempts=1,
-                        exact=False, log=False):
-    """OCR 查找文字块；不读取 UIAutomator 控件树。"""
-    if isinstance(keywords, str):
-        keywords = [keywords]
-    keywords = [str(keyword).strip() for keyword in keywords if str(keyword).strip()]
-    if not keywords:
-        return None
-
-    normalized_keywords = [re.sub(r"\s+", "", keyword).casefold() for keyword in keywords]
-    for attempt in range(max(1, int(attempts))):
-        if settle_seconds > 0:
-            time.sleep(settle_seconds)
-        blocks = get_ocr_text_blocks(device, retries=0, log_low_confidence=log)
-        if log:
-            print(f"  🔎 OCR 第{attempt + 1}/{max(1, int(attempts))}次识别：{len(blocks)}个文本块")
-            for index, block in enumerate(blocks[:40], 1):
-                print(
-                    f"    OCR[{index:02d}] {block.get('text', '')!r} "
-                    f"conf={block.get('conf', 0):.3f} "
-                    f"center=({block.get('cx', 0)},{block.get('cy', 0)})"
-                )
-        for keyword in normalized_keywords:
-            for block in blocks:
-                text = re.sub(r"\s+", "", str(block.get("text", ""))).casefold()
-                matched = text == keyword if exact else keyword in text
-                if matched:
-                    return block
-    return None
-
-
-def has_ocr_text(device, keywords, *, settle_seconds=0, attempts=1, exact=False, log=False):
-    """OCR 判断当前画面是否包含任一目标文字。"""
-    return find_ocr_text_block(
-        device, keywords, settle_seconds=settle_seconds,
-        attempts=attempts, exact=exact, log=log,
-    ) is not None
-
-
-def click_ocr_text(device, keywords, *, settle_seconds=2.5, attempts=2,
-                   exact=False, log=True):
-    """通过 OCR 文本块坐标点击；找不到时返回 False，不使用 U2 或盲坐标兜底。"""
-    block = find_ocr_text_block(
-        device, keywords, settle_seconds=settle_seconds,
-        attempts=attempts, exact=exact, log=log,
-    )
-    if not block:
-        print(f"  ⚠️ OCR 未找到目标文字：{keywords}")
-        return False
-
-    try:
-        cx, cy = int(block.get("cx", 0)), int(block.get("cy", 0))
-        width, height = device.window_size()
-        if not (0 < cx < width and 0 < cy < height):
-            print(f"  ⚠️ OCR 坐标越界，拒绝点击：({cx},{cy}) / ({width},{height})")
-            return False
-        device.click(cx, cy)
-        print(f"  ✅ OCR 点击【{block.get('text', '')}】@({cx},{cy})")
-        return True
-    except Exception as exc:
-        print(f"  ⚠️ OCR 点击失败：{exc}")
         return False

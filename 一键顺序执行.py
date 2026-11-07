@@ -12,6 +12,7 @@ from task_recheck import RECHECK_ENV, TASK_FOUND, ROUND_FINISHED
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+WALK_SCRIPT = "走路赚元宝.py"
 CONNECTIVITY_ENTRY_COUNT = 6
 SWIPE_ROUND_COUNT = 6
 CONNECTIVITY_STEP_TIMEOUT = 600
@@ -64,9 +65,23 @@ def _label(filename, args):
 def run_task(filename, timeout, args, stop, max_rechecks):
     """首次执行后重新启动原脚本复核；每轮保留原脚本的导航、扫描和执行逻辑。"""
     label = _label(filename, args)
+    if filename == WALK_SCRIPT:
+        # 调度器仅按设备身份查本地上限状态；不连接手机、不读取登录态。
+        from walk_step_cap import cap_reached
+
+        if cap_reached(None):
+            print("已达20000步上限，跳过走路任务", flush=True)
+            return True, 0, "当日走路步数已达上限，正常跳过"
     total_elapsed = 0
     success, reason = False, "未执行"
     for recheck in range(max_rechecks + 1):
+        if filename == WALK_SCRIPT and recheck:
+            from walk_step_cap import cap_reached
+
+            if cap_reached(None):
+                reason = "执行中已达20000步上限，停止复核并跳过走路任务"
+                print(reason, flush=True)
+                return True, total_elapsed, reason
         if stop.is_set():
             break
         if recheck:

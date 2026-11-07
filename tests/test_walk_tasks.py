@@ -1,11 +1,46 @@
 """走路流程回归测试：提取纯逻辑，避免导入脚本时连接真实设备。"""
 import ast
+import datetime
+import hashlib
+import os
 import re
 import sys
 import types
 import unittest
+import importlib.util
+import json
+import uuid
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import Event
 from unittest.mock import patch
+
+
+def control_dir():
+    return Path(os.environ["DIANTAO_WALK_CAP_DIR"])
+
+
+def read_json(path):
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def load_runner(filename, name):
+    path = Path(__file__).parents[1] / filename
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def write_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
 
 
 def block(text, x=400, y=800):
@@ -33,6 +68,7 @@ class Device:
     def __init__(self):
         self.events = []
         self.settings = {}
+        self.serial = "test-device"
 
     def click(self, x, y):
         self.events.append(("click", x, y))
@@ -59,7 +95,13 @@ def load_walk():
                  "check_can_open": lambda _: None,
                  "report_task_found": lambda: None,
                  "report_round_finished": lambda: None,
-                 "show_today_summary": lambda: None, "sys": sys}
+                 "show_today_summary": lambda: None, "sys": sys,
+                 "datetime": datetime, "hashlib": hashlib, "os": os, "Path": Path,
+                 "subprocess": __import__("subprocess"),
+                 "control_dir": lambda: Path(os.environ["DIANTAO_WALK_CAP_DIR"]),
+                 "read_json": read_json, "write_json": write_json}
+    namespace["STOP_BY_STEP_CAP"] = object()
+    namespace["_serial_cache"] = None
     for node in tree.body:
         if isinstance(node, ast.Assign):
             try:
@@ -76,6 +118,15 @@ def load_walk():
 
 class WalkTasksTest(unittest.TestCase):
     def setUp(self):
+        self.temp = TemporaryDirectory(prefix="daily50-walk-cap-")
+        self.addCleanup(self.temp.cleanup)
+        patcher = patch.dict(os.environ, {
+            "DIANTAO_WALK_CAP_DIR": self.temp.name,
+            "DIANTAO_DEVICE_SERIAL": "test-device",
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.cap_path = Path(self.temp.name) / "walk-step-cap.json"
         self.walk = load_walk()
 
     def scan_sequence(self, pages):
@@ -374,7 +425,190 @@ class WalkTasksTest(unittest.TestCase):
         self.walk["main"]()
         self.assertEqual(events.count("execute"), 3)
         self.assertEqual(events.count("found"), 3)
-        self.assertEqual(events[-1], "finished")
+        self.assertEqual(events.count("finished"), 1)
+
+    def cap(self, steps=20000, day=None, key=None):
+        key = key or self.walk["account_key"](None)
+        return {"date": day or self.walk["local_day"](),
+                "accounts": {key: {"reached": True, "steps": steps}}}
+
+    def test_boundary_19999_continues_and_20000_20001_stop(self):
+        for steps, expected in ((19999, False), (20000, True), (20001, True)):
+            with self.subTest(steps=steps):
+                self.walk["os"].environ["DIANTAO_WALK_CAP_DIR"] = self.temp.name
+                self.cap_path.unlink(missing_ok=True)
+                pages = [b for b in walk_map(100) if not b["text"].startswith("今日已走")]
+                pages.append(block(f"今日已走 {steps:,} 步", 100, 1200))
+                self.scan_sequence([pages])
+                self.assertEqual(
+                    self.walk["check_step_cap"](pages), expected,
+                )
+                self.assertEqual(self.walk["cap_reached"](None), expected)
+
+    def test_cumulative_counter_ignores_reward_tier_and_available_steps(self):
+        pages = [block("今日已走 19,999 步", 100, 1200),
+                 block("奖励20000步数", 500, 300),
+                 block("20000步", 500, 400), block("现在可走20000", 500, 1500)]
+        self.assertEqual(self.walk["read_today_steps"](pages), 19999)
+        self.assertFalse(self.walk["check_step_cap"](pages))
+        self.assertFalse(self.cap_path.exists())
+
+    def test_unknown_step_counter_is_not_zero_or_cap(self):
+        for pages in ([block("走路赚元宝")], [block("今日已走")],
+                      [block("前进步数 20000")]):
+            with self.subTest(pages=pages):
+                self.assertIsNone(self.walk["read_today_steps"](pages))
+                self.assertFalse(self.walk["check_step_cap"](pages))
+                self.assertFalse(self.walk["cap_reached"](None))
+        self.assertFalse(self.cap_path.exists())
+        # 未知累计步数沿用原有「可走步数识别失败」的有界退出，不无限重试。
+        self.scan_sequence([[block("走路赚元宝")]] * 3)
+        self.assertFalse(self.walk["prepare_walk_steps"]())
+        self.assertEqual(self.walk["d"].events, [])
+
+    def test_cap_at_entry_skips_navigation_and_reports_round(self):
+        write_json(self.cap_path, self.cap())
+        events = []
+        self.walk["navigate_to_walk_page"] = lambda _: events.append("navigate") or True
+        self.walk["report_round_finished"] = lambda: events.append("finished")
+        self.walk["show_today_summary"] = lambda: events.append("summary")
+        self.walk["main"]()
+        self.assertEqual(events, ["finished", "summary"])
+        self.assertEqual(self.walk["d"].events, [])
+
+    def test_manual_dashboard_entry_is_patched_live_script(self):
+        with patch.object(sys, "path", [str(Path(__file__).parents[1]), *sys.path]):
+            from workbench.tasks import TASKS
+
+        self.assertEqual(TASKS["diantao-walk"]["script"], "走路赚元宝.py")
+        entry = Path(__file__).parents[1] / TASKS["diantao-walk"]["script"]
+        self.assertIn("已达20000步上限，跳过走路任务",
+                      entry.read_text(encoding="utf-8-sig"))
+
+    def test_cap_during_departure_stops_without_another_click(self):
+        first = [b for b in walk_map(1200) if not b["text"].startswith("今日已走")]
+        first.append(block("今日已走 19,900", 100, 1200))
+        crossed = [b for b in walk_map(0) if not b["text"].startswith("今日已走")]
+        crossed.append(block("今日已走 20,100", 100, 1200))
+        self.scan_sequence([first, crossed])
+        self.assertIs(self.walk["prepare_walk_steps"](), self.walk["STOP_BY_STEP_CAP"])
+        self.assertEqual(self.walk["d"].events, [("click", 730, 1540)])
+        self.assertTrue(self.walk["cap_reached"](None))
+
+    def test_cap_during_task_refresh_stops_before_next_walk_action(self):
+        events = []
+        cap_page = [b for b in walk_map(0) if not b["text"].startswith("今日已走")]
+        cap_page.append(block("今日已走 20,000", 100, 1200))
+        self.walk.update(navigate_to_walk_page=lambda _: True,
+                         prepare_walk_steps=lambda: True,
+                         open_walk_task_list=lambda: True,
+                         get_ocr_text_blocks=lambda _: cap_page,
+                         restore_walk_task_list=lambda blocks: (
+                             events.append("restore") or self.walk["check_step_cap"](blocks)
+                             and self.walk["STOP_BY_STEP_CAP"]),
+                         execute_task=lambda *args: events.append("execute") or True,
+                         report_round_finished=lambda: events.append("finished"))
+        self.walk["main"]()
+        self.assertEqual(events, ["restore", "finished"])
+        self.assertTrue(self.walk["cap_reached"](None))
+
+    def test_state_is_isolated_by_device_and_resets_next_day(self):
+        today = self.walk["local_day"]()
+        yesterday = (datetime.datetime.now().astimezone().date()
+                     - datetime.timedelta(days=1)).isoformat()
+        alpha = self.walk["account_key"](None)
+        with patch.dict(os.environ, {"DIANTAO_DEVICE_SERIAL": "device-beta"}):
+            beta = self.walk["account_key"](None)
+            self.assertTrue(self.walk["mark_cap_reached"](None, 20000))
+        write_json(self.cap_path, self.cap(day=yesterday, key=alpha))
+        self.assertFalse(self.walk["cap_reached"](None))
+        write_json(self.cap_path, self.cap(day=today, key=beta))
+        self.assertFalse(self.walk["cap_reached"](None))
+        write_json(self.cap_path, self.cap(day=today, key=alpha))
+        self.assertTrue(self.walk["cap_reached"](None))
+        self.assertNotEqual(alpha, beta)
+
+    def test_optional_account_id_further_isolates_same_device(self):
+        key = self.walk["account_key"](None)
+        with patch.dict(os.environ, {"DIANTAO_WALK_ACCOUNT_ID": "account-b"}):
+            other = self.walk["account_key"](None)
+            self.assertTrue(self.walk["mark_cap_reached"](None, 20000))
+        write_json(self.cap_path, self.cap(key=key))
+        with patch.dict(os.environ, {"DIANTAO_WALK_ACCOUNT_ID": "account-b"}):
+            self.assertFalse(self.walk["cap_reached"](None))
+        write_json(self.cap_path, self.cap(key=other))
+        with patch.dict(os.environ, {"DIANTAO_WALK_ACCOUNT_ID": "account-b"}):
+            self.assertTrue(self.walk["cap_reached"](None))
+        self.assertNotEqual(key, other)
+
+    def test_stale_or_corrupt_state_never_fakes_a_cap(self):
+        for value in ({"date": "1999-01-01", "accounts": {}},
+                      {"date": self.walk["local_day"](), "accounts": "bad"},
+                      {"date": self.walk["local_day"](),
+                       "accounts": {self.walk["account_key"](None): {"reached": True, "steps": 19999}}}):
+            with self.subTest(value=value):
+                write_json(self.cap_path, value)
+                self.assertFalse(self.walk["cap_reached"](None))
+
+    def runner(self, filename, name):
+        project = str(Path(__file__).parents[1])
+        with patch.object(sys, "path", [project, *sys.path]):
+            return load_runner(filename, name)
+
+    def test_sequential_scheduler_skips_walk_and_continues_other_tasks(self):
+        runner = self.runner("一键顺序执行.py", "daily50_sequence")
+        write_json(self.cap_path, self.cap(key=self.walk["account_key"](None)))
+        calls = []
+        runner.run_script = lambda filepath, **kwargs: (
+            calls.append(Path(filepath).name) or (False, 0.1, "未发现任务"))
+        with patch.object(sys, "path", [str(Path(__file__).parents[1]), *sys.path]):
+            result = runner.execute(tasks=runner.REMAINING_TASKS)
+        self.assertNotIn("走路赚元宝.py", calls)
+        self.assertEqual(calls, [
+            "主播打卡粉丝礼.py", "签到赢元宝.py", "睡觉赚元宝.py",
+            "点淘鸭钻石任务.py", "点淘鸭摇一摇.py", "点淘购物赚钱.py",
+            "打工得体力.py", "元宝中心小任务.py", "养优惠.py",
+        ])
+        self.assertEqual(result, 1)  # 其他任务原有失败语义不变
+
+    def test_all_in_one_scheduler_skips_walk_and_continues_other_tasks(self):
+        runner = self.runner("一键全部执行.py", "daily50_all_in_one")
+        write_json(self.cap_path, self.cap(key=self.walk["account_key"](None)))
+        calls = []
+        runner.run_script = lambda filepath, **kwargs: (
+            calls.append(Path(filepath).name) or (False, 0.1, "未发现任务"))
+        with patch.object(sys, "path", [str(Path(__file__).parents[1]), *sys.path]):
+            result = runner.execute(tasks=runner.ALL_TASKS)
+        self.assertNotIn("走路赚元宝.py", calls)
+        self.assertIn("元宝中心小任务.py", calls)
+        self.assertIn("taobao_energy.py", calls)
+        self.assertEqual(result, 1)
+
+    def test_scheduler_stops_walk_rechecks_when_cap_is_reached_midround(self):
+        runner = self.runner("一键顺序执行.py", "daily50_recheck")
+        calls = []
+
+        def fake_run(filepath, **kwargs):
+            calls.append(Path(filepath).name)
+            write_json(self.cap_path, self.cap(key=self.walk["account_key"](None)))
+            return True, 0.1, "完成"
+
+        runner.run_script = fake_run
+        with patch.object(sys, "path", [str(Path(__file__).parents[1]), *sys.path]):
+            success, elapsed, reason = runner.run_task(
+                "走路赚元宝.py", 900, (), Event(), 5)
+        self.assertEqual(calls, ["走路赚元宝.py"])
+        self.assertTrue(success)
+        self.assertIn("已达20000步上限", reason)
+
+    def test_scheduler_without_cap_state_does_not_skip_walk(self):
+        runner = self.runner("一键顺序执行.py", "daily50_no_cap")
+        calls = []
+        runner.run_script = lambda filepath, **kwargs: (
+            calls.append(Path(filepath).name) or (True, 0.1, "完成"))
+        with patch.object(sys, "path", [str(Path(__file__).parents[1]), *sys.path]):
+            runner.run_task("走路赚元宝.py", 900, (), Event(), 0)
+        self.assertEqual(calls, ["走路赚元宝.py"])
 
 
 if __name__ == "__main__":

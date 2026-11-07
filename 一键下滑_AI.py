@@ -391,7 +391,9 @@ def main():
 
     for r in rounds_to_run:
         duration = custom_seconds if custom_seconds is not None else r["swipe_seconds"]
-        ok = run_round(
+        from task_checkpoint import run_step
+        ok = run_step(
+            f"swipe-{r['label']}", r["name"], run_round,
             device=device,
             label=r["label"],
             name=r["name"],

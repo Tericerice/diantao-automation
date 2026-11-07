@@ -69,13 +69,18 @@ def back():
             navigate()
             return
 
-        if d(textContains="打卡").exists(timeout=1) or d(textContains="粉丝礼").exists(timeout=1):
+        page_blocks = get_ocr_text_blocks(d, retries=0)
+        if any(any(kw in b.get("text", "") for kw in ["打卡", "粉丝礼"]) for b in page_blocks):
             print("  ✅ 已回到")
             return
 
-        btn = d(textMatches=r"关闭|返回|完成")
-        if btn.exists(timeout=1):
-            click_u2_control(d, btn, "关闭/返回/完成")
+        btn = next(
+            (b for b in page_blocks
+             if any(kw in b.get("text", "") for kw in ["关闭", "返回", "完成"])),
+            None,
+        )
+        if btn:
+            d.click(int(btn["cx"]), int(btn["cy"]))
             time.sleep(2)
         else:
             d.press("back")
@@ -110,7 +115,7 @@ def do_clock(btn_cx, btn_cy, task_name=""):
 
 
 def scan_and_clock():
-    """主循环：U2找去打卡 → 执行"""
+    """主循环：OCR找去打卡 → 执行"""
     total = 0
     prev_snap = []
     prev_empty = []
@@ -120,20 +125,17 @@ def scan_and_clock():
         time.sleep(1.5)
         print(f"\n📡 扫描中 ({total}个)...")
 
-        # 直接找去打卡按钮
-        btn = d(textContains="去打卡")
-        if btn.exists(timeout=1):
-            text = btn.get_text().strip()
+        # OCR 找去打卡按钮
+        blocks = get_ocr_text_blocks(d, retries=0)
+        btn = next((b for b in blocks if "去打卡" in b.get("text", "")), None)
+        if btn:
+            text = str(btn.get("text", "")).strip()
             if "已打卡" in text or "已完成" in text:
                 prev_snap.clear()
                 prev_empty.clear()
                 print(f"  ⊘ {text}")
                 continue
-            try:
-                cx, cy = btn.center()
-                cx, cy = int(cx), int(cy)
-            except:
-                cx, cy = screen_width // 2, screen_height // 2
+            cx, cy = int(btn.get("cx", 0)), int(btn.get("cy", 0))
             report_task_found()
             do_clock(cx, cy, text)
             total += 1

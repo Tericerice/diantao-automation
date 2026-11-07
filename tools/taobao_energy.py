@@ -241,6 +241,10 @@ def allowed_browse(title):
             or "逛一逛" in title or "随心逛" in title or "沉浸看" in title)
 
 
+# 支付宝任务按已验证的目标包名分类，不按标题文案关键字。
+ALIPAY_PKG = "com.eg.android.AlipayGphone"
+
+
 def task_kind(title):
     if allowed_browse(title):
         return "taobao"
@@ -249,6 +253,11 @@ def task_kind(title):
             return "taobao"
         return "alipay" if VISIT[title] == "com.eg.android.AlipayGphone" else "external"
     return "skip"
+
+
+def is_alipay(title):
+    """Classify by verified visit metadata, never by display wording alone."""
+    return VISIT.get(title) == ALIPAY_PKG
 
 
 class RewardNotConfirmed(RuntimeError):
@@ -483,9 +492,13 @@ def visit(d, title, deadline, nodes):
 
 
 def next_task(d, nodes, attempted, deadline):
-    """只从当前任务页选择一项；普通能量任务全部排在跳转类任务之前。"""
+    """把支付宝任务排在其他能量任务之后；队列重建时仍维持稳定顺序。
+
+    支付宝按已验证的目标包名分类，不按文案中是否出现“支付宝”字样。
+    每轮只选一项：重扫后新出现的非支付宝任务仍会先于尚未执行的支付宝任务。
+    """
     guard(deadline)
-    LOG.info("[扫描] 检查当前可见任务，顺序：普通能量任务 → 跳转类任务")
+    LOG.info("[扫描] 检查当前可见任务，顺序：其他能量任务 → 支付宝")
     candidates = {}
     width = d.window_size()[0]
     for row, _button in task_rows(nodes, width):
@@ -496,12 +509,16 @@ def next_task(d, nodes, attempted, deadline):
             task_button(nodes, title, width)
         except RuntimeError:
             continue
-        # VISIT 中的任务都会离开当前任务列表，即使目标仍是淘宝本身，也最后执行；
-        # 跳转类内部继续维持淘宝 → 支付宝 → 其他应用的稳定顺序。
-        candidates[title] = (
-            (0, 0) if title not in VISIT
-            else (1, {"taobao": 0, "alipay": 1, "external": 2}[task_kind(title)])
+        # 保留普通/跳转两级，且无论哪一级都让支付宝排在该级最后；
+        # 同组内沿用已有的淘宝 → 其他应用相对顺序，并以屏幕坐标作稳定次序，
+        # 不依赖文件扫描、字典偶然顺序或中文标题排序。
+        rank = (
+            1 if is_alipay(title) else 0,
+            1 if title in VISIT else 0,
+            {"taobao": 0, "external": 1, "alipay": 2}[task_kind(title)],
+            row["cy"], row["cx"],
         )
+        candidates.setdefault(title, rank)
     selected = min(candidates, key=candidates.get) if candidates else None
     return selected, nodes
 

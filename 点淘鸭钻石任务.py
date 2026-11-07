@@ -1,6 +1,6 @@
 """
-点淘鸭钻石任务 自动化脚本（OCR重构版）
-流程：进点淘 → 元宝中心 → 固定坐标进入点淘鸭家园 → 固定坐标打开任务列表 → OCR扫描执行白名单任务
+点淘鸭钻石任务自动化脚本（OCR导航版）
+流程：进点淘 → OCR进入元宝中心 → OCR进入点淘鸭家园 → 打开任务列表 → OCR扫描白名单任务
 """
 from task_exclusions import is_blocked_boutique_task
 import time
@@ -18,7 +18,7 @@ from u2_scanner import (
     is_stale_no_buttons,
     click_three_selected_items,
 )
-from utils import get_ocr_text_blocks, log_task_completed, show_today_summary
+from utils import click_ocr_text, get_ocr_text_blocks, log_task_completed, show_today_summary
 
 # ========================================================
 # 全局变量
@@ -60,16 +60,6 @@ DANGER_KEYWORDS = ["国补", "下单", "购买", "付款", "充值", "付定金"
 
 LIVE_KW = ["看直播", "看福利直播", "看福利", "直播"]
 
-# 固定坐标（点淘鸭家园入口）
-# 设备分辨率 1264×2780 下实测坐标：(824, 1771)
-DUCK_ENTRY_X = 824
-DUCK_ENTRY_Y = 1771
-
-# 任务列表入口比例坐标
-# 原坐标 (178, 2581) → 比例 (0.14, 0.93) → 任务列表入口
-TASK_LIST_X_RATIO = 0.14
-TASK_LIST_Y_RATIO = 0.93
-
 # OCR 按钮关键词（点击目标文本）
 BTN_KEYWORDS = ["去完成", "去浏览", "去观看", "去参与"]
 
@@ -78,28 +68,17 @@ BTN_KEYWORDS = ["去完成", "去浏览", "去观看", "去参与"]
 # 🧭 简化导航（使用固定坐标）
 # ========================================================
 def click_duck_entry(device):
-    """优先点击可见的点淘鸭家园文本，找不到时交给固定坐标兜底。"""
-    for query in ({"text": "点淘鸭家园"}, {"textContains": "点淘鸭家园"}):
-        try:
-            selector = device(**query)
-            if not selector.exists:
-                continue
-            cx, cy = selector.center()
-            cx, cy = int(cx), int(cy)
-            print(f"    ✅ 找到点淘鸭家园，执行设备点击 @({cx},{cy})")
-            device.click(cx, cy)
-            print("    ✅ 点淘鸭家园点击指令已发出")
-            return True
-        except Exception as exc:
-            print(f"    ⚠️ 文字点击尝试失败: {exc}")
-            continue
-    return False
+    """通过 OCR 识别点淘鸭家园入口并点击。"""
+    return click_ocr_text(
+        device, "点淘鸭家园", settle_seconds=2.5,
+        attempts=3, log=True,
+    )
 
 
 def navigate_to_duck_page(device):
     """
     导航到点淘鸭家园并打开任务列表。
-    路径：启动点淘 → 元宝中心 → 固定坐标点淘鸭家园 → 固定坐标任务列表
+    路径：启动点淘 → OCR 元宝中心 → OCR 点淘鸭家园 → 打开任务列表
     """
     print("🔄 正在导航到【点淘鸭家园】...")
 
@@ -110,29 +89,23 @@ def navigate_to_duck_page(device):
 
     # 2. 查找"元宝中心"并点击
     print("  Step 1: 进入【元宝中心】...")
-    # 先尝试 U2 查找
-    btn = device(textContains="元宝中心")
-    if btn.exists:
-        click_u2_control(device, btn, "元宝中心")
-    else:
-        # 兜底：点击底部右侧区域
-        print("    ⚠️ 未找到【元宝中心】，点击底部右侧区域...")
-        device.click(int(screen_width * 0.7), int(screen_height * 0.93))
+    if not click_ocr_text(
+        device, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    ):
+        return False
     time.sleep(4)
-
     if not handle_yuanbao_live_popups(device):
         return False
 
-    # 3. 优先按可见文字点击，固定坐标只做兜底
+    # 3. OCR 识别点淘鸭家园入口
     print("  Step 2: 点击点淘鸭家园...")
     if not click_duck_entry(device):
-        duck_x = DUCK_ENTRY_X
-        duck_y = DUCK_ENTRY_Y
-        print(f"    ⚠️ 未找到文字，使用固定坐标 @({duck_x},{duck_y})...")
-        device.click(duck_x, duck_y)
+        print("    ⚠️ OCR 未识别到点淘鸭家园，停止导航")
+        return False
     time.sleep(4)
 
-    # 4. 固定坐标点击打开任务列表
+    # 4. 按现有坐标入口打开任务列表
     task_x, task_y = 182, 2595
     print(f"  Step 3: 等待3秒后固定坐标点击打开任务列表 @({task_x},{task_y})...")
     time.sleep(3)
@@ -470,11 +443,13 @@ def main():
 
     print("=" * 50)
     print(" 🦆 点淘鸭钻石任务 自动化脚本（OCR重构版）")
-    print("   导航: 首页 → 元宝中心 → 固定坐标点淘鸭家园 → 固定坐标任务列表")
+    print("   导航: 首页 → OCR元宝中心 → OCR点淘鸭家园 → 任务列表")
     print(f"   白名单: {' | '.join(WHITELIST)}")
     print("=" * 50)
 
-    navigate_to_duck_page(d)
+    if not navigate_to_duck_page(d):
+        print("  ⚠️ OCR 导航未完成，停止任务扫描")
+        return
     scan_and_execute()
 
     try:

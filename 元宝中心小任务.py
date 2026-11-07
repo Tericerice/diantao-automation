@@ -12,10 +12,10 @@ import sys
 from task_recheck import recheck_enabled, report_task_found, report_round_finished
 import re
 
-from u2_scanner import connect_device, DT_APP, click_u2_control
+from u2_scanner import connect_device, DT_APP
 from u2_scanner import handle_guess_price_game, execute_live_task, execute_video_task
 from u2_scanner import execute_browse_task
-from utils import get_ocr_text_blocks, show_today_summary
+from utils import click_ocr_text, get_ocr_text_blocks, show_today_summary
 
 # ========================================================
 # 全局变量
@@ -50,18 +50,14 @@ def navigate():
     d.app_start(DT_APP, stop=True)
     time.sleep(5)
 
-    for _ in range(10):
-        for text in ["元宝中心", "赚元宝"]:
-            btn = d(textContains=text)
-            if btn.exists(timeout=2):
-                click_u2_control(d, btn, text)
-                time.sleep(4)
-                return handle_yuanbao_live_popups(d)
-        time.sleep(2)
-
-    d.click(int(screen_width * 0.7), int(screen_height * 0.93))
-    time.sleep(4)
-    return False
+    entered = click_ocr_text(
+        d, ["元宝中心", "赚元宝"], settle_seconds=2.5,
+        attempts=4, log=True,
+    )
+    if entered:
+        time.sleep(4)
+        return handle_yuanbao_live_popups(d)
+    return entered
 
 
 def is_blacklisted(text):

@@ -16,15 +16,15 @@ def page():
             dict(text="16/50", cx=118, cy=845)]
 
 
-def test_unchanged_progress_is_bounded_and_never_counted_as_success(monkeypatch):
+def test_pending_action_returns_for_next_round_without_counting_success(monkeypatch):
     nodes = page()
     scan = Mock(return_value=nodes)
     monkeypatch.setattr(task, "scan", scan)
     monkeypatch.setattr(task.time, "sleep", lambda _: None)
     monkeypatch.setattr(task, "_session", {"completed": 0})
-    with pytest.raises(task.RewardNotConfirmed) as error:
-        task.verify_gain(Mock(), nodes, 16, None, deadline())
-    assert error.value.nodes == nodes
+    device = Mock()
+    device.window_size.return_value = (1264, 2780)
+    assert task.verify_gain(device, nodes, 16, None, deadline()) == nodes
     assert scan.call_count == 2
     assert task._session["completed"] == 0
 
@@ -41,9 +41,11 @@ def test_uncredited_browse_is_skipped_and_next_task_runs(monkeypatch):
     browse = Mock(side_effect=[task.RewardNotConfirmed(nodes), nodes])
     monkeypatch.setattr(task, "next_task", choose)
     monkeypatch.setattr(task, "browse", browse)
-    assert task.run_round(d, nodes, deadline(), 3, 17)
+    found, result = task.run_round(d, nodes, deadline(), 3, 17)
+    assert found is True
+    assert result is nodes
     assert browse.call_count == 2
-    assert attempts == [set(), {"好物随心逛"}, {"好物随心逛"}]
+    assert attempts == [set(), {"好物随心逛"}, {"好物沉浸看", "好物随心逛"}]
 
 
 @pytest.mark.parametrize("nodes,package", [

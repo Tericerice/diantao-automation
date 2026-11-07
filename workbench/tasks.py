@@ -23,7 +23,7 @@ TASKS = {
     ),
     "taobao-double11-energy": entry(
         "淘金币双11能量", "tools/taobao_energy.py",
-        "淘宝 → 支付宝 → 其他应用；沿用任务排除项和返回复查规则。",
+        "其他能量任务 → 支付宝；沿用任务排除项和返回复查规则。",
         args=("run", "--repeat", "30"),
     ),
     "taobao-double11-workbuddy": entry(
