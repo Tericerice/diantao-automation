@@ -49,12 +49,18 @@ NAV_PAGE_MARKERS = {
     "走路赚元宝": ("走路赚元宝", "做任务赚步数"),
 }
 
-# 避开 Android 底部手势区（0.80~1.00）和顶端状态栏，显式 duration 防止点击手势。
-SAFE_SWIPE_START_MIN_RATIO = 0.65
-SAFE_SWIPE_START_MAX_RATIO = 0.75
-SAFE_SWIPE_END_MIN_RATIO = 0.20
-SAFE_SWIPE_END_MAX_RATIO = 0.30
-SWIPE_DURATION_SECONDS = 0.25
+# 避开 Android 底部手势区（0.80~1.00）和顶端状态栏；拖动手势用更长
+# duration，避免 WebView 商品卡片把短促 swipe 误判成一次点击。
+SAFE_SWIPE_START_MIN_RATIO = 0.62
+SAFE_SWIPE_START_MAX_RATIO = 0.68
+SAFE_SWIPE_END_MIN_RATIO = 0.34
+SAFE_SWIPE_END_MAX_RATIO = 0.40
+SWIPE_DURATION_SECONDS = 0.55
+SWIPE_X_MIN_RATIO = 0.84
+SWIPE_X_MAX_RATIO = 0.91
+WRONG_PAGE_MARKERS = (
+    "同款好物", "同款低价", "搜索其他心仪好物", "全部同款", "低价同款",
+)
 
 
 # ========================================================
@@ -446,8 +452,24 @@ ROUNDS_CONFIG = [
 # ========================================================
 # 下滑浏览
 # ========================================================
+def _wrong_page_detected(device):
+    """识别误入的「同款好物」商品页；OCR 不可用时不臆判。"""
+    try:
+        blocks = get_ocr_text_blocks(device)
+    except Exception as exc:
+        print(f"  ⚠️ 商品页识别 OCR 失败：{exc}")
+        return False
+    for block in blocks or []:
+        text = _normalize_ocr_text(block.get("text", ""))
+        for marker in WRONG_PAGE_MARKERS:
+            if marker in text:
+                print(f"  ⚠️ 检测到错误商品页标记：{block.get('text', '')!r}")
+                return True
+    return False
+
+
 def swipe_browse(seconds, expected_markers=None):
-    """安全下滑浏览；每次滑动后检查页面，误跳即一次回退并跳过本轮。"""
+    """安全下滑浏览；外部跳页或误入商品页即安全回退并明确失败。"""
     if seconds <= 0:
         print("  ⏭️ 跳过下滑（swipe_seconds <= 0）")
         return True
@@ -464,8 +486,8 @@ def swipe_browse(seconds, expected_markers=None):
         if expected_package:
             break
         time.sleep(1)
-    if expected_package != DT_APP:
-        print("  ⚠️ 下滑前未确认点淘页面，跳过本轮")
+    if expected_package != DT_APP or _wrong_page_detected(d):
+        print("  ⚠️ 下滑前未确认任务页面，跳过本轮")
         return False
 
     start = time.time()
@@ -477,8 +499,11 @@ def swipe_browse(seconds, expected_markers=None):
         end_y = random.randint(
             int(sh * SAFE_SWIPE_END_MIN_RATIO),
             int(sh * SAFE_SWIPE_END_MAX_RATIO))
-        d.swipe(int(sw * 0.5), start_y,
-                int(sw * 0.5), end_y,
+        # 起点放在右侧安全空白带，避开双列商品卡片；较长拖动减少被
+        # WebView 识别为单击的概率，仍显式传 duration。
+        swipe_x = random.randint(int(sw * SWIPE_X_MIN_RATIO),
+                                int(sw * SWIPE_X_MAX_RATIO))
+        d.swipe(swipe_x, start_y, swipe_x, end_y,
                 duration=SWIPE_DURATION_SECONDS)
         count += 1
         time.sleep(random.uniform(2, 4))
@@ -503,6 +528,10 @@ def swipe_browse(seconds, expected_markers=None):
             return False
         if activity != expected_activity:
             print(f"  ↪️ 同包页面切换：{activity!r}（继续下滑）")
+        if _wrong_page_detected(d):
+            print("  ⚠️ 下滑后误入「同款好物」商品页，停止本轮下滑")
+            _safe_back(d)
+            return False
 
     print(f"  ✅ 浏览完成 ({count}次下滑)")
     return True

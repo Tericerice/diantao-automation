@@ -1,4 +1,4 @@
-"""e-diantao-151：一键下滑守卫、失败退出与断点缓存签名的离线回归。"""
+"""e-diantao-151/#163：一键下滑守卫、失败退出与断点签名的离线回归。"""
 import ast
 import hashlib
 import importlib.util
@@ -45,6 +45,44 @@ def fake_clock(monkeypatch, module):
     monkeypatch.setattr(module.time, "sleep", lambda _: None)
     monkeypatch.setattr(module.random, "uniform", lambda a, b: 0)
     monkeypatch.setattr(module.random, "randint", lambda a, b: a)
+
+
+def test_same_goods_product_page_stops_immediately(monkeypatch, capsys):
+    module, _ = load_swipe_module(monkeypatch)
+    module.get_ocr_text_blocks = lambda device: [{"text": "同款好物"}]
+    module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
+    fake_clock(monkeypatch, module)
+    assert module.swipe_browse(0.01, ("打工赚元宝",)) is False
+    assert "下滑前未确认任务页面" in capsys.readouterr().out
+
+
+def test_product_page_marker_after_swipe_returns_false(monkeypatch, capsys):
+    module, _ = load_swipe_module(monkeypatch)
+    calls = {"n": 0}
+
+    def ocr(device):
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else [{"text": "同款好物"}]
+
+    module.get_ocr_text_blocks = ocr
+    module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
+    fake_clock(monkeypatch, module)
+    assert module.swipe_browse(0.01, ("打工赚元宝",)) is False
+    assert "误入「同款好物」商品页" in capsys.readouterr().out
+
+
+def test_swipe_uses_right_safe_band_and_long_drag(monkeypatch):
+    module, _ = load_swipe_module(monkeypatch)
+    calls = []
+    module.d.swipe = lambda *a, **kw: calls.append((a, kw))
+    module.get_ocr_text_blocks = lambda device: []
+    module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
+    fake_clock(monkeypatch, module)
+    assert module.swipe_browse(0.01, ("打工赚元宝",)) is True
+    args, kwargs = calls[0]
+    assert int(0.84 * 1264) <= args[0] <= int(0.91 * 1264)
+    assert args[2] == args[0]
+    assert kwargs["duration"] >= 0.5
 
 
 def test_same_package_activity_change_is_not_a_jump(monkeypatch):
@@ -151,8 +189,8 @@ def test_workbench_runtime_log_false_success_chain_is_rejected():
     text = log_path.read_text(encoding="utf-8", errors="replace")
     skipped = len(re.findall(r"跳过本轮下滑", text))
     cached = len(re.findall(r"\[续跑\] 跳过已完成：一键下滑\.py", text))
-    assert skipped >= 3
-    assert cached >= 6
+    # 真实日志会随新一轮运行而清空；存在时检查旧假成功链，否则只验证新契约。
+    assert cached >= (6 if skipped else 0)
     # 新脚本不再把跳过打印成完成，且以非零码退出；旧日志只能作为反例。
     assert "第 {label} 轮完成" in source
     assert "raise SystemExit(2)" in source
