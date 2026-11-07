@@ -48,6 +48,7 @@ class WalkSphereTest(unittest.TestCase):
     def setUp(self):
         self.fake_device = _FakeDevice()
         self.ocr_pages = []
+        self.navigation_calls = 0
         self.original_modules = {
             name: sys.modules.get(name) for name in ("u2_scanner", "utils")
         }
@@ -62,7 +63,9 @@ class WalkSphereTest(unittest.TestCase):
         scanner.execute_live_task = lambda *_args, **_kwargs: None
 
         utils = types.ModuleType("utils")
-        utils.get_ocr_text_blocks = lambda _device: self.ocr_pages.pop(0)
+        utils.get_ocr_text_blocks = lambda _device: (
+            self.ocr_pages.pop(0) if self.ocr_pages else []
+        )
 
         sys.modules["u2_scanner"] = scanner
         sys.modules["utils"] = utils
@@ -81,6 +84,14 @@ class WalkSphereTest(unittest.TestCase):
             module = runpy.run_path(str(path))
         module["time"].sleep = lambda _seconds: None
         return module
+
+    def load_navigation(self):
+        path = Path(__file__).resolve().parents[1] / "走路球体完成.py"
+        namespace = {}
+        with contextlib.redirect_stdout(io.StringIO()):
+            exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
+        namespace["time"].sleep = lambda _seconds: None
+        return namespace
 
     def test_scan_tiers_sorts_and_ignores_non_tiers(self):
         module = self.load()
@@ -135,6 +146,96 @@ class WalkSphereTest(unittest.TestCase):
         self.assertEqual(task["name"], "走路球体完成")
         self.assertEqual(task["script"], "走路球体完成.py")
         self.assertTrue(task["requires_ocr"])
+
+    def test_empty_ocr_after_tier_click_is_unknown(self):
+        module = self.load()
+        self.ocr_pages = [[]]
+        self.assertEqual(module["claim_tier"](block("100步", 146, 766)), "unknown")
+
+    def test_foreign_page_after_tier_click_is_unknown(self):
+        module = self.load()
+        self.ocr_pages = [[block("恭喜完成任务", 111, 222)]]
+        self.assertEqual(module["claim_tier"](block("100步", 146, 766)), "unknown")
+
+    def test_browse_timeout_is_bounded_failure(self):
+        sys.modules["u2_scanner"].execute_browse_task = lambda *_a, **_k: False
+        module = self.load()
+        self.ocr_pages = [popup_page(), task_page()]
+        self.assertEqual(module["claim_tier"](block("100步", 146, 766)), "failed")
+
+    def test_unknown_after_reward_uses_bounded_navigation_recovery(self):
+        module = self.load_navigation()
+        calls = {"count": 0}
+
+        def recover():
+            calls["count"] += 1
+            self.ocr_pages.clear()
+            self.ocr_pages.append(walk_page("500步"))
+            return True
+
+        module["navigate_to_walk_page"] = recover
+        module["return_to_walk_page"] = lambda: False
+        self.ocr_pages = [popup_page(), task_page(), walk_page("500步"),
+                          [], [], []]
+        result = module["claim_tier"](block("100步", 146, 766))
+        self.assertEqual(result, "claimed")
+        self.assertEqual(calls["count"], 1)
+
+    def test_unrecoverable_return_is_unknown_not_false_success(self):
+        module = self.load_navigation()
+        module["navigate_to_walk_page"] = lambda: False
+        module["return_to_walk_page"] = lambda: False
+        self.ocr_pages = [popup_page(), task_page(), walk_page("500步"),
+                          [], [], []]
+        self.assertEqual(module["claim_tier"](block("100步", 146, 766)), "unknown")
+
+    def test_main_returns_error_code_for_unknown_navigation(self):
+        module = self.load_navigation()
+        module["navigate_to_walk_page"] = lambda: False
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = module["main"]()
+        self.assertEqual(code, 1)
+        self.assertIn("无法进入走路赚元宝页面", output.getvalue())
+
+    def test_main_accepts_confirmed_page_without_tiers(self):
+        module = self.load_navigation()
+        module["navigate_to_walk_page"] = lambda: True
+        module["get_ocr_text_blocks"] = lambda _device: walk_page()
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = module["main"]()
+        self.assertEqual(code, 0)
+        self.assertIn("没有更多可点击档位", output.getvalue())
+
+    def test_main_stops_with_reason_on_unknown_ocr(self):
+        module = self.load_navigation()
+        module["navigate_to_walk_page"] = lambda: True
+        module["get_ocr_text_blocks"] = lambda _device: []
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = module["main"]()
+        self.assertEqual(code, 1)
+        self.assertIn("走路页/档位识别未知", output.getvalue())
+        self.assertIn("导航恢复后仍未确认", output.getvalue())
+
+    def test_normal_tier_then_next_tier(self):
+        module = self.load_navigation()
+        module["navigate_to_walk_page"] = lambda: True
+        module["return_to_walk_page"] = lambda: True
+        pages = [
+            walk_page("100步", "200步"),
+            popup_page(), task_page(),
+            walk_page("200步"),
+            walk_page("200步"),
+            walk_page(),
+            walk_page(),
+        ]
+        module["get_ocr_text_blocks"] = lambda _device: (
+            pages.pop(0) if pages else walk_page()
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            code = module["main"]()
+        self.assertEqual(code, 0)
+        self.assertIn("共处理 1 个走路档位", output.getvalue())
+        self.assertIn("点击档位【200步】", output.getvalue())
 
 
 if __name__ == "__main__":
