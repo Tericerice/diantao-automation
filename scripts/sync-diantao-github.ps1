@@ -143,7 +143,7 @@ try {
             exit 0
         }
         Invoke-Git @('branch', '-f', $backupRef, $remoteHead) | Out-Null
-        Invoke-Git @('push', $RemoteUrl, "refs/heads/$backupRef:refs/heads/$backupRef") | Out-Null
+        Invoke-Git @('push', $RemoteUrl, "refs/heads/${backupRef}:refs/heads/${backupRef}") | Out-Null
         $backupRemote = Get-RemoteHead $RemoteUrl $backupRef
         if ($backupRemote -ne $remoteHead) {
             throw "备份分支推送校验失败：远程 $backupRef=$backupRemote，期望 $remoteHead；已中止，未改动 $Branch。"
@@ -159,10 +159,10 @@ try {
     }
 
     if ($diverged) {
-        Invoke-Git @('push', $RemoteUrl, "refs/heads/$Branch:refs/heads/$Branch", "--force-with-lease=refs/heads/${Branch}:$remoteHead") | Out-Null
+        Invoke-Git @('push', $RemoteUrl, "refs/heads/${Branch}:refs/heads/${Branch}", "--force-with-lease=refs/heads/${Branch}:$remoteHead") | Out-Null
     }
     else {
-        Invoke-Git @('push', $RemoteUrl, "refs/heads/$Branch:refs/heads/$Branch") | Out-Null
+        Invoke-Git @('push', $RemoteUrl, "refs/heads/${Branch}:refs/heads/${Branch}") | Out-Null
     }
 
     $verified = Get-RemoteHead $RemoteUrl $Branch
