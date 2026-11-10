@@ -47,51 +47,61 @@ def fake_clock(monkeypatch, module):
     monkeypatch.setattr(module.random, "randint", lambda a, b: a)
 
 
-def test_same_goods_product_page_stops_immediately(monkeypatch, capsys):
+def test_same_goods_product_page_never_starts_swiping(monkeypatch, capsys):
     module, _ = load_swipe_module(monkeypatch)
     module.get_ocr_text_blocks = lambda device: [{"text": "同款好物"}]
     module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
     fake_clock(monkeypatch, module)
+    swipes = []
+    module.d.swipe = lambda *a, **kw: swipes.append((a, kw))
     assert module.swipe_browse(0.01, ("打工赚元宝",)) is False
-    assert "下滑前未确认任务页面" in capsys.readouterr().out
+    assert swipes == []
+    assert "下滑前页面不是本轮任务页" in capsys.readouterr().out
 
 
-def test_product_page_marker_after_swipe_returns_false(monkeypatch, capsys):
+def test_product_page_marker_after_swipe_recovers_then_fails(monkeypatch, capsys):
+    """e-diantao-169：误入商品页先有界恢复；两次都失败才判本轮失败。"""
     module, _ = load_swipe_module(monkeypatch)
     calls = {"n": 0}
 
     def ocr(device):
         calls["n"] += 1
-        return [] if calls["n"] == 1 else [{"text": "同款好物"}]
+        if calls["n"] == 1:
+            return [{"text": "打工赚元宝", "cx": 480, "cy": 2396}]
+        return [{"text": "同款好物"}]
 
     module.get_ocr_text_blocks = ocr
     module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
     fake_clock(monkeypatch, module)
     assert module.swipe_browse(0.01, ("打工赚元宝",)) is False
-    assert "误入「同款好物」商品页" in capsys.readouterr().out
+    assert "误入「同款好物」商品页，尝试回退任务页" in capsys.readouterr().out
 
 
-def test_swipe_uses_right_safe_band_and_long_drag(monkeypatch):
+def test_swipe_uses_left_safe_band_and_long_drag(monkeypatch):
     module, _ = load_swipe_module(monkeypatch)
     calls = []
     module.d.swipe = lambda *a, **kw: calls.append((a, kw))
-    module.get_ocr_text_blocks = lambda device: []
+    module.get_ocr_text_blocks = lambda device: [
+        {"text": "打工赚元宝", "cx": 480, "cy": 2396}]
     module.get_current_app = lambda device: (DT_APP, "BrowserActivity")
     fake_clock(monkeypatch, module)
     assert module.swipe_browse(0.01, ("打工赚元宝",)) is True
     args, kwargs = calls[0]
-    assert int(0.84 * 1264) <= args[0] <= int(0.91 * 1264)
+    assert int(0.08 * 1264) <= args[0] <= int(0.15 * 1264)
     assert args[2] == args[0]
-    assert kwargs["duration"] >= 0.5
+    assert kwargs["duration"] >= 0.8
 
 
-def test_same_package_activity_change_is_not_a_jump(monkeypatch):
+def test_same_package_activity_change_with_marker_is_not_a_jump(monkeypatch):
+    """e-diantao-169：同包切到 BrowserUpperActivity 但任务 marker 仍在，允许继续。"""
     module, _ = load_swipe_module(monkeypatch)
     states = iter([
         (DT_APP, "BrowserActivity"),
         (DT_APP, "BrowserUpperActivity"),
     ])
     module.get_current_app = lambda device: next(states)
+    module.get_ocr_text_blocks = lambda device: [
+        {"text": "精选推荐", "cx": 100, "cy": 100}]
     fake_clock(monkeypatch, module)
     assert module.swipe_browse(0.01, ("精选推荐",)) is True
 
@@ -103,6 +113,8 @@ def test_external_package_change_stops_and_returns_false(monkeypatch, capsys):
         ("me.ele", "AppUCWebActivity"),
     ])
     module.get_current_app = lambda device: next(states)
+    module.get_ocr_text_blocks = lambda device: [
+        {"text": "精选推荐", "cx": 100, "cy": 100}]
     fake_clock(monkeypatch, module)
     assert module.swipe_browse(0.01, ("精选推荐",)) is False
     assert "前台应用变为" in capsys.readouterr().out
