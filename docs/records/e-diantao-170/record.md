@@ -1,85 +1,82 @@
-# Trail e-diantao-170 实施记录：一键下滑现存问题复现与修复
+# 改动记录：e-diantao-170 一键下滑现存问题复现与修复
 
 - **任务编号**: `e-diantao-170`
-- **任务标题**: `[diantao][win] 一键下滑现存问题复现与修复（AGY Worker 切换后执行）`
+- **关联历史**: `e-diantao-169` (READY), `e-diantao-163`, `e-diantao-151`, `e-diantao-100`
 - **执行平台**: `windows` (`win-371a01cd`)
-- **执行 Worktree**: `C:\Agent工作空间\worktrees\mcc-e-diantao-170`
-- **基线分支/Commit**: `mcc/mcc-e-diantao-169` (`7df49863fface0f76487feeb71e21789d38658c3`)
-- **验证结论**: 离线全量及针对性回归通过（未进行真机操作，保持客观）
+- **工作区**: `C:\Agent工作空间\worktrees\mcc-e-diantao-170`
+- **现役仓**: `C:\My Github Program\diantao`
+- **分支**: `trail/170-mcc-e-diantao-170` (接管 `mcc/mcc-e-diantao-169` commit `7df4986`)
 
 ---
 
-## 一、问题复现证据与根因分析
+## 一、复现证据与根因分析
 
-在 `e-diantao-169` 完成后，依据日志回放与逻辑审校，一键下滑仍存在以下致瘫性缺陷：
+通过研读现役代码、`mcc-e-diantao-169` 报告及近期真实运行日志（`.runtime/workbench/diantao-swipe.log`、`diantao-all-in-one.log`），查明 169 离线测试全绿但真机依然报错的核心原因如下：
 
-1. **同包下滑过程中的误拦截（核心根因）**：
-   - 现象：在 `BrowserActivity`（所有打工/睡觉/签到/走路的基底 H5 容器）中下滑浏览数次后，顶部任务 Marker（如“打工赚元宝”、“睡觉赚元宝”）因正常下滑自然滚出屏幕。
-   - 根因：原校验逻辑使用 `activity != expected_activity and _is_live_h5_activity(activity) and not marker_after`。当页面自然滚动或点淘同包在 `BrowserActivity` 与 `BrowserUpperActivity` 之间发生常态层级切换时，marker 不在当前视口即被错误定性为“滑入直播 H5 容器且任务标记消失”，触发频繁 `_safe_back` 导致提前中断或轮次失败。
-   - 修复：区分正常同包滚动与异常跳转。仅当命中 `WRONG_PAGE_MARKERS`（如“同款好物”、“同款低价”等明确商品比价详情页）或发生跨包跳转时才阻断；同包常态浏览允许滚动内容更新。
+1. **同包长下滑中标题滚出屏幕被误杀（核心缺陷）**：
+   - 点淘的打工、睡觉、签到、走路等页面均运行在 `com.taobao.live.h5.BrowserActivity` / `BrowserUpperActivity` 容器中。
+   - 在 230s~240s 的长下滑过程中，页面自然向下滚动，顶部的页面标题（如“打工赚元宝”、“走路赚元宝”）在 1~2 次滑动后必然滚出屏幕上边缘。
+   - 169 在 `swipe_browse` 中加入了 `(_is_live_h5_activity(activity) and not marker_after)`。由于 activity 始终是 `BrowserActivity`，一旦标题滚出屏幕（`marker_after is None`），就会被误判为“滑入直播 H5 容器且任务标记消失”，进而主动触发 `_safe_back` 试图恢复，导致正常浏览的页面被自我毁灭式退出。
+   - 169 离线测试中 mock 的 OCR 恒定返回包含标题 marker 的静态数据，掩盖了真实页面滚动的物理事实。
 
-2. **元宝中心慢渲染导致假性失败**：
-   - 现象：点击元宝中心后，若 H5 弹窗或首屏渲染超过原设定的短超时，直接判定进入元宝中心失败并中止整轮。
-   - 修复：增加 `_is_yuanbao_center_ocr` 延迟二次复核机制，容忍 H5 慢渲染；若元宝中心导航未确认，规范向外抛出 `round_skipped` 事件。
+2. **误入商品页恢复逻辑二次误退**：
+   - `_recover_after_wrong_page` 在从“同款好物”按 Back 返回后，要求视野内必须抓到 `expected_markers`。
+   - 但此时页面处于下滑滚动的中间位置，顶部 marker 不在视野内，且任务页本身就是 `BrowserActivity`，导致逻辑判定为“未回到任务页”，进而触发第 2 次 Back 彻底关闭了已恢复的任务页。
 
-3. **购物赚钱与点淘鸭摇一摇导航脆弱性**：
-   - 现象：`_nav_to_shop` 仅在当前首屏扫描 5 次，未像签到一样具备上滑露天下方卡片的能力；`_nav_to_yaoyiyao` 右滑幅度过大且缺乏重试补划，容易错过入口。
-   - 修复：
-     - `_nav_to_shop` 支持找不到入口时向下滑动（上滑屏幕）露天下方卡片（最多 5 次扫描，前 2 次未找到则触发滑动）；支持卡片本身直接点击与宽松同行按钮容差（垂直 220px 内）；扩充购物任务关键词（“精选宝贝”、“下单返元宝”等）。
-     - `_nav_to_yaoyiyao` 优化右滑动程比例为 `0.15 -> 0.85`（duration 0.3s），并在重试未找到时补划一次右滑；扩充摇一摇落地标记（“摇一摇PK”、“赚次数”、“点淘鸭”）。
+3. **进入元宝中心慢渲染无重试与缺少事件契约**：
+   - 在 `diantao-all-in-one.log` 中，第 2 轮（睡觉）、第 3 轮（签到）、第 4 轮（购物）连续出现 `⚠️ 未确认回到元宝中心，停止当前导航`。
+   - 根因：点击【元宝中心】后，若 H5 首帧渲染缓慢（OCR 耗时仅 0.55s 无元宝中心文本），`handle_yuanbao_live_popups` 立即判负退出，外层未进行延迟复核与重试；且 `run_round` 在 Step 2 失败时直接 `return False`，未输出任何 `round_skipped` 或 `round_failed` 的结构化 JSON 事件，破坏了调度契约。
 
-4. **任务标记（NAV_PAGE_MARKERS）覆盖不足**：
-   - 现象：部分机型/新版活动页面头部仅展示“打工”、“得体力”或“开店”，旧版 marker 要求完整命中“打工赚元宝”导致误判未到达目标页。
-   - 修复：扩充 `NAV_PAGE_MARKERS`，涵盖“打工”、“得体力”、“开店”、“精选宝贝”、“摇一摇PK”、“赚次数”、“点淘鸭”等真实界面变体。
+4. **购物赚钱入口查找缺少滑动推进**：
+   - 在 `diantao-swipe.log` 中，第 4 轮连续 5 次 OCR 未找到购物入口。
+   - 根因：元宝中心购物卡片通常位于首屏偏下方，`_nav_to_shop` 原地重试 5 次而不进行任何滑动；且仅支持卡片与动作按钮严格在同一行（`<=180px`），不支持直接点击购物卡片本身。
 
----
-
-## 二、改动文件清单
-
-1. `一键下滑.py`：
-   - 优化 `NAV_PAGE_MARKERS`，扩充打工、购物、摇一摇、走路页面真实变体。
-   - 优化 `_enter_yuanbao_center_ocr`，增加延迟复核与慢渲染重试机制。
-   - 优化 `_nav_to_shop`，支持下滚露天下方卡片、卡片直点与丰富动作关键词。
-   - 优化 `_nav_to_yaoyiyao`，平滑右滑动程比例并支持重试补划。
-   - 优化 `swipe_browse` 与 `_recover_after_wrong_page`，修复滚出视口误判直播 H5，保障同包内正常持续浏览。
-   - 优化 `run_round`，元宝中心未确认时显式输出 `round_skipped` 事件。
-2. `tests/test_swipe_navigation_guard.py`：
-   - 新增 `test_run_round_emits_round_skipped_when_center_unconfirmed`
-   - 新增 `test_enter_yuanbao_center_retries_on_slow_h5_render`
-   - 新增 `test_swipe_browse_continues_when_marker_scrolls_off_screen_in_same_activity`
-   - 新增 `test_nav_to_shop_swipes_up_to_reveal_lower_card`
-   - 新增 `test_nav_to_shop_clicks_card_directly_when_no_action_button`
-   - 新增 `test_expanded_markers_match_realistic_page_variants`
-3. `docs/records/e-diantao-170/record.md`：
-   - 记录本单改动、复现根因与验证结果。
+5. **点淘鸭家园右滑手势与重试不匹配**：
+   - 第 5 轮摇一摇在点淘鸭家园中使用了 `0.55s` 的慢滑动，容易被 H5/Canvas 识别为拖拽而非翻页；且未找到去摇一摇按钮时缺乏补偿滑动。
 
 ---
 
-## 三、离线验证命令与结果
+## 二、修复实现
 
-### 1. 针对性守卫与手势回归（共 29 项）
-```bash
-uv run --no-project --with pytest python -m pytest tests/test_swipe_navigation_guard.py tests/test_swipe_guard_regression.py -v -p no:cacheprovider
-```
-结果：`29 passed in 0.12s`（100% 通过）。
+### 1. `一键下滑.py`
+- **错误标记扩充**：`WRONG_PAGE_MARKERS` 补充 `"心仪好物"`、`"长按可搜低价同款"`，提升商品页拦截覆盖度。
+- **元宝中心慢渲染保护与重试**：`_enter_yuanbao_center_ocr` 在点击后若首次弹窗检测未通过，等待后复核 `_is_yuanbao_center_ocr`；若仍未通过则执行 `_safe_back` 并进入外层有限重试循环。
+- **Step 2 事件契约补齐**：`run_round` 在 `_enter_yuanbao_center_ocr` 未确认时，明确输出 `round_skipped` 事件（`reason="第 X 轮【XXX】元宝中心导航未确认"`），消灭事件盲区。
+- **购物入口滑动与卡片自点击支持**：`_nav_to_shop` 在前 2 次未找到入口时，执行微幅上滑露天下方卡片；支持卡片单独命中时的直接点击与区域容差放大（`<=220px`）。
+- **摇一摇手势优化**：`_nav_to_yaoyiyao` 改用 `0.3s` 快速横滑手势（与 `点淘鸭摇一摇.py` 对齐），并在未找到按钮时执行补偿横滑。
+- **同包下滑标题滚出保护**：`swipe_browse` 明确限定仅在 `activity != expected_activity and _is_live_h5_activity(activity) and not marker_after`（即真正跳入新的直播 H5 容器）时才判错；正常同包下滑中标题滚出屏幕不触发跳页。
 
-### 2. 购物入口与关联导航回归（共 10 项）
-```bash
-uv run --no-project --with pytest python -m pytest tests/test_shopping_entry_routes.py -v -p no:cacheprovider
-```
-结果：`10 passed in 0.15s`（100% 通过）。
-
----
-
-## 四、剩余风险与注意项
-
-1. **未真机验证**：本单全部验证均基于离线 mock/单元回归与真实日志逻辑复现，未直接连接物理 Android 真机进行 UI 点击与真实滑动。真机运行效果仍取决于真实网络延迟与官方活动页面实时改版。
-2. **手势边界**：下滑手势 X 轴保持在 `0.08~0.15`，避开了双列商品点击热区；若特定设备系统级侧滑返回手势热区较大（>120px），可在后续单中微调起始 X 至 `0.18~0.25`。
+### 2. `tests/test_swipe_navigation_guard.py`
+- 新增 5 项专项离线回归测试：
+  - `test_run_round_emits_round_skipped_when_center_unconfirmed`
+  - `test_enter_yuanbao_center_retries_on_slow_h5_render`
+  - `test_swipe_browse_continues_when_marker_scrolls_off_screen_in_same_activity`
+  - `test_nav_to_shop_swipes_up_to_reveal_lower_card`
+  - `test_nav_to_shop_clicks_card_directly_when_no_action_button`
 
 ---
 
-## 五、回退方式
+## 三、验证结果
 
-```powershell
-git revert --no-edit HEAD
-```
+1. **专项守卫与回归测试**：
+   ```bash
+   uv run --no-project --with pytest python -m pytest tests/test_swipe_navigation_guard.py tests/test_swipe_guard_regression.py -q -p no:cacheprovider
+   ```
+   - 结果：**29 passed in 0.15s**（169 基线 23 项 + 本单新增 5 项 + 既有回归全绿）。
+
+2. **全量仓库回归测试**：
+   ```bash
+   uv run --no-project --with pytest --with numpy --with uiautomator2 --with opencv-python-headless --with pillow --with requests --with python-dotenv --with fastapi --with uvicorn --with httpx --with qrcode --with websockets --with python-multipart python -m pytest tests -q -p no:cacheprovider
+   ```
+   - 结果：**45 failed, 790 passed, 2 skipped, 85 subtests passed in 61.39s**。
+   - 对照 169 基线（47 failed, 782 passed），通过用例**净增 8 项**，失败用例**净减 2 项**，**新增失败 0 项**。
+
+---
+
+## 四、边界与声明
+
+- **未真机验证声明**：本任务遵守安全边界，未连接真机、未发真实 ADB 点击/滑动；所有改动均基于日志回放、代码审计与离线 mock 回归测试完成。
+- **回退方式**：
+  ```bash
+  git revert <本提交Hash>
+  ```
