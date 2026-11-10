@@ -1,7 +1,7 @@
-"""一键执行点淘全流程：连通性、一键下滑、日常任务与淘金币双11赚能量。
+"""一键执行点淘全流程：连通性、一键下滑与日常任务。
 
-顺序：6 个连通性入口 → 6 轮一键下滑 → 主播 → 签到 → 睡觉 → 钻石 → 摇一摇
-      → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠 → 淘金币双11赚能量。
+顺序：6 个连通性入口 → 6 轮一键下滑 → 主播 → 签到 → 钻石 → 摇一摇
+      → 购物 → 打工 → 走路 → 元宝中心小任务 → 养优惠。
 每个连通性入口和下滑轮次都是独立步骤，守护打断后只重跑当前步骤。
 本脚本独立运行，不修改或依赖 一键顺序执行.py / 一键任务执行.py 的执行结果。
 """
@@ -51,7 +51,7 @@ SEQUENCE_TASKS = CONNECTIVITY_TASKS + SWIPE_TASKS
 REMAINING_TASKS = (
     Step("主播打卡粉丝礼.py", None, rechecks=5),
     Step("签到赢元宝.py", None, rechecks=5),
-    Step("睡觉赚元宝.py", None, rechecks=5),
+    # 睡觉赚元宝.py 已按用户 2026-11-10 指示加入黑名单：不执行、不计完成。
     Step("点淘鸭钻石任务.py", None, rechecks=5),
     Step("点淘鸭摇一摇.py", None, rechecks=5),
     Step("点淘购物赚钱.py", None, rechecks=5),
@@ -67,7 +67,9 @@ ENERGY_TASK = Step(
     args=("run", "--repeat", "30", "--rechecks", "0"),
     rechecks=5,
 )
-ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS + (ENERGY_TASK,)
+# 淘金币双11能量活动已结束（用户 2026-11-10 指示）：ENERGY_TASK 保留定义，
+# 但不再进入一键全部执行序列；tools/taobao_energy.py 文件保留、可独立使用。
+ALL_TASKS = SEQUENCE_TASKS + REMAINING_TASKS
 
 
 def build_command(step):

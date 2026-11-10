@@ -1,5 +1,6 @@
 """Explicit dashboard entries; importing the catalog never connects to a phone."""
 from task_catalog import TASK_FILES
+from task_exclusions import is_blocked_task_file
 from 一键全部执行 import ALL_TASKS
 
 
@@ -21,16 +22,6 @@ TASKS = {
     "diantao-one-click-tasks": entry(
         "点淘一键任务执行", "一键任务执行.py", "按原顺序执行十项日常任务，各最多复核五轮。",
     ),
-    "taobao-double11-energy": entry(
-        "淘金币双11能量", "tools/taobao_energy.py",
-        "其他能量任务 → 支付宝；沿用任务排除项和返回复查规则。",
-        args=("run", "--repeat", "30"),
-    ),
-    "taobao-double11-workbuddy": entry(
-        "淘金币双11能量 · WorkBuddy", "tools/taobao_energy.py",
-        "使用本机 WorkBuddy 识别截图 JSON，沿用赚能量任务逻辑；需已登录 WorkBuddy。",
-        args=("run", "--repeat", "30", "--vision", "workbuddy"), requires_ocr=False,
-    ),
 }
 
 # Explicit mapping keeps debug and calibration scripts out of the dashboard.
@@ -47,13 +38,15 @@ SCRIPT_IDS = {
     "点淘鸭摇一摇.py": "diantao-duck-shake",
     "摇一摇.py": "diantao-shake",
     "点淘鸭钻石任务.py": "diantao-duck-diamond",
-    "睡觉赚元宝.py": "diantao-sleep",
+    # 睡觉赚元宝.py 已按用户 2026-11-10 指示加入黑名单：不执行、不计完成。
     "签到赢元宝.py": "diantao-signin",
     "走路赚元宝.py": "diantao-walk",
     "赚钱卡.py": "diantao-money-card",
     "养优惠.py": "diantao-coupon",
 }
 for filename in sorted(TASK_FILES & SCRIPT_IDS.keys()):
+    if is_blocked_task_file(filename):
+        continue
     name = filename.replace("\\", "/").rsplit("/", 1)[-1].removesuffix(".py")
     TASKS[SCRIPT_IDS[filename]] = entry(
         "点淘养优惠" if filename == "养优惠.py" else name,
@@ -79,7 +72,7 @@ _pinned_ids = (
     "diantao-all-in-one",
     "diantao-one-click",
     "diantao-one-click-tasks",
-    "taobao-double11-energy",
+    # 淘金币双11能量活动已结束（用户 2026-11-10 指示），不再保留一键入口。
     "diantao-work-speed",
     "diantao-shake",
     "diantao-walk-sphere",

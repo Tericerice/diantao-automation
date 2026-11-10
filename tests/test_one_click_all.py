@@ -14,7 +14,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-def test_all_tasks_cover_sequence_daily_tasks_and_energy():
+def test_all_tasks_exclude_blacklisted_sleep_and_finished_energy():
     expected_sequence = (
         [("连通性脚本.py", ("--entry-index", str(index))) for index in range(1, 7)]
         + [("一键下滑.py", ("--round", str(index))) for index in range(1, 7)]
@@ -23,16 +23,18 @@ def test_all_tasks_cover_sequence_daily_tasks_and_energy():
     assert [step.filename for step in module.ALL_TASKS] == (
         ["连通性脚本.py"] * 6 + ["一键下滑.py"] * 6
         + [
-            "主播打卡粉丝礼.py", "签到赢元宝.py", "睡觉赚元宝.py",
+            "主播打卡粉丝礼.py", "签到赢元宝.py",
             "点淘鸭钻石任务.py", "点淘鸭摇一摇.py", "点淘购物赚钱.py",
             "打工得体力.py", "走路赚元宝.py", "元宝中心小任务.py", "养优惠.py",
-            "tools/taobao_energy.py",
         ]
     )
     assert all(step.rechecks == 0 for step in module.SEQUENCE_TASKS)
     assert all(step.rechecks == 5 for step in module.REMAINING_TASKS)
+    assert "睡觉赚元宝.py" not in [step.filename for step in module.ALL_TASKS]
+    assert module.ENERGY_TASK.filename == module.ENERGY_SCRIPT
     assert module.ENERGY_TASK.rechecks == 5
     assert module.ENERGY_TASK.args == ("run", "--repeat", "30", "--rechecks", "0")
+    assert module.ENERGY_TASK not in module.ALL_TASKS
 
 
 def test_all_tasks_exist_on_disk():
@@ -65,7 +67,7 @@ def test_plain_command_uses_current_interpreter():
     assert command[3:] == ["--entry-index", "1"]
 
 
-def test_full_run_finishes_with_energy(monkeypatch):
+def test_full_run_finishes_with_coupon_and_never_runs_energy(monkeypatch):
     calls = []
 
     def fake_run(filepath, **kwargs):
@@ -75,7 +77,8 @@ def test_full_run_finishes_with_energy(monkeypatch):
 
     monkeypatch.setattr(module, "run_script", fake_run)
     assert module.execute() == 0
-    assert calls[-1] == "taobao_energy.py"
+    assert calls[-1] == "养优惠.py"
+    assert "taobao_energy.py" not in calls
     assert set(calls) == {Path(step.filename).name for step in module.ALL_TASKS}
 
 

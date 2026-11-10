@@ -82,7 +82,7 @@ def load_task_config():
         log(f"读取配置失败: {e}", "fail")
         return []
 
-    # 只取勾选的任务
+    # 只取勾选的任务；task_catalog.is_task_file 统一拒绝任务级黑名单。
     checked = [t for t in all_tasks if t.get("checked", False) and is_task_file(t.get("file", ""))]
     if not checked:
         log("没有勾选的任务，请先在 任务选择器.py 中勾选并保存", "warn")

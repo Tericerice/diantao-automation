@@ -565,7 +565,7 @@ class WalkTasksTest(unittest.TestCase):
             result = runner.execute(tasks=runner.REMAINING_TASKS)
         self.assertNotIn("走路赚元宝.py", calls)
         self.assertEqual(calls, [
-            "主播打卡粉丝礼.py", "签到赢元宝.py", "睡觉赚元宝.py",
+            "主播打卡粉丝礼.py", "签到赢元宝.py",
             "点淘鸭钻石任务.py", "点淘鸭摇一摇.py", "点淘购物赚钱.py",
             "打工得体力.py", "元宝中心小任务.py", "养优惠.py",
         ])
@@ -581,7 +581,7 @@ class WalkTasksTest(unittest.TestCase):
             result = runner.execute(tasks=runner.ALL_TASKS)
         self.assertNotIn("走路赚元宝.py", calls)
         self.assertIn("元宝中心小任务.py", calls)
-        self.assertIn("taobao_energy.py", calls)
+        self.assertNotIn("taobao_energy.py", calls)
         self.assertEqual(result, 1)
 
     def test_scheduler_stops_walk_rechecks_when_cap_is_reached_midround(self):

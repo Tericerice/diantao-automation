@@ -1,4 +1,5 @@
 """允许进入批量调度的业务脚本；工具、校准脚本不参与自动发现。"""
+from task_exclusions import is_blocked_task_file
 
 TASK_FILES = frozenset({
     "618花花乐.py", "diantao_1024_auto.py", "一键下滑.py", "一键下滑_新.py",
@@ -11,4 +12,6 @@ TASK_FILES = frozenset({
 
 
 def is_task_file(filename: str) -> bool:
-    return filename.replace("\\", "/") in TASK_FILES
+    # 用户 2026-11-10 指示：睡觉赚元宝加入黑名单，绕过 checked 的发现路径也拒绝调度。
+    return (filename.replace("\\", "/") in TASK_FILES
+            and not is_blocked_task_file(filename))
