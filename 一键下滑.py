@@ -41,12 +41,12 @@ DUCK_OPEN_WAIT_SECONDS = 7
 PAGE_VALIDATION_ATTEMPTS = 4
 PAGE_VALIDATION_RETRY_DELAY_SECONDS = 1.5
 NAV_PAGE_MARKERS = {
-    "打工赚元宝": ("打工赚元宝", "做任务赚元宝", "每日开店赚元宝"),
+    "打工赚元宝": ("打工赚元宝", "做任务赚元宝", "每日开店赚元宝", "打工", "得体力", "开店"),
     "睡觉赚元宝": ("睡觉赚元宝", "睡觉", "做任务赚元宝"),
     "签到赢元宝": ("签到赢元宝", "今日签到", "每日前进赚元宝", "做任务赚元宝"),
-    "购物赚钱": ("精选推荐", "做任务领元宝", "快速领", "购物赚钱", "精选宝"),
-    "摇一摇": ("摇一摇", "去摇一摇", "摇一摇PK赚元宝"),
-    "走路赚元宝": ("走路赚元宝", "做任务赚步数"),
+    "购物赚钱": ("精选推荐", "做任务领元宝", "快速领", "购物赚钱", "精选宝", "购物", "精选宝贝", "下单返元宝"),
+    "摇一摇": ("摇一摇", "去摇一摇", "摇一摇PK赚元宝", "摇一摇PK", "赚次数", "点淘鸭"),
+    "走路赚元宝": ("走路赚元宝", "做任务赚步数", "走路"),
 }
 
 # 避开 Android 底部手势区（0.80~1.00）和顶端状态栏；拖动手势用更长
@@ -65,6 +65,7 @@ SWIPE_X_MAX_RATIO = 0.15
 BROWSE_SWIPE_DURATION_SECONDS = 0.9
 WRONG_PAGE_MARKERS = (
     "同款好物", "同款低价", "搜索其他心仪好物", "全部同款", "低价同款",
+    "心仪好物", "长按可搜低价同款",
 )
 
 # Trail e-diantao-169：导航校验失败的有界重试与错误页恢复上限。
@@ -271,7 +272,7 @@ def _is_yuanbao_center_ocr(device):
 
 
 def _enter_yuanbao_center_ocr(device):
-    """等待首页稳定后，用 OCR 查找并点击元宝中心。"""
+    """等待首页稳定后，用 OCR 查找并点击元宝中心，支持慢渲染复核与有界重试。"""
     print(
         f"  ⏳ 等待首页稳定 {CENTER_OCR_PRE_SCAN_DELAY_SECONDS}s，"
         "再用 OCR 查找元宝中心..."
@@ -279,6 +280,10 @@ def _enter_yuanbao_center_ocr(device):
     time.sleep(CENTER_OCR_PRE_SCAN_DELAY_SECONDS)
 
     for scan_index in range(1, CENTER_OCR_SCAN_ATTEMPTS + 1):
+        if _is_yuanbao_center_ocr(device):
+            print("  ✅ 检查确认当前已在元宝中心")
+            return handle_yuanbao_live_popups(device)
+
         try:
             blocks = get_ocr_text_blocks(device)
         except Exception as exc:
@@ -294,7 +299,19 @@ def _enter_yuanbao_center_ocr(device):
             print(f"  🎯 OCR 点击【元宝中心】@({target_x},{target_y})")
             device.click(target_x, target_y)
             time.sleep(CENTER_OCR_CLICK_WAIT_SECONDS)
-            return handle_yuanbao_live_popups(device)
+            if handle_yuanbao_live_popups(device):
+                return True
+            # H5 缓慢渲染保护：若首次未扫到元宝中心标记，等待后复核一次
+            time.sleep(CENTER_OCR_RETRY_DELAY_SECONDS)
+            if _is_yuanbao_center_ocr(device):
+                print("  ✅ 延迟复核确认已进入元宝中心")
+                return True
+            print(
+                f"  ⚠️ 点击后未确认进入元宝中心（第 {scan_index}/{CENTER_OCR_SCAN_ATTEMPTS} 次）"
+            )
+            _safe_back(device)
+            time.sleep(1.5)
+            continue
 
         print(
             f"  ⚠️ OCR 未找到【元宝中心】（第 "
@@ -406,7 +423,7 @@ def _nav_to_signin(device):
 
 
 def _nav_to_shop(device):
-    """OCR 定位购物入口并校验落地页，替代会命中广告的固定坐标。"""
+    """OCR 定位购物入口并校验落地页，支持向下上滑露天卡片，替代会命中广告的固定坐标。"""
     print("  🔍 OCR 查找购物入口...")
 
     def click_shop(dev):
@@ -421,8 +438,8 @@ def _nav_to_shop(device):
             # 历史/回退文案：购物赚钱、做任务领元宝。优先匹配入口文本，
             # 并只点击与入口同一行的动作按钮，绝不点击固定坐标。
             entry = _find_ocr_block(
-                blocks, ("购物赚钱", "查看3个精选", "精选宝", "做任务领元宝"))
-            action = _find_ocr_block(blocks, ("去完成", "去逛逛", "去购物"))
+                blocks, ("购物赚钱", "查看3个精选", "精选宝", "精选宝贝", "做任务领元宝", "下单返元宝"))
+            action = _find_ocr_block(blocks, ("去完成", "去逛逛", "去购物", "去浏览", "去查看"))
             if entry and action:
                 try:
                     ex, ey = int(entry["cx"]), int(entry["cy"])
@@ -430,7 +447,7 @@ def _nav_to_shop(device):
                 except (KeyError, TypeError, ValueError):
                     print("  ⚠️ 购物入口 OCR 坐标无效，跳过本轮")
                     return False
-                if abs(ay - ey) > 180:
+                if abs(ay - ey) > 220:
                     print("  ⚠️ 购物入口与动作按钮不在同一区域，跳过本轮")
                     return False
                 print(f"  🎯 OCR 购物入口【{entry.get('text', '')}】@({ex},{ey})")
@@ -438,9 +455,24 @@ def _nav_to_shop(device):
                 dev.click(ax, ay)
                 time.sleep(OCR_CLICK_WAIT_SECONDS)
                 return True
+            elif entry and not action:
+                try:
+                    ex, ey = int(entry["cx"]), int(entry["cy"])
+                    print(f"  🎯 OCR 点击购物入口卡片【{entry.get('text', '')}】@({ex},{ey})")
+                    dev.click(ex, ey)
+                    time.sleep(OCR_CLICK_WAIT_SECONDS)
+                    return True
+                except (KeyError, TypeError, ValueError):
+                    pass
 
             print(f"  ⚠️ OCR 未找到购物入口（第 {attempt}/{OCR_SCAN_ATTEMPTS} 次）")
             if attempt < OCR_SCAN_ATTEMPTS:
+                # 若前 2 次扫描未发现购物入口，微幅上滑露天下方卡片（参考签到逻辑）
+                if attempt >= 2:
+                    print("  📜 上滑露出更多任务卡片...")
+                    dev.swipe(screen_width // 2, int(screen_height * 0.70),
+                              screen_width // 2, int(screen_height * 0.40),
+                              duration=SWIPE_DURATION_SECONDS)
                 time.sleep(OCR_RETRY_DELAY_SECONDS)
         print("  ⚠️ 未能通过 OCR 进入购物赚钱")
         return False
@@ -477,10 +509,10 @@ def _nav_to_yaoyiyao(device):
         # Step 2: 右滑2次找摇一摇入口
         for i in range(2):
             print(f"  👉 第 {i+1} 次右滑找摇一摇...")
-            dev.swipe(int(screen_width * 0.2), int(screen_height * 0.5),
-                      int(screen_width * 0.8), int(screen_height * 0.5),
-                      duration=SWIPE_DURATION_SECONDS)
-            time.sleep(2)
+            dev.swipe(int(screen_width * 0.15), int(screen_height * 0.5),
+                      int(screen_width * 0.85), int(screen_height * 0.5),
+                      duration=0.3)
+            time.sleep(1.5)
 
         for attempt in range(1, 6):
             blocks = _ocr_blocks(dev, "摇一摇")
@@ -496,6 +528,10 @@ def _nav_to_yaoyiyao(device):
 
             print(f"  ⚠️ OCR 未找到【去摇一摇】（第 {attempt}/5 次）")
             if attempt < 5:
+                # 补划一次右滑尝试露出按钮
+                dev.swipe(int(screen_width * 0.15), int(screen_height * 0.5),
+                          int(screen_width * 0.85), int(screen_height * 0.5),
+                          duration=0.3)
                 time.sleep(OCR_RETRY_DELAY_SECONDS)
 
         print("  ⚠️ 未能进入摇一摇页面")
@@ -576,6 +612,9 @@ def _recover_after_wrong_page(device, expected_markers,
         if expected_markers and _find_ocr_block(blocks, expected_markers):
             print("  ✅ 已回到任务页，继续剩余下滑")
             return True
+        if not _is_live_h5_activity(activity):
+            print(f"  ✅ 已离开直播 H5 容器（当前：{activity!r}），继续剩余下滑")
+            return True
         print(
             f"  ⚠️ 回退后未确认任务标记（第 {attempt}/{max_attempts} 次，"
             f"Activity={activity!r}）")
@@ -639,7 +678,14 @@ def swipe_browse(seconds, expected_markers=None):
         blocks = _ocr_blocks(d, "下滑后")
         wrong_after = _wrong_page_in_blocks(blocks)
         marker_after = _find_ocr_block(blocks, expected_markers) if expected_markers else None
-        if wrong_after or (_is_live_h5_activity(activity) and not marker_after):
+        # 仅当命中错误商品页标记，或切到了新的直播 H5 Activity 且失去任务 marker 时才判错；
+        # 正常同包连续下滑中标题自然滚出屏幕不属于跳页。
+        activity_jumped_to_live_h5 = (
+            activity != expected_activity
+            and _is_live_h5_activity(activity)
+            and not marker_after
+        )
+        if wrong_after or activity_jumped_to_live_h5:
             reason = ("误入「同款好物」商品页" if wrong_after
                       else "滑入直播 H5 容器且任务标记消失")
             print(f"  ⚠️ 下滑后{reason}，尝试回退任务页")
@@ -651,7 +697,7 @@ def swipe_browse(seconds, expected_markers=None):
             expected_package, expected_activity = _read_current_app(d, "恢复后")
             continue
         if activity != expected_activity:
-            print(f"  ↪️ 同包页面切换：{activity!r}（任务标记仍在，继续下滑）")
+            print(f"  ↪️ 同包页面切换：{activity!r}（继续下滑）")
         expected_activity = activity
 
     print(f"  ✅ 浏览完成 ({count}次下滑)")
@@ -675,7 +721,10 @@ def run_round(label, name, swipe_seconds, nav_func):
 
     # Step 2: 进入元宝中心
     if not _enter_yuanbao_center_ocr(d):
-        print("  ⚠️ 元宝中心导航或活动弹窗未完成，停止本轮")
+        reason = f"第 {label} 轮【{name}】元宝中心导航未确认"
+        print(f"  ⚠️ {reason}，跳过本轮")
+        print(json.dumps({"event": "round_skipped", "round": label,
+                          "name": name, "reason": reason}, ensure_ascii=False), flush=True)
         return False
 
     # Step 3: 使用该轮次自己的导航函数进入目标页面

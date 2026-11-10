@@ -295,3 +295,117 @@ def test_ocr_click_target_logs_evidence(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "点击证据" in out
     assert "去完成" in out
+
+
+def test_run_round_emits_round_skipped_when_center_unconfirmed(monkeypatch, capsys):
+    """元宝中心导航未确认时必须输出 round_skipped 事件，不能静默返回 False。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_enter_yuanbao_center_ocr", lambda device: False)
+    monkeypatch.setattr(module.d, "app_start", lambda *a, **kw: None)
+    assert module.run_round(2, "睡觉赚元宝", 1, lambda device: True) is False
+    out = capsys.readouterr().out
+    assert '"event": "round_skipped"' in out
+    assert "元宝中心导航未确认" in out
+    assert '"event": "round_failed"' not in out
+
+
+def test_enter_yuanbao_center_retries_on_slow_h5_render(monkeypatch, capsys):
+    """点击元宝中心后若 H5 首帧渲染缓慢，延迟复核确认元宝中心后能成功进入。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "get_ocr_text_blocks",
+                        lambda device: [block("元宝中心", 1140, 1222)])
+    monkeypatch.setattr(module, "handle_yuanbao_live_popups", lambda device: False)
+    clicks = []
+
+    def fake_click(x, y):
+        clicks.append((x, y))
+
+    monkeypatch.setattr(module.d, "click", fake_click)
+    # 点击前在首页（False），点击后进入元宝中心（True）
+    monkeypatch.setattr(module, "_is_yuanbao_center_ocr",
+                        lambda device: len(clicks) > 0)
+    assert module._enter_yuanbao_center_ocr(module.d) is True
+    assert (1140, 1222) in clicks
+    assert "延迟复核确认已进入元宝中心" in capsys.readouterr().out
+
+
+def test_swipe_browse_continues_when_marker_scrolls_off_screen_in_same_activity(monkeypatch, capsys):
+    """同包连续下滑中标题自然滚出屏幕（无 marker、无错误商品页）必须正常继续浏览，不得误杀。"""
+    module = load_swipe_module(monkeypatch)
+    fake_clock(monkeypatch, module)
+    monkeypatch.setattr(module, "get_current_app",
+                        lambda device: (DT_APP, "com.taobao.live.h5.BrowserActivity"))
+    texts = iter([
+        "打工赚元宝",
+        "做任务领体力",
+    ])
+    monkeypatch.setattr(module, "get_ocr_text_blocks",
+                        lambda device: [block(next(texts))])
+    swipes = []
+    backs = []
+    monkeypatch.setattr(module.d, "swipe", lambda *a, **kw: swipes.append((a, kw)))
+    monkeypatch.setattr(module.d, "press", lambda *a, **kw: backs.append(a))
+    assert module.swipe_browse(0.01, ("打工赚元宝",)) is True
+    assert len(swipes) == 1
+    assert backs == []
+    out = capsys.readouterr().out
+    assert "滑入直播 H5 容器" not in out
+    assert "误入「同款好物」" not in out
+
+
+def test_nav_to_shop_swipes_up_to_reveal_lower_card(monkeypatch, capsys):
+    """购物入口在屏幕下方时，未定位到前 2 次后微幅上滑露天下方卡片。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_expected_page_reached", lambda *a, **kw: True)
+    attempts = {"n": 0}
+
+    def ocr_feed(dev):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            return [block("我的元宝", 200, 200)]
+        return [block("购物赚钱", 400, 1200), block("去完成", 1000, 1210)]
+
+    monkeypatch.setattr(module, "get_ocr_text_blocks", ocr_feed)
+    swipes = []
+    clicks = []
+    monkeypatch.setattr(module.d, "swipe", lambda *a, **kw: swipes.append((a, kw)))
+    monkeypatch.setattr(module.d, "click", lambda x, y: clicks.append((x, y)))
+    assert module._nav_to_shop(module.d) is True
+    assert len(swipes) >= 1
+    assert (1000, 1210) in clicks
+
+
+def test_nav_to_shop_clicks_card_directly_when_no_action_button(monkeypatch, capsys):
+    """当购物卡片无独立动作按钮时，直接点击卡片入口本身进入。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_expected_page_reached", lambda *a, **kw: True)
+    monkeypatch.setattr(module, "get_ocr_text_blocks",
+                        lambda dev: [block("购物赚钱", 500, 1500)])
+    clicks = []
+    monkeypatch.setattr(module.d, "click", lambda x, y: clicks.append((x, y)))
+    assert module._nav_to_shop(module.d) is True
+    assert (500, 1500) in clicks
+    assert "OCR 点击购物入口卡片" in capsys.readouterr().out
+
+
+def test_expanded_markers_match_realistic_page_variants(monkeypatch, capsys):
+    """测试扩充后的任务标记能成功识别真机实际展示的变体文案。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "get_current_app",
+                        lambda device: (DT_APP, "BrowserActivity"))
+
+    # 打工页识别“得体力”
+    monkeypatch.setattr(module, "get_ocr_text_blocks",
+                        lambda device: [block("得体力", 100, 100)])
+    assert module._expected_page_reached(None, module.NAV_PAGE_MARKERS["打工赚元宝"], attempts=1) is True
+
+    # 摇一摇识别“摇一摇PK”
+    monkeypatch.setattr(module, "get_ocr_text_blocks",
+                        lambda device: [block("摇一摇PK", 100, 100)])
+    assert module._expected_page_reached(None, module.NAV_PAGE_MARKERS["摇一摇"], attempts=1) is True
+
