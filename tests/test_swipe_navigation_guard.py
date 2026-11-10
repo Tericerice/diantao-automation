@@ -12,6 +12,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SWIPE = ROOT / "一键下滑.py"
 DT_APP = "com.taobao.live"
@@ -235,6 +237,45 @@ def test_swipe_uses_left_safe_band_and_long_duration(monkeypatch, capsys):
     assert args[2] == args[0]
     assert kwargs["duration"] >= 0.8
     assert "round_failed" not in capsys.readouterr().out
+
+
+def test_run_round_emits_round_skipped_when_navigation_unconfirmed(monkeypatch, capsys):
+    """导航未确认时必须输出 round_skipped，且不得调用下滑。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_enter_yuanbao_center_ocr", lambda device: True)
+    monkeypatch.setattr(module.d, "app_start", lambda *a, **kw: None)
+    monkeypatch.setattr(module, "swipe_browse",
+                        lambda *a, **kw: pytest.fail("未确认页面不得开始下滑"))
+    assert module.run_round(1, "打工赚元宝", 1, lambda device: False) is False
+    out = capsys.readouterr().out
+    assert '"event": "round_skipped"' in out
+    assert "导航未确认" in out
+    assert '"event": "round_failed"' not in out
+
+
+def test_run_round_emits_round_failed_only_on_real_swipe_failure(monkeypatch, capsys):
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_enter_yuanbao_center_ocr", lambda device: True)
+    monkeypatch.setattr(module.d, "app_start", lambda *a, **kw: None)
+    monkeypatch.setattr(module, "swipe_browse", lambda *a, **kw: False)
+    assert module.run_round(1, "打工赚元宝", 1, lambda device: True) is False
+    out = capsys.readouterr().out
+    assert '"event": "round_failed"' in out
+    assert "下滑未完成" in out
+
+
+def test_run_round_emits_no_failure_event_on_normal_browse(monkeypatch, capsys):
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module, "_enter_yuanbao_center_ocr", lambda device: True)
+    monkeypatch.setattr(module.d, "app_start", lambda *a, **kw: None)
+    monkeypatch.setattr(module, "swipe_browse", lambda *a, **kw: True)
+    assert module.run_round(1, "打工赚元宝", 1, lambda device: True) is True
+    out = capsys.readouterr().out
+    assert "round_failed" not in out
+    assert "round_skipped" not in out
 
 
 def test_ocr_click_target_logs_evidence(monkeypatch, capsys):
