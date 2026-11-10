@@ -6,6 +6,7 @@
    任务名    @(224, y)    去完成 @(900, y)
 """
 from task_exclusions import is_blocked_boutique_task
+from task_skip import note_blocked_task, normalized_task_name
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -61,8 +62,8 @@ def navigate():
 
 
 def is_blacklisted(text):
-    """检查任务名是否在黑名单中"""
-    if not text:
+    """检查任务名是否在黑名单中（含统一的三件商品任务）"""
+    if not text or is_blocked_boutique_task(text):
         return True
     if "猜" in text and "猜价格" not in text and "猜价格游戏" not in text:
         return True
@@ -191,9 +192,8 @@ def scan_extra_area_tasks(blocks):
 
 
 def execute_task(task_name, btn_cx, btn_cy):
-    """执行单个任务"""
-    if is_blocked_boutique_task(task_name):
-        print('  ⊘ 已屏蔽精选宝贝任务，跳过')
+    """执行单个任务；只有实际完成才返回 True"""
+    if note_blocked_task(task_name):
         return False
 
     print(f"  🎯 执行: 【{task_name}】")
@@ -203,7 +203,7 @@ def execute_task(task_name, btn_cx, btn_cy):
         print("    类型: 猜价格游戏")
         d.click(btn_cx, btn_cy)
         time.sleep(3)
-        handle_guess_price_game(d)
+        completed = bool(handle_guess_price_game(d))
         # 游戏结束返回任务列表
         d.press("back")
         time.sleep(2)
@@ -213,31 +213,35 @@ def execute_task(task_name, btn_cx, btn_cy):
         print(f"    类型: 浏览任务 ({duration}秒)")
         d.click(btn_cx, btn_cy)
         time.sleep(0.5)
-        execute_browse_task(d, duration)
-        # 浏览完成后返回
-        d.press("back")
-        time.sleep(2)
+        try:
+            completed = bool(execute_browse_task(d, duration))
+        finally:
+            # 浏览完成后返回
+            d.press("back")
+            time.sleep(2)
 
     elif task_type == "live":
         dur = parse_seconds(task_name, default=60)
         print(f"    类型: 直播观看 ({dur}秒)")
         d.click(btn_cx, btn_cy)
         time.sleep(0.5)
-        execute_live_task(d, task_name, btn_cx, btn_cy)
-        # 返回任务列表
-        d.press("back")
-        time.sleep(2)
+        try:
+            completed = bool(execute_live_task(d, task_name, btn_cx, btn_cy))
+        finally:
+            # 返回任务列表
+            d.press("back")
+            time.sleep(2)
 
     elif task_type == "video":
         duration = parse_seconds(task_name, default=60)
         print(f"    类型: 视频任务 ({duration}秒)")
         d.click(btn_cx, btn_cy)
         time.sleep(0.5)
-        execute_video_task(
+        completed = bool(execute_video_task(
             d, task_name, btn_cx, btn_cy,
             duration=duration,
             verify_media_page=True,
-        )
+        ))
 
     else:
         print(f"    类型: 其他（等待20秒）")
@@ -246,8 +250,11 @@ def execute_task(task_name, btn_cx, btn_cy):
         time.sleep(20)
         d.press("back")
         time.sleep(2)
+        completed = True
 
-    print(f"  ✅ 完成: 【{task_name}】")
+    if completed:
+        print(f"  ✅ 完成: 【{task_name}】")
+    return completed
 
 
 def scan_and_execute():
@@ -255,6 +262,9 @@ def scan_and_execute():
     total = 0
     prev_snap = []
     prev_empty = []
+    skipped_this_run = set()
+    attempts = {}
+    no_progress_rounds = 0
 
     print("\n🔍 扫描「额外任务」区域...")
     while True:
@@ -294,23 +304,32 @@ def scan_and_execute():
         # 执行任务（不再去重，有任务就做）
         task = None
         for name, cx, cy in pairs:
-            if not name:
+            if not name or note_blocked_task(name, skipped_this_run):
                 continue
-            if is_blacklisted(name):
-                print(f"  ⊘ 黑名单跳过: 【{name}】")
+            key = normalized_task_name(name)
+            if attempts.get(key, 0) >= 2:
                 continue
             task = (name, cx, cy)
+            attempts[key] = attempts.get(key, 0) + 1
             break
 
         if task:
             name, cx, cy = task
             report_task_found()
-            execute_task(name, cx, cy)
+            if not execute_task(name, cx, cy):
+                no_progress_rounds += 1
+                print("  本次未执行成功，继续扫描其他任务")
+                if no_progress_rounds >= 3:
+                    print("  仅剩黑名单/无可执行任务，结束")
+                    break
+                continue
+            no_progress_rounds = 0
             total += 1
             print(f"  📊 已完成 {total}/{MAX_TASKS}")
         else:
-            if recheck_enabled():
-                print("  当前屏无可执行任务，结束本轮并交由一键任务复核")
+            no_progress_rounds += 1
+            if recheck_enabled() or no_progress_rounds >= 3:
+                print("  仅剩黑名单/无可执行任务，结束")
                 break
             print("  当前屏无可执行任务，等待刷新...")
             time.sleep(2)

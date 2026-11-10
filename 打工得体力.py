@@ -4,6 +4,7 @@
 参照签到赢元宝.py 的整体逻辑和写法（OCR 扫描 + 循环执行）
 """
 from task_exclusions import is_blocked_boutique_task
+from task_skip import normalized_task_name
 import time
 import sys
 from task_recheck import report_task_found, report_round_finished
@@ -197,7 +198,7 @@ def detect_task_name(blocks, btn_block):
     return above[0][1] if above else ""
 
 
-def parse_tasks_from_blocks(blocks):
+def parse_tasks_from_blocks(blocks, skipped_this_run=None):
     """从 OCR 文本块中解析出所有可执行任务
     返回: [(task_type, task_name, btn_cx, btn_cy), ...]
           按执行顺序排序：猜价格 > 浏览 > 视频 > 直播；类型本身由映射表决定
@@ -212,9 +213,22 @@ def parse_tasks_from_blocks(blocks):
         if not task_name:
             task_name = text
 
+        # 屏蔽任务不进入候选队列；同屏其他任务继续参与选择。
+        if is_blocked_boutique_task(task_name):
+            key = normalized_task_name(task_name)
+            if skipped_this_run is None or key not in skipped_this_run:
+                print(f"    ⊘ 屏蔽任务: 【{task_name}】")
+                if skipped_this_run is not None:
+                    skipped_this_run.add(key)
+            continue
+
         # 黑名单过滤
         if any(kw in task_name for kw in BLACKLIST_KEYWORDS):
-            print(f"    ⊘ 黑名单跳过: 【{task_name}】")
+            key = normalized_task_name(task_name)
+            if skipped_this_run is None or key not in skipped_this_run:
+                print(f"    ⊘ 黑名单跳过: 【{task_name}】")
+                if skipped_this_run is not None:
+                    skipped_this_run.add(key)
             continue
 
         task_type = match_task_type(task_name)
@@ -228,19 +242,21 @@ def parse_tasks_from_blocks(blocks):
     return [(t[1], t[2], t[3], t[4]) for t in candidates]
 
 
-def exec_guess_price(btn_cx, btn_cy):
-    """执行猜价格任务（完成后需重新点得体力进入任务列表）"""
+def exec_guess_price(btn_cx, btn_cy, task_name=""):
+    """执行猜价格任务；返回是否确实完成（供主循环计数）"""
     print("  🎯 猜价格游戏")
     d.click(btn_cx, btn_cy)
     time.sleep(3)
-    handle_guess_price_game(d)
+    completed = bool(handle_guess_price_game(d))
     # 猜价格完成后需要重新点击"得体力"回到任务列表页
-    print("  🔄 猜价格完成，重新打开任务列表...")
-    click_detili()
+    if completed:
+        print("  🔄 猜价格完成，重新打开任务列表...")
+        click_detili()
+    return completed
 
 
 def exec_browse(btn_cx, btn_cy, task_name=""):
-    """执行浏览任务（使用OCR智能监控，避免多等extra_seconds）"""
+    """执行浏览任务；只有实际完成才返回 True"""
     if is_blocked_boutique_task(task_name):
         print('  ⊘ 已屏蔽精选宝贝任务，跳过')
         return False
@@ -250,30 +266,36 @@ def exec_browse(btn_cx, btn_cy, task_name=""):
         print("  🎯 查看精选宝贝（点击3个商品）")
         d.click(btn_cx, btn_cy)
         time.sleep(0.5)
-        click_three_selected_items(d)
+        completed = bool(click_three_selected_items(d))
         d.press("back")
         time.sleep(1.5)
-        return
+        return completed
 
     print("  🎯 精选推荐浏览")
     d.click(btn_cx, btn_cy)
     time.sleep(3)
 
     duration = parse_seconds(task_name, default=90)
-    execute_browse_task(d, min_duration=duration, max_wait=duration + 30)
-
-    d.press("back")
-    time.sleep(2)
+    try:
+        completed = bool(execute_browse_task(
+            d, min_duration=duration, max_wait=duration + 30,
+        ))
+    finally:
+        d.press("back")
+        time.sleep(2)
+    return completed
 
 
 def exec_live(btn_cx, btn_cy, task_name=""):
-    """执行看直播任务"""
+    """执行看直播任务；只有实际完成才返回 True"""
     print("  🎯 看直播")
     d.click(btn_cx, btn_cy)
     time.sleep(0.5)
-    execute_live_task(d, task_name, btn_cx, btn_cy)
-    d.press("back")
-    time.sleep(1.5)
+    try:
+        return bool(execute_live_task(d, task_name, btn_cx, btn_cy))
+    finally:
+        d.press("back")
+        time.sleep(1.5)
 
 
 def exec_video(btn_cx, btn_cy, task_name=""):
@@ -286,14 +308,14 @@ def exec_video(btn_cx, btn_cy, task_name=""):
         "下滑间隔 +1s）"
     )
     d.click(btn_cx, btn_cy)
-    execute_video_task(
+    return bool(execute_video_task(
         d, task_name, btn_cx, btn_cy,
         duration=duration,
         extra_swipes=extra_swipes,
         swipe_interval_extra_seconds=1,
         verify_media_page=True,
         initial_swipe=True,
-    )
+    ))
 
 
 def main():
@@ -317,6 +339,9 @@ def main():
     total_all = 0
     first_round = True
     ocr_empty_retries = 0
+    no_progress_rounds = 0
+    attempts = {}
+    skipped_this_run = set()
 
     while True:
         # 🔧 每次扫描前确保 u2 调试覆盖层已关闭
@@ -350,7 +375,7 @@ def main():
             print("  ⚠️ OCR 多次无结果，结束")
             break
 
-        task_list = parse_tasks_from_blocks(blocks)
+        task_list = parse_tasks_from_blocks(blocks, skipped_this_run)
         if not task_list:
             # 🐛 诊断：打印前 30 个 OCR 文本块 + 保存截图
             print(f"  🐛 诊断：OCR 返回 {len(blocks)} 个文本块，但未匹配到按钮关键词")
@@ -370,34 +395,55 @@ def main():
                 print(f"  ⚠️ 页面无任务按钮（第 {ocr_empty_retries} 次），{wait}s 后重扫...")
                 time.sleep(wait)
                 continue
-            print("  ✅ 页面无任务按钮，全部完成")
+            print("  仅剩黑名单/无可执行任务，结束")
             break
 
-        # 有任务 → 重置空结果计数器
+        # 只执行第一个未屏蔽且未超过本轮尝试上限的"去完成"任务
         ocr_empty_retries = 0
-        print(f"  📋 本轮找到 {len(task_list)} 个任务，执行第一个...")
+        task = None
+        for task_type, task_name, btn_cx, btn_cy in task_list:
+            key = normalized_task_name(task_name)
+            if attempts.get(key, 0) >= 2:
+                continue
+            task = (task_type, task_name, btn_cx, btn_cy)
+            attempts[key] = attempts.get(key, 0) + 1
+            break
+        if task is None:
+            print("  仅剩黑名单/无可执行任务，结束")
+            break
+        print(f"  📋 本轮找到 {len(task_list)} 个任务，执行第一个可执行任务...")
 
-        # 只执行第一个"去完成"任务
-        task_type, task_name, btn_cx, btn_cy = task_list[0]
+        task_type, task_name, btn_cx, btn_cy = task
         report_task_found()
         print(f"\n  ▶️ [{total_all + 1}] {task_name}")
 
         if task_type == "guess_price":
-            exec_guess_price(btn_cx, btn_cy)
+            ok = exec_guess_price(btn_cx, btn_cy, task_name)
         elif task_type == "browse":
-            exec_browse(btn_cx, btn_cy, task_name)
+            ok = exec_browse(btn_cx, btn_cy, task_name)
         elif task_type == "video":
-            exec_video(btn_cx, btn_cy, task_name)
+            ok = exec_video(btn_cx, btn_cy, task_name)
         elif task_type == "live":
-            exec_live(btn_cx, btn_cy, task_name)
+            ok = exec_live(btn_cx, btn_cy, task_name)
+        else:
+            ok = False
+
+        if not ok:
+            no_progress_rounds += 1
+            print("  本次未执行成功，继续扫描其他任务")
+            if no_progress_rounds >= 3:
+                print("  连续3轮无实际进展，结束")
+                break
+            continue
 
         total_all += 1
+        no_progress_rounds = 0
         print(f"  ✅ 已完成: {total_all} 个任务")
 
         try:
             log_task_completed("打工得体力", task_name)
-        except:
-            pass
+        except Exception:
+            print("  ⚠️ 任务完成日志写入失败，不影响后续执行")
 
     print(f"\n📊 共完成 {total_all} 个任务")
     report_round_finished()

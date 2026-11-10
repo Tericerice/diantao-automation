@@ -3,6 +3,7 @@ import re
 import sys
 import time
 
+from task_exclusions import is_blocked_boutique_task
 from task_recheck import report_round_finished, report_task_found
 
 DT_APP = "com.taobao.live"
@@ -26,7 +27,9 @@ def parse_tasks(blocks, width):
     for block in blocks:
         text = normalize(block["text"])
         match = TITLE_RE.match(text)
-        if not match or any(kw in text for kw in ("下单", "购买", "充值", "付款", "邀请", "分享", "助力")):
+        if not match or is_blocked_boutique_task(text) or any(
+            kw in text for kw in ("下单", "购买", "充值", "付款", "邀请", "分享", "助力")
+        ):
             continue
         buttons = [b for b in blocks if normalize(b["text"]) in ("去完成", "去浏览", "去观看")
                    and b["cx"] > width * .65 and abs(b["cy"] - block["cy"]) < width * .06]

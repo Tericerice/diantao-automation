@@ -6,6 +6,7 @@ import time
 import sys
 import re
 
+from task_skip import note_blocked_task
 from u2_scanner import connect_device, execute_browse_task
 from utils import get_ocr_text_blocks, log_task_completed, show_today_summary
 
@@ -62,10 +63,10 @@ def has_sliding_browse_nearby(blocks, block):
     return is_sliding_browse_task("".join(b["text"] for b in row))
 
 
-def find_browse_task(blocks):
+def find_browse_task(blocks, skipped_this_run=None):
     """在当前屏幕 OCR 文本块中找"浏览精选推荐"字样的文本，直接返回其坐标
-    
-    返回: (block_text, cx, cy) 或 None
+
+    返回: (block_text, cx, cy) 或 None；跳过黑名单候选并继续检查同屏其他任务。
     """
     # 调试：打印所有文本块
     print(f"  📋 OCR 文本块 ({len(blocks)}):")
@@ -76,6 +77,8 @@ def find_browse_task(blocks):
     blocks = [b for b in blocks if not has_search_browse_nearby(blocks, b)]
     # 「滑动浏览XX秒」是页面浮层/通用浏览倒计时，同样不能被任何兜底选中。
     blocks = [b for b in blocks if not has_sliding_browse_nearby(blocks, b)]
+    # 屏蔽任务不进入候选队列，同屏其他浏览任务仍能执行。
+    blocks = [b for b in blocks if not note_blocked_task(b["text"], skipped_this_run)]
 
     # 找包含"浏览精选推荐"或"精选推荐"的文字块
     for b in blocks:
@@ -118,6 +121,8 @@ def find_go_btn_nearby(blocks, cx, cy):
 
 def exec_browse(cx, cy, task_name="", blocks=None):
     """点击任务文字（或附近的去完成按钮），进入后执行浏览"""
+    if note_blocked_task(task_name):
+        return False
     if is_search_browse_task(task_name):
         print(f"  ⊘ 搜索后浏览任务不按普通浏览执行: 【{task_name}】")
         return False
@@ -162,6 +167,8 @@ def main():
 
     total_all = 0
     ocr_empty_retries = 0
+    skipped_this_run = set()
+    no_progress_rounds = 0
     MAX_RETRIES = float("inf")  # 不限制时间：一直原地扫描，直到手动停止
 
     while True:
@@ -176,11 +183,12 @@ def main():
             print(f"  ⏳ 未识别到文本（{ocr_empty_retries}/{MAX_RETRIES}）...")
             continue
 
-        task_info = find_browse_task(blocks)
+        task_info = find_browse_task(blocks, skipped_this_run)
         if not task_info:
             ocr_empty_retries += 1
-            if ocr_empty_retries >= MAX_RETRIES:
-                print("  ⚠️ 等待超时，结束")
+            no_progress_rounds += 1
+            if ocr_empty_retries >= MAX_RETRIES or no_progress_rounds >= 3:
+                print("  仅剩黑名单/无可执行任务，结束")
                 break
             print(f"  ⏳ 未找到目标任务（{ocr_empty_retries}/{MAX_RETRIES}），继续等待...")
             continue
@@ -188,16 +196,21 @@ def main():
         ocr_empty_retries = 0
         task_name, cx, cy = task_info
         if not exec_browse(cx, cy, task_name, blocks):
-            print("  ⏹️ 停止自动执行，本次任务不计入完成数量")
-            break
+            no_progress_rounds += 1
+            print("  ⏹️ 本次任务不计入完成数量，继续扫描下一个任务")
+            if no_progress_rounds >= 3:
+                print("  连续3轮无实际进展，结束")
+                break
+            continue
 
+        no_progress_rounds = 0
         total_all += 1
         print(f"  ✅ 已完成: {total_all} 个任务")
 
         try:
             log_task_completed("打工加速", task_name)
-        except:
-            pass
+        except Exception:
+            print("  ⚠️ 任务完成日志写入失败，不影响后续执行")
 
         print("\n🔄 继续原地扫描下一个任务...")
 
