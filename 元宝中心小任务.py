@@ -315,21 +315,23 @@ def scan_and_execute():
 
         if task:
             name, cx, cy = task
+            key = normalized_task_name(name)
             report_task_found()
             if not execute_task(name, cx, cy):
                 no_progress_rounds += 1
                 print("  本次未执行成功，继续扫描其他任务")
                 if no_progress_rounds >= 3:
-                    print("  仅剩黑名单/无可执行任务，结束")
+                    print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                     break
                 continue
             no_progress_rounds = 0
+            attempts[key] = 0
             total += 1
             print(f"  📊 已完成 {total}/{MAX_TASKS}")
         else:
             no_progress_rounds += 1
             if recheck_enabled() or no_progress_rounds >= 3:
-                print("  仅剩黑名单/无可执行任务，结束")
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                 break
             print("  当前屏无可执行任务，等待刷新...")
             time.sleep(2)

@@ -578,7 +578,7 @@ def main():
         if not clicked:
             no_progress_rounds += 1
             if no_progress_rounds >= 3:
-                print("  仅剩黑名单/无可执行任务，结束")
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                 break
             print("  ⚠️ OCR未找到去完成/去浏览按钮，继续重扫")
             continue
@@ -592,6 +592,7 @@ def main():
                 break
             continue
         no_progress_rounds = 0
+        attempts[key] = 0
         total += 1
         elapsed = int(time.time() - task_started_at)
         print(f"  ⏱️ 任务耗时 {elapsed}s")

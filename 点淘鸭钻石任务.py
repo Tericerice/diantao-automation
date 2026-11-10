@@ -421,7 +421,7 @@ def scan_and_execute():
                 no_progress_rounds += 1
                 print("  本次未执行成功，重新扫描其他任务")
                 if no_progress_rounds >= 3:
-                    print("  仅剩黑名单/无可执行任务，结束")
+                    print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                     break
                 continue
             no_progress_rounds = 0
@@ -430,7 +430,7 @@ def scan_and_execute():
         else:
             no_progress_rounds += 1
             if no_progress_rounds >= 3:
-                print("  仅剩黑名单/无可执行任务，结束")
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                 break
             print("  无可执行任务，下滑...")
             d.swipe(screen_width // 2, int(screen_height * 0.7),

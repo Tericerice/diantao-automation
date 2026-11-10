@@ -445,7 +445,7 @@ def run_mode():
         else:
             no_progress_rounds += 1
             if no_progress_rounds >= 3:
-                print("  仅剩黑名单/无可执行任务，结束")
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
                 break
             print("  无可执行任务，下滑刷新...")
             d.swipe(screen_width // 2, int(screen_height * 0.7),

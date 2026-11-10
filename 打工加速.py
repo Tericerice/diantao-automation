@@ -16,6 +16,7 @@ from utils import get_ocr_text_blocks, log_task_completed, show_today_summary
 d = connect_device()
 screen_width, screen_height = d.window_size()
 print(f"屏幕分辨率: {screen_width} x {screen_height}")
+MAX_RETRIES = float("inf")
 
 
 def parse_seconds(text, default=30):
@@ -63,7 +64,7 @@ def has_sliding_browse_nearby(blocks, block):
     return is_sliding_browse_task("".join(b["text"] for b in row))
 
 
-def find_browse_task(blocks, skipped_this_run=None):
+def find_browse_task(blocks, skipped_this_run=None, blocked_found=None):
     """在当前屏幕 OCR 文本块中找"浏览精选推荐"字样的文本，直接返回其坐标
 
     返回: (block_text, cx, cy) 或 None；跳过黑名单候选并继续检查同屏其他任务。
@@ -78,7 +79,14 @@ def find_browse_task(blocks, skipped_this_run=None):
     # 「滑动浏览XX秒」是页面浮层/通用浏览倒计时，同样不能被任何兜底选中。
     blocks = [b for b in blocks if not has_sliding_browse_nearby(blocks, b)]
     # 屏蔽任务不进入候选队列，同屏其他浏览任务仍能执行。
-    blocks = [b for b in blocks if not note_blocked_task(b["text"], skipped_this_run)]
+    filtered_blocks = []
+    for b in blocks:
+        if note_blocked_task(b["text"], skipped_this_run):
+            if blocked_found is not None:
+                blocked_found.append(b["text"])
+        else:
+            filtered_blocks.append(b)
+    blocks = filtered_blocks
 
     # 找包含"浏览精选推荐"或"精选推荐"的文字块
     for b in blocks:
@@ -169,7 +177,7 @@ def main():
     ocr_empty_retries = 0
     skipped_this_run = set()
     no_progress_rounds = 0
-    MAX_RETRIES = float("inf")  # 不限制时间：一直原地扫描，直到手动停止
+    MAX_RETRIES = globals().get("MAX_RETRIES", float("inf"))  # 不限制时间：一直原地扫描，直到手动停止
 
     while True:
         time.sleep(2)
@@ -183,12 +191,22 @@ def main():
             print(f"  ⏳ 未识别到文本（{ocr_empty_retries}/{MAX_RETRIES}）...")
             continue
 
-        task_info = find_browse_task(blocks, skipped_this_run)
+        blocked_in_round = []
+        try:
+            task_info = find_browse_task(blocks, skipped_this_run, blocked_in_round)
+        except TypeError:
+            task_info = find_browse_task(blocks, skipped_this_run)
         if not task_info:
             ocr_empty_retries += 1
-            no_progress_rounds += 1
-            if ocr_empty_retries >= MAX_RETRIES or no_progress_rounds >= 3:
-                print("  仅剩黑名单/无可执行任务，结束")
+            if blocked_in_round:
+                no_progress_rounds += 1
+                if no_progress_rounds >= 3:
+                    print("  仅剩黑名单/无可执行任务，结束")
+                    break
+                print(f"  ⊘ 本轮仅含屏蔽任务，继续等待可执行任务（{no_progress_rounds}/3）...")
+                continue
+            if ocr_empty_retries >= MAX_RETRIES:
+                print("  ⚠️ 等待超时，结束")
                 break
             print(f"  ⏳ 未找到目标任务（{ocr_empty_retries}/{MAX_RETRIES}），继续等待...")
             continue

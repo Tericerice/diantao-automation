@@ -370,3 +370,103 @@ def test_shared_selector_only_blocked_task_returns_none():
 def test_blocked_task_false_is_never_counted_by_shared_selector():
     # 被屏蔽候选根本不会返回给调用方；调用方无需为 False 增加完成数。
     assert select_executable_task([(BLOCKED, 1, 2)], set()) is None
+
+
+# --- Review Fix from #168 by Pi: F1 与 F2 回归测试 ---
+
+def test_acceleration_empty_screen_waits_without_early_exit():
+    """F1: 屏幕有文字但非浏览/非黑名单任务时，打工加速应持续等待而非第3轮早退。"""
+    ns = load_functions("打工加速.py", {"main"}, loop_namespace(
+        scans=[[bubble("普通界面文字")]] * 5,
+        parser=lambda *_: None,
+        MAX_RETRIES=5,
+    ))
+    _, output = run_loop(ns, "main")
+    assert "未找到目标任务（1/5）" in output
+    assert "未找到目标任务（4/5）" in output
+    assert "⚠️ 等待超时，结束" in output
+    assert "仅剩黑名单/无可执行任务" not in output
+
+
+def test_acceleration_blocked_screen_exits_within_three_rounds():
+    """F1: 屏幕仅含屏蔽任务时，打工加速连续3轮无进展后有界退出。"""
+    ns = load_functions("打工加速.py", {"main", "find_browse_task"}, loop_namespace(
+        scans=[[bubble(BLOCKED)]] * 6,
+        has_search_browse_nearby=lambda *_: False,
+        has_sliding_browse_nearby=lambda *_: False,
+    ))
+    _, output = run_loop(ns, "main")
+    assert "仅剩黑名单/无可执行任务，结束" in output
+    assert "共完成 0 个任务" in output
+
+
+def test_dagong_successful_task_clears_attempts_allowing_more_than_two_runs():
+    """F2: 打工得体力在任务真实成功后清零 attempts，避免多轮任务被 2 次上限误伤。"""
+    scans_left = 3
+    def get_blocks(*_, **__):
+        nonlocal scans_left
+        if scans_left > 0:
+            scans_left -= 1
+            return [bubble("去完成")]
+        return []
+
+    ns = loop_namespace(
+        scans=[],
+        parser=lambda *_: [("live", REAL, 300, 400)],
+        get_ocr_text_blocks=get_blocks,
+    )
+    ns = load_functions("打工得体力.py", {"main"}, ns)
+    _, output = run_loop(ns, "main")
+    assert "共完成 3 个任务" in output
+
+
+def test_yuanbao_successful_task_clears_attempts():
+    """F2: 元宝中心小任务在任务真实成功后清零 attempts。"""
+    scans_left = 3
+    def get_blocks(*_, **__):
+        nonlocal scans_left
+        if scans_left > 0:
+            scans_left -= 1
+            return [bubble("去完成")]
+        return []
+
+    def fake_stale(prev, cur, limit):
+        prev.append(True)
+        return len(prev) >= 3
+
+    ns = loop_namespace(
+        scans=[],
+        parser=lambda *_: [(REAL, 300, 400)],
+        get_ocr_text_blocks=get_blocks,
+        snippets={"execute_task": lambda *_: True},
+        is_stale_no_buttons=fake_stale,
+    )
+    ns = load_functions("元宝中心小任务.py", {"scan_and_execute"}, ns)
+    _, output = run_loop(ns, "scan_and_execute")
+    assert "📊 已完成 3/" in output
+
+
+def test_shopping_successful_task_clears_attempts():
+    """F2: 点淘购物赚钱在任务真实成功后清零 attempts。"""
+    scans_left = 3
+    def get_blocks(*_, **__):
+        nonlocal scans_left
+        if scans_left > 0:
+            scans_left -= 1
+            return [bubble("去完成")]
+        return []
+
+    ns = loop_namespace(
+        scans=[],
+        get_ocr_text_blocks=get_blocks,
+        snippets={
+            "do_task": lambda *_: 1,
+            "detect_task_name_before_click": lambda *_: ("live", 60, REAL),
+            "TASK_BTN_KW": [],
+            "MAX_BACK_ATTEMPTS": 3,
+        },
+    )
+    ns = load_functions("点淘购物赚钱.py",
+                        {"main", "_task_buttons", "_task_area_top"}, ns)
+    _, output = run_loop(ns, "main")
+    assert "共完成 3 个任务" in output

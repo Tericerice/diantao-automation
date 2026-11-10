@@ -409,7 +409,7 @@ def main():
             attempts[key] = attempts.get(key, 0) + 1
             break
         if task is None:
-            print("  仅剩黑名单/无可执行任务，结束")
+            print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
             break
         print(f"  📋 本轮找到 {len(task_list)} 个任务，执行第一个可执行任务...")
 
@@ -438,6 +438,7 @@ def main():
 
         total_all += 1
         no_progress_rounds = 0
+        attempts[key] = 0
         print(f"  ✅ 已完成: {total_all} 个任务")
 
         try:
