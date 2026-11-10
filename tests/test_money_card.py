@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 from pathlib import Path
 from types import SimpleNamespace
+from task_exclusions import is_blocked_boutique_task
 
 SOURCE = Path(__file__).resolve().parents[1] / "签到赢元宝.py"
 
@@ -54,7 +55,8 @@ def money_parser():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8-sig"))
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
     namespace = {"re": re, "NAME_ABOVE_GAP": 200, "NAME_H_OFFSET": 50,
-                 "DONE_BTN_KEYWORDS": ["去完成", "去浏览", "去观看"], "BLACKLIST_KEYWORDS": ["购买", "下单"]}
+                 "DONE_BTN_KEYWORDS": ["去完成", "去浏览", "去观看"], "BLACKLIST_KEYWORDS": ["购买", "下单"],
+                 "is_blocked_boutique_task": is_blocked_boutique_task}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace["parse_tasks_from_blocks"]
 

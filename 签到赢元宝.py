@@ -289,6 +289,9 @@ def parse_money_card_tasks(blocks):
     for block in blocks:
         text = re.sub(r"[\s\u200b\ufeff]+", "", block["text"])
         text = re.sub(r"[（(]\d+/\d+[）)]$", "", text)
+        if is_blocked_boutique_task(text):
+            print(f"    ⊘ 屏蔽任务: 【{text}】")
+            continue
         if text in known_names:
             names.append((text, block))
         elif any(keyword in text for keyword in DONE_BTN_KEYWORDS):
@@ -342,6 +345,11 @@ def parse_tasks_from_blocks(blocks, entry_name="签到赢元宝"):
         task_name = detect_sign_task_name(blocks, b)
         if not task_name:
             task_name = text
+
+        # 屏蔽精选/优惠宝贝类任务：不让这类常驻任务进入队列导致反复扫描空转
+        if is_blocked_boutique_task(task_name):
+            print(f"    ⊘ 屏蔽任务: 【{task_name}】")
+            continue
 
         # 黑名单过滤
         if any(kw in task_name for kw in BLACKLIST_KEYWORDS):
@@ -450,15 +458,15 @@ def handle_milestone_close():
 
 
 def exec_guess_price(btn_cx, btn_cy, task_name=""):
-    """执行猜价格任务"""
+    """执行猜价格任务；返回是否确实完成（供主循环计数）"""
     print("  🎯 猜价格游戏")
     d.click(btn_cx, btn_cy)
     time.sleep(3)
-    return handle_guess_price_game(d, search_first=is_search_low_price_task(task_name))
+    return bool(handle_guess_price_game(d, search_first=is_search_low_price_task(task_name)))
 
 
 def exec_browse(btn_cx, btn_cy, task_name="", use_ocr=True):
-    """执行精选推荐浏览任务"""
+    """执行精选推荐浏览任务；返回是否确实完成（供主循环计数）"""
     if is_blocked_boutique_task(task_name):
         print('  ⊘ 已屏蔽精选宝贝任务，跳过')
         return False
@@ -467,51 +475,55 @@ def exec_browse(btn_cx, btn_cy, task_name="", use_ocr=True):
         print("  🎯 查看精选宝贝（点击3个商品）")
         d.click(btn_cx, btn_cy)
         time.sleep(0.5)
-        click_three_selected_items(d)
+        completed = bool(click_three_selected_items(d))
         # click_three_selected_items 从详情退到列表页，
         # 再按一次 back 从列表页退回签到任务主页
         d.press("back")
         time.sleep(1.5)
-        return
+        return completed
 
     print("  🎯 精选推荐浏览")
     d.click(btn_cx, btn_cy)
     time.sleep(0.5)
 
     min_sec = parse_seconds(task_name, default=90)
+    completed = False
     try:
         executor = browse_task if use_ocr else execute_browse_task
-        executor(d, min_duration=min_sec, max_wait=min_sec + 30)
+        completed = bool(executor(d, min_duration=min_sec, max_wait=min_sec + 30))
     finally:
         print("  ↩️ 浏览结束，返回任务页")
         d.press("back")
         time.sleep(2)
+    return completed
 
 
 def exec_live(btn_cx, btn_cy, task_name=""):
-    """执行看直播任务"""
+    """执行看直播任务；返回是否确实完成（供主循环计数）"""
     print("  🎯 看直播")
     d.click(btn_cx, btn_cy)
     time.sleep(0.5)
+    completed = False
     try:
-        execute_live_task(d, task_name, btn_cx, btn_cy)
+        completed = bool(execute_live_task(d, task_name, btn_cx, btn_cy))
     finally:
         print("  ↩️ 直播结束，返回任务页")
         d.press("back")
         time.sleep(1.5)
+    return completed
 
 
 def exec_video(btn_cx, btn_cy, task_name=""):
-    """执行看视频任务（翻页风格滑动，需多下滑一次）"""
+    """执行看视频任务（翻页风格滑动，需多下滑一次）；返回是否确实完成"""
     print("  🎯 看视频")
     # 首滑由公共视频执行器在确认真实媒体页后执行
     d.click(btn_cx, btn_cy)
-    execute_video_task(
+    return bool(execute_video_task(
         d, task_name, btn_cx, btn_cy,
         verify_media_page=True,
         initial_swipe=True,
         initial_swipe_start_ratio=0.85,
-    )
+    ))
 
 
 # ========================================================
@@ -534,6 +546,8 @@ def execute_tasks(task_list):
         print(f"    {i}. [{ttype}] {tname}")
 
     total = 0
+    executed = 0
+    skipped = 0
     milestone_triggered = None
 
     for task_type, task_name, btn_cx, btn_cy in task_list:
@@ -548,23 +562,30 @@ def execute_tasks(task_list):
         print(f"\n  ▶️ [{total+1}/{len(task_list)}] {task_name}")
 
         if task_type == "guess_price":
-            exec_guess_price(btn_cx, btn_cy, task_name)
+            ok = exec_guess_price(btn_cx, btn_cy, task_name)
         elif task_type == "browse":
-            exec_browse(btn_cx, btn_cy, task_name)
+            ok = exec_browse(btn_cx, btn_cy, task_name)
         elif task_type == "video":
-            exec_video(btn_cx, btn_cy, task_name)
+            ok = exec_video(btn_cx, btn_cy, task_name)
         elif task_type == "live":
-            exec_live(btn_cx, btn_cy, task_name)
+            ok = exec_live(btn_cx, btn_cy, task_name)
+        else:
+            ok = False
 
-        total += 1
-        print(f"  ✅ 已完成 {total}/{len(task_list)} 个任务")
+        if ok:
+            total += 1
+            executed += 1
+            print(f"  ✅ 已完成 {total}/{len(task_list)} 个任务")
+        else:
+            skipped += 1
+            print("  ⊘ 本轮未执行（跳过），不计入完成数")
 
         # 里程碑弹窗关闭
         if milestone_triggered:
             handle_milestone_close()
             milestone_triggered = None
 
-    print(f"\n📊 共执行 {total} 个签到任务")
+    print(f"\n📊 共执行 {total} 个签到任务（实际完成 {executed}，跳过 {skipped}）")
     return total
 
 
@@ -611,6 +632,9 @@ def main(entry_name: str = "签到赢元宝") -> None:
 
     # 每次只执行一个任务 → 重新扫描 → 继续，直到页面无"去完成"按钮
     total_all = 0
+    executed = 0
+    skipped = 0
+    no_progress_rounds = 0
     first_round = True
     ocr_empty_retries = 0
     while True:
@@ -671,18 +695,30 @@ def main(entry_name: str = "签到赢元宝") -> None:
         print(f"\n  ▶️ [{total_all+1}] {task_name}")
 
         if task_type == "guess_price":
-            exec_guess_price(btn_cx, btn_cy, task_name)
+            ok = exec_guess_price(btn_cx, btn_cy, task_name)
         elif task_type == "browse":
-            exec_browse(btn_cx, btn_cy, task_name, use_ocr=entry_name != "赚钱卡")
+            ok = exec_browse(btn_cx, btn_cy, task_name, use_ocr=entry_name != "赚钱卡")
         elif task_type == "video":
-            exec_video(btn_cx, btn_cy, task_name)
+            ok = exec_video(btn_cx, btn_cy, task_name)
         elif task_type == "live":
-            exec_live(btn_cx, btn_cy, task_name)
+            ok = exec_live(btn_cx, btn_cy, task_name)
+        else:
+            ok = False
 
-        total_all += 1
-        print(f"  ✅ 已完成: {total_all} 个任务")
+        if ok:
+            total_all += 1
+            executed += 1
+            no_progress_rounds = 0
+            print(f"  ✅ 已完成: {total_all} 个任务")
+        else:
+            skipped += 1
+            no_progress_rounds += 1
+            print("  ⊘ 本轮未执行（跳过），不计入完成数")
+            if no_progress_rounds >= 3:
+                print("⚠️ 连续 3 轮无实际进展，结束本次签到")
+                break
 
-    print(f"\n📊 共执行 {total_all} 个{entry_name}任务")
+    print(f"\n📊 共执行 {total_all} 个{entry_name}任务（实际完成 {executed}，跳过 {skipped}）")
     report_round_finished()
 
     try:
