@@ -409,3 +409,51 @@ def test_expanded_markers_match_realistic_page_variants(monkeypatch, capsys):
                         lambda device: [block("摇一摇PK", 100, 100)])
     assert module._expected_page_reached(None, module.NAV_PAGE_MARKERS["摇一摇"], attempts=1) is True
 
+
+def test_is_yuanbao_center_rejects_home_page_with_marketing_or_center_entry(monkeypatch):
+    """首页常驻'领更多兑红包'或存在'元宝中心'入口时，绝不能被误判为已在元宝中心。"""
+    module = load_swipe_module(monkeypatch)
+    # 场景 1: 首页包含“领更多兑红包”与“元宝中心”入口
+    monkeypatch.setattr(module, "get_ocr_text_blocks", lambda dev: [
+        block("领更多兑红包", 168, 748),
+        block("元宝中心", 1144, 1228),
+    ])
+    assert module._is_yuanbao_center_ocr(module.d) is False
+
+    # 场景 2: 首页即使只有“领更多兑红包”，也必须被过滤
+    monkeypatch.setattr(module, "get_ocr_text_blocks", lambda dev: [
+        block("领更多兑红包", 168, 748),
+    ])
+    assert module._is_yuanbao_center_ocr(module.d) is False
+
+    # 场景 3: 真正元宝中心页面（含“我的元宝”，无“元宝中心”入口）
+    monkeypatch.setattr(module, "get_ocr_text_blocks", lambda dev: [
+        block("我的元宝", 200, 200),
+        block("兑红包", 300, 300),
+    ])
+    assert module._is_yuanbao_center_ocr(module.d) is True
+
+
+def test_enter_yuanbao_center_always_clicks_entry_even_with_home_red_packet(monkeypatch, capsys):
+    """点淘重启回到首页后，即使首页有'领更多兑红包'，也必须点击'元宝中心'入口，绝不提前跳过。"""
+    module = load_swipe_module(monkeypatch)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    clicks = []
+    monkeypatch.setattr(module.d, "click", lambda x, y: clicks.append((x, y)))
+    monkeypatch.setattr(module, "handle_yuanbao_live_popups", lambda dev: True)
+
+    # 首页 OCR：既有“领更多兑红包”，又有“元宝中心”
+    monkeypatch.setattr(module, "get_ocr_text_blocks", lambda dev: [
+        block("领更多兑红包", 168, 748),
+        block("元宝中心", 1144, 1228),
+    ])
+
+    entered = module._enter_yuanbao_center_ocr(module.d)
+    assert entered is True
+    # 必须执行了点击元宝中心入口
+    assert (1144, 1228) in clicks
+    out = capsys.readouterr().out
+    assert "OCR 点击【元宝中心】@(1144,1228)" in out
+    assert "检查确认当前已在元宝中心" not in out
+
+
