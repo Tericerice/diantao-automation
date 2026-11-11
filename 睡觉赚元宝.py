@@ -2,7 +2,7 @@
 睡觉赚元宝 自动化脚本
 流程：进点淘 → 睡觉赚元宝页面 → 扫描气泡任务 + 收集浮动气泡
 """
-from task_exclusions import is_blocked_boutique_task
+from task_exclusions import is_blocked_boutique_task, is_blocked_sleep_task_name
 import time
 import sys
 from task_recheck import report_task_found, report_round_finished
@@ -15,7 +15,7 @@ from u2_scanner import (
     click_u2_control,
     execute_browse_task, execute_video_task,
     execute_live_task,
-    handle_guess_price_game, click_three_selected_items,
+    handle_guess_price_game,
     scan_float_bubbles, click_float_bubbles,
     u2_find_task_buttons, is_stale_task_list, is_stale_no_buttons,
 )
@@ -50,7 +50,7 @@ TASK_KW = [
 ]
 
 # 用户要求屏蔽的任务关键词；命中后不进入候选，避免反复命中同一气泡。
-BLOCKED_TASK_KEYWORDS = ("精选宝贝",)
+BLOCKED_TASK_KEYWORDS = ("精选宝贝", "查看3个", "看3个", "点击3个", "查看3件", "查看三次")
 
 CENTER_WAITING = ["后可开启", "熟睡中", "倒计时"]
 CENTER_ACTIVE = ["开启晚睡", "开始睡觉", "收下元宝"]
@@ -158,6 +158,11 @@ def do_bubble_task(name, btn_cx, btn_cy):
         print('  ⊘ 已屏蔽精选宝贝任务，跳过')
         return False
 
+    # 用户 2026-11-10 指示：查看/点击 3 个类任务整体拉黑，不点击、不记录完成。
+    if is_blocked_sleep_task_name(name):
+        print("  ⊘ 已屏蔽三次点击类任务，跳过且不记录完成")
+        return False
+
     print(f"  🎯 {name}")
 
     # 用户要求屏蔽“查看3个精选宝贝 / 精选宝贝”类任务，不点击、不记录。
@@ -198,14 +203,14 @@ def do_bubble_task(name, btn_cx, btn_cy):
         execute_live_task(d, name, btn_cx, btn_cy)
         if not return_to_sleep_page():
             return False
-    elif "精选宝贝" in name or ("查看" in name and "个" in name) or "签到" in name:
-        click_device_point(d, btn_cx, btn_cy, "精选宝贝任务按钮")
+    elif "签到" in name:
+        # 签到仍走普通按钮，但不再调用已禁用的三次点击执行器，也不记完成。
+        click_device_point(d, btn_cx, btn_cy, "签到任务按钮")
         time.sleep(0.5)
-        click_three_selected_items(d)
-        # click_three_selected_items 每次点完商品已 back 回到列表页，
-        # 再按一次从列表页退回睡觉页
         d.press("back")
         time.sleep(1.5)
+        print("  ⊘ 签到不计入完成，跳过")
+        return "skip"
     else:
         # 浏览任务
         click_device_point(d, btn_cx, btn_cy, "浏览任务按钮")
@@ -254,8 +259,11 @@ def scan_and_collect():
 
         target = find_bubble(blocks)
         if target:
-            if do_bubble_task(target["name"], target["cx"], target["cy"]) is False:
+            status = do_bubble_task(target["name"], target["cx"], target["cy"])
+            if status is False:
                 return total
+            if status == "skip":
+                continue
             report_task_found()
             total += 1
             print(f"  ✅ 已完成: {total}")

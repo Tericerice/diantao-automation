@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from typing import Final, TypedDict
 
+from task_exclusions import is_blocked_task_file
+
 
 MAX_RESCAN_ROUNDS: Final = 2
 RESCAN_TASK_NAMES: Final[frozenset[str]] = frozenset(
@@ -23,7 +25,8 @@ def build_rescan_rounds(
     selected_tasks: Sequence[TaskDefinition],
 ) -> tuple[tuple[TaskDefinition, ...], ...]:
     target_tasks = tuple(
-        task for task in selected_tasks if task["name"] in RESCAN_TASK_NAMES
+        task for task in selected_tasks
+        if task["name"] in RESCAN_TASK_NAMES and not is_blocked_task_file(task["name"])
     )
     if target_tasks:
         return tuple(target_tasks for _ in range(MAX_RESCAN_ROUNDS))

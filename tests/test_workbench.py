@@ -44,15 +44,15 @@ def test_dashboard_contains_selected_business_tasks_and_one_qr_entry(client):
     assert len(tasks) == len(desktop.TASKS)
     removed_scripts = {
         "../coin11-tb-main/2026淘宝618活动.py", "618花花乐.py", "diantao_1024_auto.py",
-        "全部执行.py", "一键下滑_AI.py",
+        "全部执行.py", "一键下滑_AI.py", "睡觉赚元宝.py",
     }
     scripts = {t["script"] for t in desktop.TASKS.values()}
     assert TASK_FILES - removed_scripts <= scripts
     assert not removed_scripts & scripts
-    assert len(tasks) == 25
+    assert len(tasks) == 22
     assert {"diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
-            "taobao-double11-energy", "taobao-double11-workbuddy",
             "diantao-shake", "diantao-walk-sphere", "diantao-coupon"} <= {t["id"] for t in tasks}
+    assert not {"taobao-double11-energy", "taobao-double11-workbuddy"} & {t["id"] for t in tasks}
     assert all((desktop.ROOT / t["script"]).is_file()
                for t in desktop.TASKS.values() if not t["script"].startswith("../"))
     assert all("command" not in t and "script" not in t for t in tasks)
@@ -94,7 +94,7 @@ def test_missing_task_remains_visible_and_cannot_spawn(client, monkeypatch, tmp_
 
 @pytest.mark.parametrize("task_id", [
     "diantao-all-in-one", "diantao-one-click", "diantao-one-click-tasks",
-    "diantao-signin", "taobao-double11-workbuddy",
+    "diantao-signin",
 ])
 def test_migrated_entry_spawns_its_script_and_arguments(client, monkeypatch, task_id):
     from io import StringIO
@@ -119,17 +119,28 @@ def test_guardian_can_wait_alongside_one_foreground_task(client, monkeypatch, tm
     prepare_dummy(monkeypatch, tmp_path, "import time; time.sleep(60)\n")
     assert client.post("/api/start/diantao-signin").status_code == 200
     assert client.post("/api/start/diantao-work-guard").status_code == 200
-    assert client.post("/api/start/diantao-sleep").status_code == 409
+    assert client.post("/api/start/diantao-anchor").status_code == 409
     assert client.post("/api/start/diantao-work-guard").status_code == 409
     assert client.post("/api/stop/diantao-signin").status_code == 200
     assert client.post("/api/stop/diantao-work-guard").status_code == 200
 
 
-def test_workbuddy_does_not_require_cloud_ocr(client, monkeypatch, tmp_path):
-    prepare_dummy(monkeypatch, tmp_path, "print('WorkBuddy entry ready')\n")
-    monkeypatch.delenv("DIANTAO_OCR_SERVER_URL")
-    assert client.post("/api/start/taobao-double11-workbuddy").status_code == 200
-    desktop.PROCESSES["taobao-double11-workbuddy"].wait(timeout=5)
+def test_one_click_entry_requires_cloud_ocr(client, monkeypatch, tmp_path):
+    prepare_dummy(monkeypatch, tmp_path, "print('one-click entry ready')\n")
+    monkeypatch.delenv("DIANTAO_OCR_SERVER_URL", raising=False)
+    resp = client.post("/api/start/diantao-one-click-tasks")
+    assert resp.status_code == 400
+    assert "DIANTAO_OCR_SERVER_URL" in resp.json()["detail"]
+
+
+def test_entry_without_cloud_ocr_requirement_can_start(client, monkeypatch, tmp_path):
+    prepare_dummy(monkeypatch, tmp_path, "print('no ocr entry ready')\n")
+    monkeypatch.delenv("DIANTAO_OCR_SERVER_URL", raising=False)
+    tasks = deepcopy(desktop.TASKS)
+    tasks["diantao-one-click-tasks"]["requires_ocr"] = False
+    monkeypatch.setattr(desktop, "TASKS", tasks)
+    assert client.post("/api/start/diantao-one-click-tasks").status_code == 200
+    desktop.PROCESSES["diantao-one-click-tasks"].wait(timeout=5)
 
 
 def prepare_dummy(monkeypatch, tmp_path, source):
@@ -144,17 +155,17 @@ def prepare_dummy(monkeypatch, tmp_path, source):
 
 def test_start_captures_utf8_output_and_stream_replays_finished_task(client, monkeypatch, tmp_path):
     prepare_dummy(monkeypatch, tmp_path, "print('任务测试完成', flush=True)\n")
-    result = client.post("/api/start/taobao-double11-energy")
+    result = client.post("/api/start/diantao-one-click-tasks")
     assert result.status_code == 200
-    process = desktop.PROCESSES["taobao-double11-energy"]
+    process = desktop.PROCESSES["diantao-one-click-tasks"]
     process.wait(timeout=5)
     for _ in range(100):
-        lines = client.get("/api/logs/taobao-double11-energy").json()["lines"]
+        lines = client.get("/api/logs/diantao-one-click-tasks").json()["lines"]
         if any("[结束]" in text for text in lines):
             break
         time.sleep(.01)
     assert "任务测试完成" in lines
-    stream = client.get("/api/logs/taobao-double11-energy/stream")
+    stream = client.get("/api/logs/diantao-one-click-tasks/stream")
     assert "任务测试完成" in stream.text
     assert '"type":"exit"' in stream.text
     assert client.get("/api/health").json()["running_count"] == 0
@@ -164,7 +175,7 @@ def test_tasks_cannot_compete_for_phone_and_stop_reaps_process(client, monkeypat
     prepare_dummy(monkeypatch, tmp_path, "import time\nprint('started', flush=True)\ntime.sleep(60)\n")
     started = client.post("/api/start/diantao-coupon")
     assert started.status_code == 200
-    second = client.post("/api/start/taobao-double11-energy")
+    second = client.post("/api/start/diantao-anchor")
     assert second.status_code == 409
     assert client.post("/api/stop/diantao-coupon").json()["ok"]
     assert desktop.PROCESSES["diantao-coupon"].poll() is not None

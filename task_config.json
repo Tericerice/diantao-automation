@@ -63,7 +63,7 @@
     "name": "睡觉赚元宝",
     "file": "睡觉赚元宝.py",
     "timeout": 900,
-    "checked": true
+    "checked": false
   },
   {
     "name": "淘金币任务",

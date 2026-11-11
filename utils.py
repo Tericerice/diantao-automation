@@ -981,9 +981,25 @@ def classify_current_page(device, candidates: list):
 # 📊 日报统计
 # ========================================================
 def show_today_summary():
-    """打印当日任务执行统计"""
+    """打印当日任务执行统计；历史日志只读，黑名单任务不计入有效完成数。"""
+    from task_exclusions import is_blocked_task_file
+
     today = datetime.now().strftime("%Y-%m-%d")
     print(f"\n📊 任务日报：{today}")
+    tasks = []
+    if os.path.exists(TASK_LOG_PATH):
+        try:
+            with open(TASK_LOG_PATH, "r", encoding="utf-8") as f:
+                tasks = json.load(f).get("days", {}).get(today, {}).get("tasks", [])
+        except (OSError, ValueError, TypeError):
+            tasks = []
+    counted = [task for task in tasks
+               if not is_blocked_task_file(str(task.get("script", "")))]
+    excluded = len(tasks) - len(counted)
+    print(f"  今日有效完成 {len(counted)} 项")
+    if excluded:
+        # 不删除/改写 task_log.json：这里仅从统计口径排除黑名单任务的历史记录。
+        print(f"  ⊘ 已排除黑名单任务记录 {excluded} 条（历史日志保留）")
     print("  淘金币任务完成")
 
 

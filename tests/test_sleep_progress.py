@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from task_exclusions import is_blocked_boutique_task
+from task_exclusions import is_blocked_boutique_task, is_blocked_sleep_task_name
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -101,6 +101,7 @@ def sleep_loop(**overrides):
         "click_float_bubbles": Mock(return_value=0),
         "report_task_found": Mock(), "report_round_finished": Mock(),
         "is_blocked_boutique_task": is_blocked_boutique_task,
+        "is_blocked_sleep_task_name": is_blocked_sleep_task_name,
     }
     ns.update(overrides)
     return load_functions("睡觉赚元宝.py", {"scan_and_collect", "is_sleep_page"}, ns)
