@@ -256,19 +256,26 @@ def _navigate_and_verify(device, name, click_target,
 
 
 def _is_yuanbao_center_ocr(device):
-    """用 OCR 判断当前是否已在元宝中心页面。"""
+    """用 OCR 判断当前是否已在元宝中心页面。排除首页'领更多兑红包'等营销文本干扰。"""
     try:
         blocks = get_ocr_text_blocks(device)
     except Exception as exc:
         print(f"  ⚠️ OCR 检查元宝中心失败：{exc}")
         return False
 
+    # 若视野内存在“元宝中心”入口文本，说明仍在首页入口处，尚未进入元宝中心
+    if any("元宝中心" in block.get("text", "") for block in blocks):
+        return False
+
     center_markers = ("我的元宝", "提现", "兑红包")
-    return any(
-        marker in block.get("text", "")
-        for block in blocks
-        for marker in center_markers
-    )
+    for block in blocks:
+        text = str(block.get("text", "")).strip()
+        # 排除首页营销文案如“领更多兑红包”、“一键领>”
+        if "领更多" in text or "一键领" in text:
+            continue
+        if any(marker in text for marker in center_markers):
+            return True
+    return False
 
 
 def _enter_yuanbao_center_ocr(device):
@@ -280,10 +287,6 @@ def _enter_yuanbao_center_ocr(device):
     time.sleep(CENTER_OCR_PRE_SCAN_DELAY_SECONDS)
 
     for scan_index in range(1, CENTER_OCR_SCAN_ATTEMPTS + 1):
-        if _is_yuanbao_center_ocr(device):
-            print("  ✅ 检查确认当前已在元宝中心")
-            return handle_yuanbao_live_popups(device)
-
         try:
             blocks = get_ocr_text_blocks(device)
         except Exception as exc:
