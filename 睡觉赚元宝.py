@@ -159,6 +159,8 @@ def do_bubble_task(name, btn_cx, btn_cy):
         return False
 
     # 用户 2026-11-10 指示：查看/点击 3 个类任务整体拉黑，不点击、不记录完成。
+    # 167-fix 的 is_blocked_sleep_task_name 覆盖全部 6 个关键字与“查看 + 个/件/次”兜底，
+    # 并额外做 NFKC 与去空白归一化。
     if is_blocked_sleep_task_name(name):
         print("  ⊘ 已屏蔽三次点击类任务，跳过且不记录完成")
         return False

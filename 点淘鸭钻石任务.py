@@ -3,6 +3,7 @@
 流程：进点淘 → OCR进入元宝中心 → OCR进入点淘鸭家园 → 打开任务列表 → OCR扫描白名单任务
 """
 from task_exclusions import is_blocked_boutique_task
+from task_skip import normalized_task_name, select_executable_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -168,7 +169,7 @@ def _cluster_rows(blocks):
     return rows
 
 
-def scan_duck_tasks(blocks):
+def scan_duck_tasks(blocks, skipped_this_run=None):
     """
     OCR 扫描 — 嵌入进度链式配对
     OCR 返回的任务名已内含进度数字（如 "看黄金档直播2分钟(2/5)"），
@@ -202,7 +203,11 @@ def scan_duck_tasks(blocks):
         for tb in task_blocks:
             full_name = tb["text"].strip()
             if is_blocked_boutique_task(full_name):
-                print(f"    ⊘ 已屏蔽商品三次点击任务: 【{full_name}】")
+                key = normalized_task_name(full_name)
+                if skipped_this_run is None or key not in skipped_this_run:
+                    print(f"    ⊘ 屏蔽任务: 【{full_name}】")
+                    if skipped_this_run is not None:
+                        skipped_this_run.add(key)
                 continue
             tb_cx, tb_cy = tb["cx"], tb["cy"]
 
@@ -279,18 +284,14 @@ def do_task(task_name, btn_cx, btn_cy):
         print(f'    ⚠️ 按钮位置未通过校验，跳过本次点击并等待重新扫描')
         return False
 
-    # 特判：查看3个特惠卖场宝贝 → 点击3次
+    # 特判：查看3个特惠卖场宝贝 → 点击3次（公共执行器已禁用，不算完成）
     if "查看" in task_name and ("宝贝" in task_name or "精选" in task_name):
         d.click(btn_cx, btn_cy)
         time.sleep(2)
-        click_three_selected_items(d)
+        completed = bool(click_three_selected_items(d))
         d.press("back")
         time.sleep(1.5)
-        try:
-            log_task_completed("点淘鸭钻石任务", task_name)
-        except:
-            pass
-        return
+        return completed
 
     if is_live(task_name):
         prog = parse_progress(task_name)
@@ -299,17 +300,20 @@ def do_task(task_name, btn_cx, btn_cy):
             if cur >= total:
                 print("    已达到任务进度，跳过")
                 return False
+            completed = True
             for n in range(cur, total):
                 d.click(btn_cx, btn_cy)   # 每次循环前重新点击按钮
                 time.sleep(0.5)
                 print(f"  📺 直播 {n+1}/{total}")
-                execute_live_task(d, task_name, btn_cx, btn_cy)
+                completed = bool(execute_live_task(
+                    d, task_name, btn_cx, btn_cy,
+                )) and completed
                 d.press("back")
                 time.sleep(2)
         else:
             d.click(btn_cx, btn_cy)
             time.sleep(0.5)
-            execute_live_task(d, task_name, btn_cx, btn_cy)
+            completed = bool(execute_live_task(d, task_name, btn_cx, btn_cy))
             d.press("back")
             time.sleep(2)
     else:
@@ -321,22 +325,24 @@ def do_task(task_name, btn_cx, btn_cy):
             if btn.exists(timeout=1):
                 click_u2_control(d, btn, "打开/允许")
                 time.sleep(1)
-        except:
+        except Exception:
             pass
         for match_kw, sec in DURATIONS.items():
             if match_kw in task_name:
-                execute_browse_task(d, sec)
+                completed = bool(execute_browse_task(d, sec))
                 break
         else:
-            execute_browse_task(d, 20)
+            completed = bool(execute_browse_task(d, 20))
         # 浏览完成后返回任务列表
         d.press("back")
         time.sleep(2)
 
-    try:
-        log_task_completed("点淘鸭钻石任务", task_name)
-    except:
-        pass
+    if completed:
+        try:
+            log_task_completed("点淘鸭钻石任务", task_name)
+        except Exception:
+            print("  ⚠️ 任务完成日志写入失败，不影响后续执行")
+    return completed
 
 
 # ========================================================
@@ -348,6 +354,8 @@ def scan_and_execute():
     clicked = {}
     prev_snap = []
     prev_empty = []
+    skipped_this_run = set()
+    no_progress_rounds = 0
 
     print("\n" + "=" * 50)
     print("🔍 开始扫描【点淘鸭家园】任务列表（OCR模式）...")
@@ -370,7 +378,7 @@ def scan_and_execute():
             time.sleep(2)
             continue
 
-        pairs = scan_duck_tasks(blocks)
+        pairs = scan_duck_tasks(blocks, skipped_this_run)
         if not pairs:
             if is_stale_no_buttons(prev_empty, pairs, STALE_LIMIT):
                 print("  🎉 连续3轮无任务按钮")
@@ -393,37 +401,37 @@ def scan_and_execute():
             print("  🎉 连续3轮相同任务列表，完毕")
             break
 
-        # 找可执行任务（白名单 + 去重 + 危险关键词兜底过滤）
-        task = None
-        for name, cx, cy in pairs:
-            if not name:
-                continue
-            if not is_whitelisted(name):
-                print(f"  ⊘ 非白名单: 【{name}】")
-                continue
-            # 危险关键词兜底（防止 scan_duck_tasks 内合并文本时漏掉）
-            if any(dk in name for dk in DANGER_KEYWORDS):
-                print(f"  ⊘ 危险关键词兜底过滤: 【{name}】")
-                continue
-            if clicked.get(name, 0) >= MAX_CLICK:
-                print(f"  ⊘ 已达上限: 【{name}】(已做{clicked[name]}次)")
-                continue
-            task = (name, cx, cy)
-            print(f"  ✅ 选中: 【{name}】@({cx},{cy})")
-            break
+        # 白名单 + 危险关键词兜底；屏蔽任务在选择阶段排除，继续找下一个候选。
+        eligible = [
+            (name, cx, cy) for name, cx, cy in pairs
+            if name and is_whitelisted(name)
+            and not any(dk in name for dk in DANGER_KEYWORDS)
+        ]
+        task = select_executable_task(
+            eligible, skipped_this_run, clicked=clicked, max_clicks=MAX_CLICK,
+        )
 
         if task:
             prev_snap.clear()
             prev_empty.clear()
             name, cx, cy = task
-            clicked[name] = clicked.get(name, 0) + 1
+            print(f"  ✅ 选中: 【{name}】@({cx},{cy})")
             report_task_found()
-            if do_task(name, cx, cy) is False:
-                print("  本次未执行成功，重新扫描")
+            if not do_task(name, cx, cy):
+                no_progress_rounds += 1
+                print("  本次未执行成功，重新扫描其他任务")
+                if no_progress_rounds >= 3:
+                    print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
+                    break
                 continue
+            no_progress_rounds = 0
             total += 1
             print(f"  ✅ 已完成: {total}")
         else:
+            no_progress_rounds += 1
+            if no_progress_rounds >= 3:
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
+                break
             print("  无可执行任务，下滑...")
             d.swipe(screen_width // 2, int(screen_height * 0.7),
                     screen_width // 2, int(screen_height * 0.3))

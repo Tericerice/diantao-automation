@@ -8,6 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from task_exclusions import is_blocked_boutique_task
+from task_skip import note_blocked_task
+
 
 class DagongAccelerationRoutingTest(unittest.TestCase):
     def setUp(self):
@@ -20,6 +23,8 @@ class DagongAccelerationRoutingTest(unittest.TestCase):
         self.ns = {
             "re": re, "d": self.device, "time": SimpleNamespace(sleep=lambda _s: None),
             "execute_browse_task": self.browse, "get_ocr_text_blocks": self.ocr,
+            "note_blocked_task": note_blocked_task,
+            "is_blocked_boutique_task": is_blocked_boutique_task,
         }
         exec(compile(tree, str(path), "exec"), self.ns)
 

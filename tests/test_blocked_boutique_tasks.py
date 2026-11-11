@@ -10,6 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 from task_exclusions import is_blocked_boutique_task
+from task_skip import note_blocked_task
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -117,7 +118,8 @@ def test_execution_entrypoints_never_touch_device_for_blocked_task(filename, fun
     tree = ast.parse((ROOT / filename).read_text(encoding="utf-8-sig"))
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == function)
     device = Mock()
-    namespace = {"d": device, "is_blocked_boutique_task": is_blocked_boutique_task}
+    namespace = {"d": device, "is_blocked_boutique_task": is_blocked_boutique_task,
+                 "note_blocked_task": note_blocked_task}
     exec(compile(ast.Module(body=[node], type_ignores=[]), filename, "exec"), namespace)
     keyword = "name" if function == "do_bubble_task" else "task_name"
     assert namespace[function](**kwargs, **{keyword: name}) is False

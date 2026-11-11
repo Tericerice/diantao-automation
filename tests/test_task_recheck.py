@@ -1,4 +1,5 @@
 import task_recheck
+from task_skip import note_blocked_task, normalized_task_name
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,6 +63,8 @@ def test_center_round_reports_only_executable_tasks_and_finishes(monkeypatch, ta
         "get_ocr_text_blocks": lambda _: [{"text": "额外任务"}],
         "scan_extra_area_tasks": lambda _: next(scans),
         "is_blacklisted": lambda name: name == "下单",
+        "note_blocked_task": note_blocked_task,
+        "normalized_task_name": normalized_task_name,
         "execute_task": lambda *args: events.append("executed"),
         "recheck_enabled": task_recheck.recheck_enabled,
         "report_task_found": lambda: events.append("found"),

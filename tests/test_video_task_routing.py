@@ -4,6 +4,8 @@ import types
 import unittest
 from pathlib import Path
 
+from task_exclusions import is_blocked_boutique_task
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -16,13 +18,11 @@ def load_function(filename, function_name, extra_globals=None):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name == function_name
     )
-    namespace = {"re": re}
+    namespace = {"re": re,
+                 "is_blocked_boutique_task": is_blocked_boutique_task}
     if function_name == "do_bubble_task":
-        from task_exclusions import is_blocked_boutique_task, is_blocked_sleep_task_name
-        namespace.update(
-            is_blocked_boutique_task=is_blocked_boutique_task,
-            is_blocked_sleep_task_name=is_blocked_sleep_task_name,
-        )
+        from task_exclusions import is_blocked_sleep_task_name
+        namespace["is_blocked_sleep_task_name"] = is_blocked_sleep_task_name
     if extra_globals:
         namespace.update(extra_globals)
     code = compile(ast.Module(body=[function], type_ignores=[]), filename, "exec")

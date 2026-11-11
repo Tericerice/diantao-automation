@@ -3,6 +3,7 @@
 流程：进点淘 → OCR识别元宝中心 → 购物入口 → 立即签到/快速领 → OCR扫描任务列表
 """
 from task_exclusions import is_blocked_boutique_task
+from task_skip import note_blocked_task, normalized_task_name
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -518,6 +519,9 @@ def main():
         print("⚠️ OCR 导航未完成，停止购物赚钱任务")
         return
     total = 0
+    skipped_this_run = set()
+    attempts = {}
+    no_progress_rounds = 0
 
     print("\n🔍 OCR扫描去完成/去浏览按钮...")
     while total < MAX_TASKS:
@@ -551,8 +555,11 @@ def main():
             cx, cy = b["cx"], b["cy"]
             tp, sec, task_name = detect_task_name_before_click(bs, b)
             type_names = {"guess": "猜价格", "live": "直播", "video": "视频", "browse": "浏览", "click": "点3次"}
-            if tp == "skip":
+            if tp == "skip" or note_blocked_task(task_name, skipped_this_run):
                 print(f"  ⏭️ 跳过黑名单任务: [{task_name}]")
+                continue
+            key = normalized_task_name(task_name)
+            if attempts.get(key, 0) >= 2:
                 continue
             # 点击前的最终安全闸门：即使后续分类逻辑发生变化，
             # 已识别出的黑名单任务也不能进入任何任务页面。
@@ -564,15 +571,29 @@ def main():
             print(f"  🎯 OCR点击【{text}】@({cx},{cy})")
             report_task_found()
             d.click(cx, cy)
-            total += 1
+            attempts[key] = attempts.get(key, 0) + 1
             clicked = True
             break
 
         if not clicked:
-            print("  ⚠️ OCR未找到去完成/去浏览按钮")
-            break
+            no_progress_rounds += 1
+            if no_progress_rounds >= 3:
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
+                break
+            print("  ⚠️ OCR未找到去完成/去浏览按钮，继续重扫")
+            continue
 
         task_started_at = do_task(tp, sec, task_name)
+        if not task_started_at:
+            no_progress_rounds += 1
+            print("  本次未执行成功，不计入完成数量，继续扫描其他任务")
+            if no_progress_rounds >= 3:
+                print("  连续3轮无实际进展，结束")
+                break
+            continue
+        no_progress_rounds = 0
+        attempts[key] = 0
+        total += 1
         elapsed = int(time.time() - task_started_at)
         print(f"  ⏱️ 任务耗时 {elapsed}s")
 

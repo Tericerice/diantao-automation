@@ -3,6 +3,7 @@
 流程：导航 → 右滑 → 点击去摇一摇 → OCR扫描赚次数 → 循环做直播/浏览
 """
 from task_exclusions import is_blocked_boutique_task
+from task_skip import select_executable_task
 import time
 from yuanbao_popup import handle_yuanbao_live_popups
 import sys
@@ -244,7 +245,7 @@ def _task_duration(task_name: str | None) -> int:
 
 
 def do_task(task_name, btn_cx, btn_cy):
-    """执行单个白名单任务"""
+    """执行单个白名单任务；只有实际完成才返回 True"""
     if is_blocked_boutique_task(task_name):
         print('  ⊘ 已屏蔽精选宝贝任务，跳过')
         return False
@@ -256,24 +257,32 @@ def do_task(task_name, btn_cx, btn_cy):
 
     if "精选宝贝" in task_name:
         print(f"    类型: 查看精选宝贝（点击3个商品）")
-        click_three_selected_items(d)
+        completed = bool(click_three_selected_items(d))
         # click_three_selected_items 只从商品详情退回商品列表，再按一次退回摇一摇任务列表
         d.press("back")
         time.sleep(1.5)
     elif "直播" in task_name or "黄金档" in task_name:
         duration = _task_duration(task_name)
         print(f"    类型: 直播 ({duration}秒)")
-        execute_live_task(d, task_name, btn_cx, btn_cy, duration=duration)
-        d.press("back")
-        time.sleep(1.5)
+        try:
+            completed = bool(execute_live_task(
+                d, task_name, btn_cx, btn_cy, duration=duration,
+            ))
+        finally:
+            d.press("back")
+            time.sleep(1.5)
     else:
         print(f"    类型: 浏览 (60秒)")
-        execute_browse_task(d, 60)
-        # 参照签到任务：execute_browse_task 后直接 back 返回任务列表
-        d.press("back")
-        time.sleep(2)
+        try:
+            completed = bool(execute_browse_task(d, 60))
+        finally:
+            # 参照签到任务：execute_browse_task 后直接 back 返回任务列表
+            d.press("back")
+            time.sleep(2)
 
-    print(f"  ✅ 完成: 【{task_name}】")
+    if completed:
+        print(f"  ✅ 完成: 【{task_name}】")
+    return completed
 
 
 # ========================================================
@@ -363,6 +372,8 @@ def run_mode():
     clicked = {}
     prev_snap = []
     prev_empty = []
+    skipped_this_run = set()
+    no_progress_rounds = 0
 
     print("\n" + "=" * 50)
     print("🔍 开始扫描任务（OCR模式）")
@@ -409,30 +420,33 @@ def run_mode():
             print("  🎉 连续3轮相同任务列表，结束")
             break
 
-        # 找可执行任务
-        task = None
-        for name, cx, cy in pairs:
-            if not name:
-                continue
-            if not is_whitelisted(name):
-                print(f"  ⊘ 非白名单: {name}")
-                continue
-            if clicked.get(name, 0) >= 2:
-                print(f"  ⊘ 已达上限: {name}")
-                continue
-            task = (name, cx, cy)
-            break
+        # 白名单优先；屏蔽任务在选择阶段排除，同屏其他任务继续参与选择。
+        whitelisted = [(name, cx, cy) for name, cx, cy in pairs
+                       if name and is_whitelisted(name)]
+        task = select_executable_task(
+            whitelisted, skipped_this_run, clicked=clicked, max_clicks=2,
+        )
 
         if task:
             prev_snap.clear()
             prev_empty.clear()
             name, cx, cy = task
-            clicked[name] = clicked.get(name, 0) + 1
             report_task_found()
-            do_task(name, cx, cy)
+            if not do_task(name, cx, cy):
+                no_progress_rounds += 1
+                print("  本次未执行成功，重新扫描其他任务")
+                if no_progress_rounds >= 3:
+                    print("  连续3轮无实际进展，结束")
+                    break
+                continue
+            no_progress_rounds = 0
             total += 1
             print(f"  📊 已完成 {total}/{MAX_TASKS}")
         else:
+            no_progress_rounds += 1
+            if no_progress_rounds >= 3:
+                print("  任务均已达尝试上限或仅剩黑名单/无可执行任务，结束")
+                break
             print("  无可执行任务，下滑刷新...")
             d.swipe(screen_width // 2, int(screen_height * 0.7),
                     screen_width // 2, int(screen_height * 0.3))

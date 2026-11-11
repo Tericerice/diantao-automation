@@ -3,6 +3,9 @@ import types
 import unittest
 from pathlib import Path
 
+from task_exclusions import is_blocked_boutique_task
+from task_skip import normalized_task_name
+
 
 ROOT = Path(__file__).parents[1]
 
@@ -76,6 +79,8 @@ def load_parse_tasks_from_blocks():
             "detect_task_name": detect_task_name,
             "BLACKLIST_KEYWORDS": [],
             "match_task_type": match_task_type,
+            "is_blocked_boutique_task": is_blocked_boutique_task,
+            "normalized_task_name": normalized_task_name,
         },
     )
 

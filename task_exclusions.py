@@ -12,7 +12,6 @@ def is_blocked_task_file(name):
     base = text.replace("\\", "/").rsplit("/", 1)[-1]
     return base in BLOCKED_TASK_FILES or base.removesuffix(".py") in BLOCKED_TASK_FILES
 
-
 def is_blocked_sleep_task_name(name):
     """三次点击类气泡的硬屏蔽；NFKC + 去空白后匹配，返回 False 表示放行。"""
     text = unicodedata.normalize("NFKC", str(name or ""))

@@ -487,8 +487,11 @@ def is_walk_low_price_task(text):
 
 
 def is_blacklisted(text):
-    """检查任务名是否在黑名单中"""
+    """检查任务名是否在黑名单中（含统一的三件商品任务）"""
     if not text:
+        return True
+    from task_exclusions import is_blocked_boutique_task
+    if is_blocked_boutique_task(text):
         return True
     if is_search_browse_task(text) or is_walk_low_price_task(text):
         return False

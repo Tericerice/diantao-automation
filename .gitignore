@@ -1,4 +1,6 @@
 # 临时生成文件
+.scratch/
+pytest-of-Administrator/
 result.jpg
 temp_*.png
 temp_full.png
